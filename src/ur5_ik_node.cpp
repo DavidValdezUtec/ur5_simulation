@@ -37,7 +37,7 @@ std::string control_topic = "";
 
 
 template <typename T, size_t N>
-constexpr size_t array_length(const T (&)[N]) {
+constexpr size_t array_length(const T (&array)[N]) {
     return N;
 }
 
@@ -285,7 +285,7 @@ Eigen::VectorXd inverseKinematicsQP(const pinocchio::Model& model, pinocchio::Da
     const double joint_limit = PI; // Joint limit for UR5
 
     for (int i = 0; i < max_iters; ++i) {
-        
+        Eigen::Vector3d x_current = forwardKinematics(model, data, tool_frame_id, q);
         Eigen::VectorXd x_error = computeError(model, data, tool_frame_id, desired_pose);
 
         
@@ -420,11 +420,11 @@ class UR5eJointController : public rclcpp::Node {
         Eigen::Quaterniond q_x;        Eigen::Quaterniond q_y;        Eigen::Quaterniond q_z;        Eigen::Quaterniond quat_initial; 
         double q_[6] ;
         double q_init[6];
-        double x_init[3] = {-0.1152, 0.493, 0.293};
+        double x_init[3];
         double x_des[3];
         double qt_init[4];
-        int control_loop_time = 8;
-        int ur5_time = 0.01;
+        int control_loop_time = 50;
+        int ur5_time = 0.1;
         
         
         sensor_msgs::msg::JointState::SharedPtr last_joint_state_;    
@@ -442,21 +442,18 @@ class UR5eJointController : public rclcpp::Node {
         
         
         void pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
-            
-
             if (!msg) {
                 RCLCPP_ERROR(this->get_logger(), "Mensaje nulo recibido en /phantom/pose.");
                 return;
             }
-            r_[0] = msg->pose.position.x;      r_[1] = msg->pose.position.y;       r_[2] = msg->pose.position.z;
-            int escala = 1.5;
-            x_des[0] = -r_[0]*escala + x_init[0]; // -r_[0]*2+0.647514
-            x_des[1] = (x_init[1]- (r_[1]-0.0881142)*escala);
-            x_des[2] = (r_[2]+0.0655108)*escala + x_init[2];
-
-            /* RCLCPP_INFO(this->get_logger(), "Pose received:");
             
+            r_[0] = msg->pose.position.x;      r_[1] = msg->pose.position.y;       r_[2] = msg->pose.position.z;
             cout<<"Posicion: "<<r_[0]<<" "<<r_[1]<<" "<<r_[2]<<endl;
+            
+
+            RCLCPP_INFO(this->get_logger(), "Pose received:");
+            /*
+            
             RCLCPP_INFO(this->get_logger(), "Orientation -> x: %.2f, y: %.2f, z: %.2f, w: %.2f",
                         msg->pose.orientation.x, msg->pose.orientation.y,
                         msg->pose.orientation.z, msg->pose.orientation.w); */
@@ -568,11 +565,18 @@ class UR5eJointController : public rclcpp::Node {
         
         /// @brief Bucle de control que calcula y publica nuevas posiciones articulares.
         void control_loop() {
+            
+            x_init[0] = -0.1152; x_init[1] = 0.493; x_init[2] =  0.293;
+            int escala = 1.5;
+            x_des[0] = -r_[0]*escala + x_init[0]; // -r_[0]*2+0.647514
+            x_des[1] = (x_init[1]- (r_[1]-0.0881142)*escala);
+            x_des[2] = (r_[2]+0.0655108)*escala + x_init[2];
+
             if (!posicion_inicial_alcanzada_) {
                 // Si no se ha alcanzado la posición inicial, no ejecutar el bucle de control
                 return;
             }
-            cout<<"x_init: "<<x_init[0]<<" "<<x_init[1]<<" "<<x_init[2]<<endl;
+            cout<<"x_des: "<<x_des[0]<<" "<<x_des[1]<<" "<<x_des[2]<<endl;
             
             // Incrementar el tiempo transcurrido
             time_elapsed_ += 0.01; // Incremento de 100 ms
