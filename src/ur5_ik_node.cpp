@@ -416,10 +416,10 @@ class UR5eJointController : public rclcpp::Node {
         double q_[6] ;
         double h_[6] ;
         double q_init[6];
-        double x_init[3];
+        double x_init[3]; 
         double x_des[3];
         double qt_init[4];
-        int control_loop_time = 1;
+        int control_loop_time = 1; 
         int ur5_time = 0.01;
         
         sensor_msgs::msg::JointState::SharedPtr last_joint_state_;    
