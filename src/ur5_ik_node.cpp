@@ -50,12 +50,6 @@ std::string get_file_path(const std::string& package_name, const std::string& re
     }
 }
 
-std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
-std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
-std::string ur5_pos = get_file_path("ur5_simulation",     "launch/output_data3.txt");
-std::string control_pos = get_file_path("ur5_simulation",     "launch/output_data2.txt");
-std::string geo_pos = get_file_path("ur5_simulation",     "launch/output_data.txt");
-
 
 void load_values_from_file(const std::string &file_path, double values[], int size, int line_number) {
     std::ifstream file(file_path);
@@ -446,6 +440,7 @@ class UR5eJointController : public rclcpp::Node {
 
         std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
         std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
+
         std::string ur5_pos = get_file_path("ur5_simulation",     "launch/output_data3.txt");
         std::string control_pos = get_file_path("ur5_simulation",     "launch/output_data2.txt");
         std::string geo_pos = get_file_path("ur5_simulation",     "launch/output_data.txt");
@@ -728,6 +723,8 @@ class JointTrajectoryPublisher : public rclcpp::Node
         
         rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
         rclcpp::TimerBase::SharedPtr timer_;
+        std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
+        std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
     };
         
 
@@ -761,6 +758,8 @@ int main(int argc, char **argv) {
         return 0;
     } else if (l == 2) {
         cout<<"Solo Inversa"<<endl;
+        std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
+        std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
         
         /* 
         std::string urdf_path = get_file_path("ur_simulation_gz", "launch/ur5.urdf");
@@ -789,7 +788,7 @@ int main(int argc, char **argv) {
         std::unique_ptr<pinocchio::Model> model;    
         std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos
         pinocchio::FrameIndex tool_frame_id;
-
+        initializeUR5(model, data, tool_frame_id, urdf_path);
         Eigen::VectorXd q_result = Cinematica_Inversa(q_init, desired_pose,rot_des, MAX_ITERATIONS, ALFA, model, data, tool_frame_id);
         cout << "Resultado de la cinemática inversa: " << q_result.transpose() << endl; 
     } else if (l == 3) {
