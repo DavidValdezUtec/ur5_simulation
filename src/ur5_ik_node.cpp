@@ -430,7 +430,7 @@ class UR5eJointController : public rclcpp::Node {
 
         rclcpp::TimerBase::SharedPtr timer_;
         rclcpp::TimerBase::SharedPtr timer2_;
-        std::unique_ptr<pinocchio::Model> model;
+        std::unique_ptr<pinocchio::Model> model; // declarar puntero único para el modelo
         std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos
         pinocchio::FrameIndex tool_frame_id; 
 
@@ -551,8 +551,9 @@ class UR5eJointController : public rclcpp::Node {
                 // Si no se ha alcanzado la posición inicial, no ejecutar el bucle de control
                 return;
             }
+
             try {
-                load_values_from_file(config_path, q_init, 3, 7);       // Leer la 6ta línea para x_init del UR5
+                load_values_from_file(config_path, q_init, 6, 7);       // Leer la 6ta línea para x_init del UR5
             } catch (const std::exception &e) {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }
