@@ -37,7 +37,7 @@ std::string control_topic = "";
 
 
 template <typename T, size_t N>
-constexpr size_t array_length(const T (&array)[N]) {
+constexpr size_t array_length(const T (&)[N]) {
     return N;
 }
 
@@ -149,14 +149,14 @@ void initializeUR5(std::unique_ptr<pinocchio::Model>& model,  std::unique_ptr<pi
     data = std::make_unique<pinocchio::Data>(*model); // crea un puntero a los datos de pinocchio
     tool_frame_id = model->getFrameId("tool0");
 
-    if (tool_frame_id == model->nframes) {
+    if (tool_frame_id == static_cast<pinocchio::FrameIndex>(model->nframes)) {
         RCLCPP_ERROR(logger, "Error: Marco 'tool0' no encontrado en el URDF!");
         throw std::runtime_error("Frame tool0 no encontrado");
     }
 }
 
 //computar el error combinado (posicion y orientacion) entre la posicion deseada y la posicion actual en SE3
-Eigen::VectorXd computeError(const pinocchio::Model& model,   pinocchio::Data& data, 
+Eigen::VectorXd computeError(pinocchio::Data& data, 
                              const pinocchio::FrameIndex& tool_frame_id, const pinocchio::SE3& desired_pose) {
     /* const pinocchio::SE3 current_pose = data.oMf[tool_frame_id];
     
@@ -246,7 +246,7 @@ Eigen::VectorXd computeQP_IK_WeightedError(const Eigen::MatrixXd& J,
     solver.settings()->setWarmStart(true);
 
     int n = J.cols();
-    int m = J.rows();
+    //int m = J.rows();
 
     Eigen::MatrixXd J_p = J.block(0, 0, 3, n);
     Eigen::MatrixXd J_o = J.block(3, 0, 3, n);
@@ -288,7 +288,7 @@ Eigen::VectorXd inverseKinematicsQP(const pinocchio::Model& model, pinocchio::Da
     for (int i = 0; i < max_iters; ++i) {
         pinocchio::forwardKinematics(model, data, q);
         pinocchio::updateFramePlacement(model, data, tool_frame_id);
-        Eigen::VectorXd x_error = computeError(model, data, tool_frame_id, desired_pose);
+        Eigen::VectorXd x_error = computeError(data, tool_frame_id, desired_pose);
 
         //cout<<"error:\n"<<x_error.norm()<<endl;
         if (x_error.norm() < 0.0002) {
@@ -324,7 +324,7 @@ Eigen::VectorXd inverseKinematicsQP(const pinocchio::Model& model, pinocchio::Da
 }
 
 
-Eigen::VectorXd Cinematica_Inversa(std::string path_urdf,   double q_init[],     double desired_pose[], 
+Eigen::VectorXd Cinematica_Inversa(double q_init[],  double desired_pose[], 
                                    double desired_quat[],  int max_iteraciones,    double alpha,
                                    std::unique_ptr<pinocchio::Model>& model,  std::unique_ptr<pinocchio::Data>& data,
                                    pinocchio::FrameIndex& tool_frame_id) {
@@ -379,8 +379,18 @@ class UR5eJointController : public rclcpp::Node {
             output_file_.open(geo_pos, std::ios::out | std::ios::app);
             output_file_2.open(control_pos, std::ios::out | std::ios::app);
             output_file_3.open(ur5_pos, std::ios::out | std::ios::app);
+
             initializeUR5(model, data, tool_frame_id, urdf_path);
             
+            
+            try {
+                load_values_from_file(config_path, q_init, 6, 7);       // Leer la 6ta línea para x_init del UR5
+            } catch (const std::exception &e) {
+                cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
+            }
+
+
+
             if (!output_file_.is_open()) {
                 RCLCPP_ERROR(this->get_logger(), "No se pudo abrir el archivo para guardar los datos.");
             }
@@ -504,11 +514,7 @@ class UR5eJointController : public rclcpp::Node {
         }
     
         void posicion_inicial() {
-            try {
-                load_values_from_file(config_path, q_init, 6, 7);       // Leer la 7ma línea para q_init            
-            } catch (const std::exception &e) {
-                cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
-            }
+            
             if (posicion_inicial_alcanzada_) {
                 // Si ya se alcanzó la posición inicial, no hacer nada
                 return;
@@ -552,11 +558,7 @@ class UR5eJointController : public rclcpp::Node {
                 return;
             }
 
-            try {
-                load_values_from_file(config_path, q_init, 6, 7);       // Leer la 6ta línea para x_init del UR5
-            } catch (const std::exception &e) {
-                cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
-            }
+            
             pinocchio::forwardKinematics(*model, *data, Eigen::Map<Eigen::VectorXd>(q_init, 6));
             pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
             x_init[0] = data->oMf[tool_frame_id].translation()[0];
@@ -627,7 +629,7 @@ class UR5eJointController : public rclcpp::Node {
             double rot_des[4] = {current_orientation.w(), current_orientation.x(), current_orientation.y(), current_orientation.z()};
           
 
-            Eigen::VectorXd q_solution = Cinematica_Inversa(urdf_path, q_, x_des,rot_des, MAX_ITERATIONS, ALFA, model, data, tool_frame_id);
+            Eigen::VectorXd q_solution = Cinematica_Inversa(q_, x_des,rot_des, MAX_ITERATIONS, ALFA, model, data, tool_frame_id);
             // Verificar si la solución es válida
             if (!q_solution.allFinite()) {
                 //
@@ -788,7 +790,7 @@ int main(int argc, char **argv) {
         std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos
         pinocchio::FrameIndex tool_frame_id;
 
-        Eigen::VectorXd q_result = Cinematica_Inversa(urdf_path, q_init, desired_pose,rot_des, MAX_ITERATIONS, ALFA, model, data, tool_frame_id);
+        Eigen::VectorXd q_result = Cinematica_Inversa(q_init, desired_pose,rot_des, MAX_ITERATIONS, ALFA, model, data, tool_frame_id);
         cout << "Resultado de la cinemática inversa: " << q_result.transpose() << endl; 
     } else if (l == 3) {
         rclcpp::init(argc, argv);
