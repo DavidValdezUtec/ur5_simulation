@@ -22,9 +22,6 @@
 
 
 #define PI 3.14159265358979323846
-#define MAX_ITERATIONS 600
-#define TIME_STEP 0.01
-#define ALFA 0.07 // 0.07
 #define MAX_JOINT_DELTA 0.1
 
 using namespace std;
@@ -179,27 +176,22 @@ Eigen::VectorXd computeError(pinocchio::Data& data,
     return error;
 }
 
-Eigen::Vector3d forwardKinematics(const pinocchio::Model& model, 
-                                  pinocchio::Data& data, 
-                                  const pinocchio::FrameIndex& tool_frame_id, 
-                                  const Eigen::VectorXd& q) {
+Eigen::Vector3d forwardKinematics(const pinocchio::Model& model, pinocchio::Data& data, 
+                                  const pinocchio::FrameIndex& tool_frame_id, const Eigen::VectorXd& q) {
     pinocchio::forwardKinematics(model, data, q);
     pinocchio::updateFramePlacement(model, data, tool_frame_id);
     return data.oMf[tool_frame_id].translation();
 }
 
-Eigen::MatrixXd jacobian(const pinocchio::Model& model, 
-                         pinocchio::Data& data, 
-                         const pinocchio::FrameIndex& tool_frame_id, 
-                         const Eigen::VectorXd& q) {
+Eigen::MatrixXd jacobian(const pinocchio::Model& model, pinocchio::Data& data, 
+                         const pinocchio::FrameIndex& tool_frame_id, const Eigen::VectorXd& q) {
     pinocchio::Data::Matrix6x J(6, model.nv);
     J.setZero();
     pinocchio::computeFrameJacobian(model, data, q, tool_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, J);
     return J;
 }
 
-Eigen::VectorXd computeQP_IK(const Eigen::MatrixXd& J, 
-                             const Eigen::VectorXd& x_error) {
+Eigen::VectorXd computeQP_IK(const Eigen::MatrixXd& J, const Eigen::VectorXd& x_error) {
     OsqpEigen::Solver solver;
     solver.settings()->setVerbosity(false);
     solver.settings()->setWarmStart(true);
@@ -231,10 +223,9 @@ Eigen::VectorXd computeQP_IK(const Eigen::MatrixXd& J,
 
     return solver.getSolution();
 }
-Eigen::VectorXd computeQP_IK_WeightedError(const Eigen::MatrixXd& J,
-                                         const Eigen::VectorXd& x_error,
-                                         const Eigen::MatrixXd& W_p,
-                                         const Eigen::MatrixXd& W_o) {
+
+Eigen::VectorXd computeQP_IK_WeightedError(const Eigen::MatrixXd& J, const Eigen::VectorXd& x_error,
+                                         const Eigen::MatrixXd& W_p, const Eigen::MatrixXd& W_o) {
     OsqpEigen::Solver solver;
     solver.settings()->setVerbosity(false);
     solver.settings()->setWarmStart(true);
@@ -273,6 +264,7 @@ Eigen::VectorXd computeQP_IK_WeightedError(const Eigen::MatrixXd& J,
 
     return solver.getSolution();
 }
+
 Eigen::VectorXd inverseKinematicsQP(const pinocchio::Model& model, pinocchio::Data& data, const pinocchio::FrameIndex& tool_frame_id,    const Eigen::VectorXd& q_init, 
                                     const pinocchio::SE3& desired_pose,     int max_iters,  double alpha) {
 
@@ -382,6 +374,7 @@ class UR5eJointController : public rclcpp::Node {
             } catch (const std::exception &e) {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }
+            
 
 
 
@@ -425,6 +418,8 @@ class UR5eJointController : public rclcpp::Node {
         double qt_init[4];
         int control_loop_time = 1; 
         int ur5_time = 0.01;
+        double max_iteraciones[1];
+        double alpha[1];
         
         sensor_msgs::msg::JointState::SharedPtr last_joint_state_;    
         rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
@@ -515,6 +510,8 @@ class UR5eJointController : public rclcpp::Node {
                 return;
             }
 
+            
+
             auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
             trajectory_msg.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
                                         "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
@@ -552,7 +549,17 @@ class UR5eJointController : public rclcpp::Node {
                 // Si no se ha alcanzado la posición inicial, no ejecutar el bucle de control
                 return;
             }
-
+            // variables modificables desde config.txt
+            try {
+                load_values_from_file(config_path, max_iteraciones, 1, 15);       // Leer la 6ta línea para x_init del UR5
+            } catch (const std::exception &e) {
+                cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
+            }
+            try {
+                load_values_from_file(config_path, alpha, 1, 13);       // Leer la 6ta línea para x_init del UR5
+            } catch (const std::exception &e) {
+                cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
+            }
             
             pinocchio::forwardKinematics(*model, *data, Eigen::Map<Eigen::VectorXd>(q_init, 6));
             pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
@@ -566,11 +573,7 @@ class UR5eJointController : public rclcpp::Node {
             qt_init[2] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).y();
             qt_init[3] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).z();
             cout<<"qt_init: "<<qt_init[0]<<" "<<qt_init[1]<<" "<<qt_init[2]<<" "<<qt_init[3]<<endl;
-            try {
-                load_values_from_file(config_path, qt_init, 4, 8);       // Leer la 8va línea para quat_init    del UR5
-            } catch (const std::exception &e) {
-                cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
-            }
+            
 
             
             //x_init[0] = -0.1152; x_init[1] = 0.493; x_init[2] =  0.293;
@@ -624,7 +627,7 @@ class UR5eJointController : public rclcpp::Node {
             double rot_des[4] = {current_orientation.w(), current_orientation.x(), current_orientation.y(), current_orientation.z()};
           
 
-            Eigen::VectorXd q_solution = Cinematica_Inversa(q_, x_des,rot_des, MAX_ITERATIONS, ALFA, model, data, tool_frame_id);
+            Eigen::VectorXd q_solution = Cinematica_Inversa(q_, x_des,rot_des, max_iteraciones[0], alpha[0], model, data, tool_frame_id);
             // Verificar si la solución es válida
             if (!q_solution.allFinite()) {
                 //
@@ -688,7 +691,7 @@ class JointTrajectoryPublisher : public rclcpp::Node
         void publish_trajectory()
         {
             // Leer las posiciones articulares desde el archivo config.txt
-            std::string config_path = get_file_path("ur_simulation_gz", "launch/config.txt");
+            std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
             double joint_positions[6];
             cout<<array_length(joint_positions)<<endl;
             try {
@@ -760,19 +763,28 @@ int main(int argc, char **argv) {
         cout<<"Solo Inversa"<<endl;
         std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
         std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
-        
-        /* 
-        std::string urdf_path = get_file_path("ur_simulation_gz", "launch/ur5.urdf");
-        std::string config_path = get_file_path("ur_simulation_gz", "launch/config.txt");
-         */
+
         double q_init[6];        
         double desired_pose[3];        
         double rot_des[4];
-        
+        double max_iteraciones[1];
+        double alpha[1];
 
         double quat[4] = {0,0,1,0};
         Eigen::Matrix3d rot_matrix = Eigen::Quaterniond(quat[0], quat[1], quat[2], quat[3]).toRotationMatrix(); 
         cout<<"rot_matrix: \n"<<rot_matrix<<endl;
+
+        try {
+                load_values_from_file(config_path, max_iteraciones, 1, 15);       // Leer la 6ta línea para x_init del UR5
+            } catch (const std::exception &e) {
+                cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
+            }
+            try {
+                load_values_from_file(config_path, alpha, 1, 13);       // Leer la 6ta línea para x_init del UR5
+            } catch (const std::exception &e) {
+                cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
+            }
+        
         try {
             load_values_from_file(config_path, q_init, 6, 1);       // Leer la 1ra línea para q_init
             load_values_from_file(config_path, desired_pose, 3, 2); // Leer la 2da línea para desired_pose
@@ -789,7 +801,7 @@ int main(int argc, char **argv) {
         std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos
         pinocchio::FrameIndex tool_frame_id;
         initializeUR5(model, data, tool_frame_id, urdf_path);
-        Eigen::VectorXd q_result = Cinematica_Inversa(q_init, desired_pose,rot_des, MAX_ITERATIONS, ALFA, model, data, tool_frame_id);
+        Eigen::VectorXd q_result = Cinematica_Inversa(q_init, desired_pose,rot_des, max_iteraciones[0], alpha[0], model, data, tool_frame_id);
         cout << "Resultado de la cinemática inversa: " << q_result.transpose() << endl; 
     } else if (l == 3) {
         rclcpp::init(argc, argv);
