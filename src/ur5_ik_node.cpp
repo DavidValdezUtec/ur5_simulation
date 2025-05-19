@@ -30,6 +30,7 @@ using namespace std;
 
 bool orientacion = false;
 bool implementacion = false;
+bool geomagic = false;
 std::string control_topic = "";
 
 
@@ -245,10 +246,10 @@ Eigen::VectorXd computeQP_IK_WeightedError(const Eigen::MatrixXd& J, const Eigen
     // Esto lleva a un problema de mínimos cuadrados que se puede resolver con QP.
     Eigen::MatrixXd A = (W_p * J_p).transpose() * (W_p * J_p) + (W_o * J_o).transpose() * (W_o * J_o);
     Eigen::VectorXd b = (W_p * J_p).transpose() * (W_p * e_p) + (W_o * J_o).transpose() * (W_o * e_o);
-
+    // A es la matriz Hessiana y b es el vector de gradiente
     Eigen::SparseMatrix<double> H_qp = A.sparseView();
-    Eigen::VectorXd g_qp = -b; // El solver de QP minimiza 0.5 * x^T * H * x + g^T * x
-
+    Eigen::VectorXd g_qp = -b; // El solver de QP minimiza 0.5 * x^T * H * x + g^T * x 
+    // x es la variable de decisión (q_dot)
     solver.data()->setNumberOfVariables(n);
     solver.data()->setNumberOfConstraints(0); // Sin restricciones de igualdad por ahora
     solver.data()->setHessianMatrix(H_qp);
@@ -375,9 +376,6 @@ class UR5eJointController : public rclcpp::Node {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }
             
-
-
-
             if (!output_file_.is_open()) {
                 RCLCPP_ERROR(this->get_logger(), "No se pudo abrir el archivo para guardar los datos.");
             }
@@ -573,30 +571,37 @@ class UR5eJointController : public rclcpp::Node {
             qt_init[2] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).y();
             qt_init[3] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).z();
             cout<<"qt_init: "<<qt_init[0]<<" "<<qt_init[1]<<" "<<qt_init[2]<<" "<<qt_init[3]<<endl;
-            
 
-            
-            //x_init[0] = -0.1152; x_init[1] = 0.493; x_init[2] =  0.293;
             cout<<"x_init: "<<x_init[0]<<" "<<x_init[1]<<" "<<x_init[2]<<endl;
             cout<<"r_init: "<<r_[0]<<" "<<r_[1]<<" "<<r_[2]<<endl;
-            int escala = 1.5;
-            x_des[0] = -r_[0]*escala + x_init[0]; // -r_[0]*2+0.647514
-            x_des[1] = (x_init[1]- (r_[1]-0.0881142)*escala);
-            x_des[2] = (r_[2]+0.0655108)*escala + x_init[2];
+            time_elapsed_ += 0.01; // Incremento de 100 ms
+            if (geomagic) {
+                int escala = 1.5;
+                // Si se está usando el haptic phantom, actualizar las posiciones
+                x_des[0] = -r_[0]*escala + x_init[0]; // -r_[0]*2+0.647514
+                x_des[1] = (x_init[1]- (r_[1]-0.0881142)*escala);
+                x_des[2] = (r_[2]+0.0655108)*escala + x_init[2];
+            }else {
+                
+                x_des[0] = x_init[0] + 0.1 * cos(2 * PI * 0.5 * time_elapsed_); // X_BASE + AMPLITUDE * cos(2 * PI * FREQUENCY * time_elapsed_)
+                x_des[1] = x_init[1] + 0.1 * sin(2 * PI * 0.5 * time_elapsed_);                                           // Y_CONST
+                x_des[2] = x_init[2];//.5 + 0.1 * sin(2 * PI * 0.5 * time_elapsed_)                                          // Z_CONST
+     
+            }
+            
+            //x_init[0] = -0.1152; x_init[1] = 0.493; x_init[2] =  0.293;
+            
+            
+            
 
             
             cout<<"x_des: "<<x_des[0]<<" "<<x_des[1]<<" "<<x_des[2]<<endl;
             
-            // Incrementar el tiempo transcurrido
-            time_elapsed_ += 0.01; // Incremento de 100 ms
+            
             
             
             // Coordenadas deseadas (xd)
-            /* double xd[3] = {
-                x_des[0],//0.3 + 0.1 * cos(2 * PI * 0.5 * time_elapsed_), // X_BASE + AMPLITUDE * cos(2 * PI * FREQUENCY * time_elapsed_)
-                x_des[1],//0.3 + 0.1 * sin(2 * PI * 0.5 * time_elapsed_),                                           // Y_CONST
-                x_des[2] //0.5//.5 + 0.1 * sin(2 * PI * 0.5 * time_elapsed_)                                          // Z_CONST
-            }; */
+            
             // guarda la posicion del haptico en el archivo
             if (output_file_.is_open()) {
                 output_file_ << "Haptic Position: " << r_[0] << " " << r_[1] << " " << r_[2] << " ";
@@ -743,13 +748,13 @@ int main(int argc, char **argv) {
         control_topic = "/scaled_joint_trajectory_controller/joint_trajectory";
     }
     
-    cout<<"Elija:\n1.-Control con Geomagic\n2.-Solo Inversa\n3.-Movimiento Articualar"<<endl;cin>> l;
+    cout<<"Elija:\n1.-Control con Geomagic\n2.-Trayectoria\n3.-Solo Inversa\n4.-Movimiento Articualar"<<endl;cin>> l;
     if (l == 1) {
 
         int l2;       
         
         cout<<"Con orientacion? 1.-si 2.-no"<<endl;cin>>l2;
-
+        geomagic = true;
         if (l2 == 1) {      orientacion = true;    cout<<"Con orientacion"<<endl;  } 
         else if (l2 == 2) { orientacion = false;   cout<<"Sin orientacion"<<endl;  } 
         else {                                     cout<<"Opcion no valida"<<endl;    return 0; }
@@ -760,6 +765,14 @@ int main(int argc, char **argv) {
         rclcpp::shutdown();
         return 0;
     } else if (l == 2) {
+        geomagic = false;
+        orientacion = true;
+        cout<<"Control de Trayectoria"<<endl;
+        rclcpp::init(argc, argv);
+        auto node = std::make_shared<UR5eJointController>();
+        rclcpp::spin(node);
+        rclcpp::shutdown();
+    } else if (l == 3) {
         cout<<"Solo Inversa"<<endl;
         std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
         std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
@@ -803,7 +816,7 @@ int main(int argc, char **argv) {
         initializeUR5(model, data, tool_frame_id, urdf_path);
         Eigen::VectorXd q_result = Cinematica_Inversa(q_init, desired_pose,rot_des, max_iteraciones[0], alpha[0], model, data, tool_frame_id);
         cout << "Resultado de la cinemática inversa: " << q_result.transpose() << endl; 
-    } else if (l == 3) {
+    } else if (l == 4) {
         rclcpp::init(argc, argv);
         rclcpp::spin(std::make_shared<JointTrajectoryPublisher>());
         rclcpp::shutdown();
