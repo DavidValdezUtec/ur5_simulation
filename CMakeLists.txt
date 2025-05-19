@@ -58,7 +58,7 @@ foreach(EXEC ${EXECUTABLES_WITH_LIBRARIES})
 endforeach()
 
 install(DIRECTORY config launch include DESTINATION share/${PROJECT_NAME})
-
+install(DIRECTORY include/ DESTINATION include)
 
 
 install(TARGETS ${EXECUTABLES} DESTINATION lib/${PROJECT_NAME})
