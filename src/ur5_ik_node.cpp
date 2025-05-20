@@ -38,9 +38,14 @@ class UR5eJointController : public rclcpp::Node {
 
             initializeUR5(model, data, tool_frame_id, urdf_path);
             
-            
+            //llama constantes de config
             try {
-                load_values_from_file(config_path, q_init, 6, 7);       // Leer la 6ta línea para x_init del UR5
+                load_values_from_file(config_path, q_init, 6, 7);       // Leer la 7ma línea para q_init del UR5
+            } catch (const std::exception &e) {
+                cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
+            }
+            try {
+                load_values_from_file(config_path, qt_init_geo, 4, 11);       // Leer la 1va línea para qt_init del GeomagicTouch
             } catch (const std::exception &e) {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }
@@ -76,13 +81,17 @@ class UR5eJointController : public rclcpp::Node {
 
         Eigen::Vector3d euler_angles;
         Eigen::Matrix3d rotation_matrix;
-        Eigen::Quaterniond q_x;        Eigen::Quaterniond q_y;        Eigen::Quaterniond q_z;        Eigen::Quaterniond quat_initial; 
+        Eigen::Quaterniond q_x;        Eigen::Quaterniond q_y;        Eigen::Quaterniond q_z;        
+        Eigen::Quaterniond quat_initial_UR5; 
+        Eigen::Quaterniond quat_initial_geo; 
+        Eigen::Quaterniond quat_real_geo; 
         double q_[6] ;
         double h_[6] ;
         double q_init[6];
         double x_init[3]; 
         double x_des[3];
-        double qt_init[4];
+        double qt_init_ur5[4];
+        double qt_init_geo[4];
         int control_loop_time = 1; 
         int ur5_time = 0.01;
         double max_iteraciones[1];
@@ -116,24 +125,14 @@ class UR5eJointController : public rclcpp::Node {
             }
             
             r_[0] = msg->pose.position.x;      r_[1] = msg->pose.position.y;       r_[2] = msg->pose.position.z;
-            //cout<<"Posicion: "<<r_[0]<<" "<<r_[1]<<" "<<r_[2]<<endl;
-            
 
-            //RCLCPP_INFO(this->get_logger(), "Pose received:");
    
-            Eigen::Quaterniond quaternion(msg->pose.orientation.w, msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z);
-            Eigen::Quaterniond quaternion2(0.977,-0.21,0,0); //quaternion inicial
-            quaternion.normalize();
-            qt_[1] = quaternion.x();
-            qt_[2] = quaternion.y();
-            qt_[3] = quaternion.z();
-            qt_[0] = quaternion.w();
-            
+            quat_real_geo.w() = msg->pose.orientation.w;
+            quat_real_geo.x() = msg->pose.orientation.x;
+            quat_real_geo.y() = msg->pose.orientation.y;
+            quat_real_geo.z() = msg->pose.orientation.z;
 
             
-            rotation_matrix = quaternion.toRotationMatrix(); 
-            //Eigen::Vector3d euler_angles = extractEulerAngles(quaternion*quaternion2.inverse());
-            //RCLCPP_INFO(this->get_logger(), "  Roll : %f", euler_angles[0]);
                         
         }    
             
@@ -212,34 +211,54 @@ class UR5eJointController : public rclcpp::Node {
         /// @brief Bucle de control que calcula y publica nuevas posiciones articulares.
         void control_loop() {
 
+            quat_initial_geo.w() = qt_init_geo[0]; quat_initial_geo.x() = qt_init_geo[1]; quat_initial_geo.y() = qt_init_geo[2]; quat_initial_geo.z() = qt_init_geo[3];
             if (!posicion_inicial_alcanzada_) {
                 // Si no se ha alcanzado la posición inicial, no ejecutar el bucle de control
                 return;
             }
             // variables modificables desde config.txt
             try {
-                load_values_from_file(config_path, max_iteraciones, 1, 15);       // Leer la 6ta línea para x_init del UR5
+                load_values_from_file(config_path, max_iteraciones, 1, 18);       // Leer la 6ta línea para x_init del UR5
             } catch (const std::exception &e) {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }
             try {
-                load_values_from_file(config_path, alpha, 1, 13);       // Leer la 6ta línea para x_init del UR5
+                load_values_from_file(config_path, alpha, 1, 16);       // Leer la 6ta línea para x_init del UR5
             } catch (const std::exception &e) {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }
             
             pinocchio::forwardKinematics(*model, *data, Eigen::Map<Eigen::VectorXd>(q_init, 6));
             pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
+
             x_init[0] = data->oMf[tool_frame_id].translation()[0];
             x_init[1] = data->oMf[tool_frame_id].translation()[1];
             x_init[2] = data->oMf[tool_frame_id].translation()[2];
             cout<<"x_init: "<<x_init[0]<<" "<<x_init[1]<<" "<<x_init[2]<<endl;
 
-            qt_init[0] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).w();
-            qt_init[1] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).x();
-            qt_init[2] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).y();
-            qt_init[3] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).z();
-            cout<<"qt_init: "<<qt_init[0]<<" "<<qt_init[1]<<" "<<qt_init[2]<<" "<<qt_init[3]<<endl;
+            qt_init_ur5[0] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).w();
+            qt_init_ur5[1] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).x();
+            qt_init_ur5[2] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).y();
+            qt_init_ur5[3] = Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).z();
+            cout<<"qt_init: "<<qt_init_ur5[0]<<" "<<qt_init_ur5[1]<<" "<<qt_init_ur5[2]<<" "<<qt_init_ur5[3]<<endl;
+
+            Eigen::Quaterniond quat_trans_geo;
+            cout<<"quat_real_geo: "<<quat_real_geo.w()<<" "<<quat_real_geo.x()<<" "<<quat_real_geo.y()<<" "<<quat_real_geo.z()<<endl;
+            cout<<"quat_initial_geo: "<<quat_initial_geo.w()<<" "<<quat_initial_geo.x()<<" "<<quat_initial_geo.y()<<" "<<quat_initial_geo.z()<<endl;    
+            quat_trans_geo = quat_real_geo * quat_initial_geo.inverse();
+            cout<<"quat_trans_geo: "<<quat_trans_geo.w()<<" "<<quat_trans_geo.x()<<" "<<quat_trans_geo.y()<<" "<<quat_trans_geo.z()<<endl;
+            
+            Eigen::AngleAxisd aa(quat_trans_geo);
+            double angle = aa.angle();
+            Eigen::Vector3d axis = aa.axis();
+
+            // Escalar el ángulo (por ejemplo, a la mitad)
+            double escala = 0.5;
+            Eigen::AngleAxisd aa_escalado(angle * escala, axis);
+
+            // Reconstruir el cuaternión escalado
+            quat_trans_geo = Eigen::Quaterniond(aa_escalado);
+
 
             cout<<"x_init: "<<x_init[0]<<" "<<x_init[1]<<" "<<x_init[2]<<endl;
             cout<<"r_init: "<<r_[0]<<" "<<r_[1]<<" "<<r_[2]<<endl;
@@ -250,8 +269,7 @@ class UR5eJointController : public rclcpp::Node {
                 x_des[0] = -r_[0]*escala + x_init[0]; // -r_[0]*2+0.647514
                 x_des[1] = (x_init[1]- (r_[1]-0.0881142)*escala);
                 x_des[2] = (r_[2]+0.0655108)*escala + x_init[2];
-            }else {
-                
+            }else {                
                 x_des[0] = x_init[0] + 0.1 * cos(2 * PI * 0.5 * time_elapsed_); // X_BASE + AMPLITUDE * cos(2 * PI * FREQUENCY * time_elapsed_)
                 x_des[1] = x_init[1] + 0.1 * sin(2 * PI * 0.5 * time_elapsed_);                                           // Y_CONST
                 x_des[2] = x_init[2];//.5 + 0.1 * sin(2 * PI * 0.5 * time_elapsed_)                                          // Z_CONST
@@ -288,11 +306,11 @@ class UR5eJointController : public rclcpp::Node {
             
 
             //quat_initial.w() = -0.26707; quat_initial.x() = 0.962872; quat_initial.y() = 0.010197; quat_initial.z() = -0.03804;
-            quat_initial.w() = qt_init[0]; quat_initial.x() = qt_init[1]; quat_initial.y() = qt_init[2]; quat_initial.z() = qt_init[3];
+            quat_initial_UR5.w() = qt_init_ur5[0]; quat_initial_UR5.x() = qt_init_ur5[1]; quat_initial_UR5.y() = qt_init_ur5[2]; quat_initial_UR5.z() = qt_init_ur5[3];
             Eigen::Quaterniond current_orientation;
 
             if (orientacion) {
-                current_orientation = quat_initial;//*q_x*q_x;// * q_y * q_z;
+                current_orientation = quat_initial_UR5*quat_trans_geo;//*q_x*q_x;// * q_y * q_z;
     
             } else {
                 current_orientation = Eigen::Quaterniond(Eigen::Matrix3d::Identity());
@@ -457,12 +475,12 @@ int main(int argc, char **argv) {
         cout<<"rot_matrix: \n"<<rot_matrix<<endl;
 
         try {
-                load_values_from_file(config_path, max_iteraciones, 1, 15);       // Leer la 6ta línea para x_init del UR5
+                load_values_from_file(config_path, max_iteraciones, 1, 18);       // Leer la 6ta línea para x_init del UR5
             } catch (const std::exception &e) {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }
             try {
-                load_values_from_file(config_path, alpha, 1, 13);       // Leer la 6ta línea para x_init del UR5
+                load_values_from_file(config_path, alpha, 1, 16);       // Leer la 6ta línea para x_init del UR5
             } catch (const std::exception &e) {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }

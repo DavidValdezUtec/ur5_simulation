@@ -5,8 +5,11 @@
 
 //CONFIGURACION UR5: 
 1.57, -1.504, 2.011, -2.5526, -1.4916, 0.0
--0.235, 0.971194, 0.0089, -0.0384
-   w        x        y        z  
+
+
+//CONFIGURACION GEOMAGIG:
+0.977166, -0.210257, -0.002090905, -0.00986305
+   w           x          y             z  
 
 //CONFIGURACION SOLVER: 
 ---ALFA---
