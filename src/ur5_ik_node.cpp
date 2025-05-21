@@ -22,13 +22,6 @@
 #include "functions.hpp"
 
 
-
-
-
-
-
-
-
 class UR5eJointController : public rclcpp::Node {
     public:
         UR5eJointController() : Node("ur5e_joint_controller"), time_elapsed_(0.0) {
@@ -425,6 +418,20 @@ class JointTrajectoryPublisher : public rclcpp::Node
 
 
 int main(int argc, char **argv) {
+    modbus_t* ctx = modbus_new_rtu("/dev/ttyUSB0", 115200, 'N', 8, 1);
+    if (!ctx || modbus_set_slave(ctx, SLAVE_ID) == -1 || modbus_connect(ctx) == -1) {
+        std::cerr << "Error al configurar Modbus\n";
+    }
+
+    // Cambiar aquí la posición (0-255) y fuerza (0-255)
+    sleep(2);
+    moveGripper(ctx, 255, 255);  // Mitad cerrado con fuerza alta
+    sleep(5);
+    moveGripper(ctx, 0, 150);    // Abrir con fuerza media
+
+    modbus_close(ctx);
+    modbus_free(ctx);
+    // Inicializar ROS2
     int l;int l3;
     cout<<"Simulacion o Implementacion? 1.-Simulacion 2.-Implementacion"<<endl;cin>>l3;
     if (l3==1){
@@ -516,3 +523,4 @@ int main(int argc, char **argv) {
     }
     
 } 
+

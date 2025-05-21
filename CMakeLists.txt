@@ -20,8 +20,10 @@ find_package(pinocchio REQUIRED)
 find_package(osqp REQUIRED)
 find_package(OsqpEigen REQUIRED)
 
+
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/share)
+include_directories(/usr/include/modbus)
 # Definir ejecutables
 set(EXECUTABLES       
     ur5_ik_node
@@ -51,6 +53,7 @@ set(COMMON_LIBRARIES
     pinocchio::pinocchio
     osqp::osqp
     OsqpEigen::OsqpEigen
+    modbus
 )
 
 foreach(EXEC ${EXECUTABLES_WITH_LIBRARIES})
