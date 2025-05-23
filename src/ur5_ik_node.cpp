@@ -168,9 +168,6 @@ class UR5eJointController : public rclcpp::Node {
                 // Si ya se alcanzó la posición inicial, no hacer nada
                 return;
             }
-
-            
-
             auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
             trajectory_msg.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
                                         "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
@@ -201,7 +198,7 @@ class UR5eJointController : public rclcpp::Node {
 
         
         
-        /// @brief Bucle de control que calcula y publica nuevas posiciones articulares.
+        //Bucle de control que calcula y publica nuevas posiciones articulares.
         void control_loop() {
 
             quat_initial_geo.w() = qt_init_geo[0]; quat_initial_geo.x() = qt_init_geo[1]; quat_initial_geo.y() = qt_init_geo[2]; quat_initial_geo.z() = qt_init_geo[3];

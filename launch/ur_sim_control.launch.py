@@ -167,6 +167,25 @@ def launch_setup(context, *args, **kwargs):
             "true",
         ],
     )
+    gz_spawn_entity_2 = Node(
+        package="ros_gz_sim",
+        executable="create",
+        output="screen",
+        arguments=[
+            "-string",
+            robot_description_content,
+            "-name",
+            "ur",
+            "-allow_renaming",
+            "true",
+            "-x",
+            "0.5",
+            "-y",
+            "0.5",
+            "-z",
+            "0.0",
+        ],
+    )
     gz_launch_description_with_gui = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [FindPackageShare("ros_gz_sim"), "/launch/gz_sim.launch.py"]
@@ -200,6 +219,7 @@ def launch_setup(context, *args, **kwargs):
         initial_joint_controller_spawner_stopped,
         initial_joint_controller_spawner_started,
         gz_spawn_entity,
+        gz_spawn_entity_2,
         gz_launch_description_with_gui,
         gz_launch_description_without_gui,
         gz_sim_bridge,
