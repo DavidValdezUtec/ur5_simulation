@@ -189,6 +189,11 @@ class UR5eJointController : public rclcpp::Node {
                     break;
                 }
             }
+            // imprimir la pos cartesiana del UR5
+            pinocchio::forwardKinematics(*model, *data, Eigen::Map<Eigen::VectorXd>(q_, 6));
+            pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
+            cout<< "x: "<< data->oMf[tool_frame_id].translation()[0]<<" y: "<< data->oMf[tool_frame_id].translation()[1]<<" z: "<< data->oMf[tool_frame_id].translation()[2]<<endl; 
+            //cout<< "quat: "<< data->oMf[tool_frame_id].rotation().w()<<" "<< data->oMf[tool_frame_id].rotation().x()<<" "<< data->oMf[tool_frame_id].rotation().y()<<" "<< data->oMf[tool_frame_id].rotation().z()<<endl;
 
             if (posicion_correcta) {
                 RCLCPP_INFO(this->get_logger(), "Posición inicial alcanzada.");
@@ -359,8 +364,10 @@ class UR5eJointController : public rclcpp::Node {
 class JointTrajectoryPublisher : public rclcpp::Node
     {
     public:
+    
         JointTrajectoryPublisher() : Node("joint_trajectory_publisher")
         {
+            initializeUR5(model, data, tool_frame_id, urdf_path);
             publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
                 control_topic, 10);
 
@@ -370,6 +377,15 @@ class JointTrajectoryPublisher : public rclcpp::Node
         }
 
     private:
+            std::unique_ptr<pinocchio::Model> model; // declarar puntero único para el modelo
+            std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos
+            pinocchio::FrameIndex tool_frame_id; 
+            std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
+            std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
+            
+            rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
+            rclcpp::TimerBase::SharedPtr timer_;
+
         void publish_trajectory()
         {
             // Leer las posiciones articulares desde el archivo config.txt
@@ -403,18 +419,20 @@ class JointTrajectoryPublisher : public rclcpp::Node
 
             RCLCPP_INFO(this->get_logger(), "Publicando posición articular...");
             publisher_->publish(message);
+            pinocchio::forwardKinematics(*model, *data, Eigen::Map<Eigen::VectorXd>(joint_positions, 6));
+            pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
+            cout<< "x: "<< data->oMf[tool_frame_id].translation()[0]<<" y: "<< data->oMf[tool_frame_id].translation()[1]<<" z: "<< data->oMf[tool_frame_id].translation()[2]<<endl; 
         }
 
         
-        rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr publisher_;
-        rclcpp::TimerBase::SharedPtr timer_;
-        std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
-        std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
+        
     };
         
 
 
 int main(int argc, char **argv) {
+    std::system("sudo chmod 666 /dev/ttyUSB0"); // En Linux, lista los archivos en el directorio actual
+
     modbus_t* ctx = modbus_new_rtu("/dev/ttyUSB0", 115200, 'N', 8, 1);
     if (!ctx || modbus_set_slave(ctx, SLAVE_ID) == -1 || modbus_connect(ctx) == -1) {
         std::cerr << "Error al configurar Modbus\n";

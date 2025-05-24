@@ -22,6 +22,7 @@
 #include <modbus/modbus.h>
 #include <unistd.h>
 #include <iomanip>
+#include <cstdlib>  
 
 using namespace std;
 
