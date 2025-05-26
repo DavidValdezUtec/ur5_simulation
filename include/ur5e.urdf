@@ -563,7 +563,7 @@
   <joint name="wrist_3_link-ft_frame" type="fixed">
     <parent link="wrist_3_link"/>
     <child link="ft_frame"/>
-    <origin rpy="3.141592653589793 0 0" xyz="0 0 0"/>
+    <origin rpy="3.141592653589793 0 0" xyz="0 0 0.5"/>
   </joint>
   <!-- ROS-Industrial 'base' frame - base_link to UR 'Base' Coordinates transform -->
   <link name="base"/>

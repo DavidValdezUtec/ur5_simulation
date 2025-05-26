@@ -219,7 +219,7 @@ def launch_setup(context, *args, **kwargs):
         initial_joint_controller_spawner_stopped,
         initial_joint_controller_spawner_started,
         gz_spawn_entity,
-        gz_spawn_entity_2,
+        #gz_spawn_entity_2,
         gz_launch_description_with_gui,
         gz_launch_description_without_gui,
         gz_sim_bridge,
