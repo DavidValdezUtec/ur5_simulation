@@ -1,24 +1,4 @@
-#include <rclcpp/rclcpp.hpp>
-#include <std_msgs/msg/float64_multi_array.hpp>
-#include <geometry_msgs/msg/point.hpp>
-#include <trajectory_msgs/msg/joint_trajectory.hpp>
-#include <trajectory_msgs/msg/joint_trajectory_point.hpp>
-#include <sensor_msgs/msg/joint_state.hpp>
-#include <iostream>
-#include <chrono>
-#include <rclcpp/rclcpp.hpp>
-#include <algorithm> // Para std::clamp
-#include <Eigen/Dense>
-#include <pinocchio/parsers/urdf.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/algorithm/jacobian.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-#include <OsqpEigen/OsqpEigen.h>
-#include <memory>
-#include <stdexcept>
-#include "geometry_msgs/msg/pose_stamped.hpp"
-#include <fstream> 
-#include <ament_index_cpp/get_package_share_directory.hpp>
+
 #include "functions.hpp"
 
 
