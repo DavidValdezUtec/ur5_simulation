@@ -58,6 +58,8 @@ class UR5eJointController : public rclcpp::Node {
         Eigen::Quaterniond quat_initial_UR5; 
         Eigen::Quaterniond quat_initial_geo; 
         Eigen::Quaterniond quat_real_geo; 
+        
+        
         double q_[6] ;
         double h_[6] ;
         double q_init[6];
@@ -226,15 +228,18 @@ class UR5eJointController : public rclcpp::Node {
             Eigen::AngleAxisd aa(quat_trans_geo);
             double angle = aa.angle();
             Eigen::Vector3d axis = aa.axis();
+            axis.x() = -axis.x();
+            axis.y() = -axis.y();
 
             // Escalar el ángulo (por ejemplo, a la mitad)
             double escala = 0.5;
             Eigen::AngleAxisd aa_escalado(angle * escala, axis);
+            
 
             // Reconstruir el cuaternión escalado
             quat_trans_geo = Eigen::Quaterniond(aa_escalado);
 
-
+            
             cout<<"x_init: "<<x_init[0]<<" "<<x_init[1]<<" "<<x_init[2]<<endl;
             cout<<"r_init: "<<r_[0]<<" "<<r_[1]<<" "<<r_[2]<<endl;
             time_elapsed_ += 0.01; // Incremento de 100 ms
@@ -254,12 +259,7 @@ class UR5eJointController : public rclcpp::Node {
             //x_init[0] = -0.1152; x_init[1] = 0.493; x_init[2] =  0.293;
             
             
-            
-
-            
             cout<<"x_des: "<<x_des[0]<<" "<<x_des[1]<<" "<<x_des[2]<<endl;
-            
-            
             
             
             // Coordenadas deseadas (xd)
