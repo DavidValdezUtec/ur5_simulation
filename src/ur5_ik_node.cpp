@@ -232,7 +232,7 @@ class UR5eJointController : public rclcpp::Node {
             //axis.y() = -axis.y();
 
             // Escalar el ángulo (por ejemplo, a la mitad)
-            double escala = 0.5;
+            double escala = 0.2;
             Eigen::AngleAxisd aa_escalado(angle * escala, axis);
             
 
