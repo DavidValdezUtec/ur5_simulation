@@ -49,8 +49,8 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def launch_setup(context, *args, **kwargs):
-    # Initialize Arguments
-    ur_type = LaunchConfiguration("ur_type")
+    # Inicializa ur_type con valor fijo
+    ur_type = "ur5"  # <-- Cambia aquí el valor fijo deseado
     safety_limits = LaunchConfiguration("safety_limits")
     safety_pos_margin = LaunchConfiguration("safety_pos_margin")
     safety_k_position = LaunchConfiguration("safety_k_position")
@@ -219,7 +219,7 @@ def launch_setup(context, *args, **kwargs):
         initial_joint_controller_spawner_stopped,
         initial_joint_controller_spawner_started,
         gz_spawn_entity,
-        #gz_spawn_entity_2,
+        gz_spawn_entity_2,
         gz_launch_description_with_gui,
         gz_launch_description_without_gui,
         gz_sim_bridge,
@@ -230,15 +230,15 @@ def launch_setup(context, *args, **kwargs):
 
 def generate_launch_description():
     declared_arguments = []
-    # UR specific arguments
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "ur_type",
-            description="Type/series of used UR robot.",
-            choices=["ur3", "ur3e", "ur5", "ur5e", "ur10", "ur10e", "ur16e", "ur20", "ur30"],
-            default_value="ur5e",
-        )
-    )
+    # Elimina la declaración de argumento para "ur_type"
+    # declared_arguments.append(
+    #     DeclareLaunchArgument(
+    #         "ur_type",
+    #         description="Type/series of used UR robot.",
+    #         choices=["ur3", "ur3e", "ur5", "ur5e", "ur10", "ur10e", "ur16e", "ur20", "ur30"],
+    #         default_value="ur5e",
+    #     )
+    # )
     declared_arguments.append(
         DeclareLaunchArgument(
             "safety_limits",
@@ -294,7 +294,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "prefix",
-            default_value='""',
+            default_value='ur',
             description="Prefix of the joint names, useful for \
         multi-robot setup. If changed than also joint names in the controllers' configuration \
         have to be updated.",

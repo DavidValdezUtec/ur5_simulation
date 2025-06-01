@@ -439,6 +439,7 @@ int main(int argc, char **argv) {
     
     cout<<"Elija:\n1.-Control con Geomagic\n2.-Trayectoria\n3.-Solo Inversa\n4.-Movimiento Articualar"<<endl;cin>> l;
     if (l == 1) {
+        
 
         int l2;       
         
