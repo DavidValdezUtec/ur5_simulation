@@ -219,7 +219,7 @@ def launch_setup(context, *args, **kwargs):
         initial_joint_controller_spawner_stopped,
         initial_joint_controller_spawner_started,
         gz_spawn_entity,
-        gz_spawn_entity_2,
+        #gz_spawn_entity_2,
         gz_launch_description_with_gui,
         gz_launch_description_without_gui,
         gz_sim_bridge,
@@ -294,7 +294,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "prefix",
-            default_value='ur',
+            default_value="",
             description="Prefix of the joint names, useful for \
         multi-robot setup. If changed than also joint names in the controllers' configuration \
         have to be updated.",
