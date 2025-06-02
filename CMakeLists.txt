@@ -60,7 +60,7 @@ foreach(EXEC ${EXECUTABLES_WITH_LIBRARIES})
     target_link_libraries(${EXEC} ${COMMON_LIBRARIES})
 endforeach()
 
-install(DIRECTORY config launch include DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config launch include urdf rviz src DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 
 
