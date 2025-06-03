@@ -1,0 +1,146 @@
+
+controller_manager:
+  ros__parameters:
+    update_rate: 500  # Hz
+
+    # Aquí especificamos el prefijo para los nombres de los controladores
+    # El valor 'robot_prefix' se sustituirá por el prefijo real (ej. 'robot1/')
+    # que se le pase al controller_manager desde el launch file.
+    # Nota: Este es el prefijo para los nombres de los controladores *dentro* del controller_manager,
+    # no para los tópicos que se publicarán en el namespace.
+    robot_prefix: "" # Deja esto vacío aquí, se sobrescribirá desde el launch file
+
+    # Los nombres de los controladores deben ir precedidos por el prefijo que se espera.
+    # El controller_manager automáticamente manejará el prefijo en los tópicos
+    # si el nodo del controller_manager se lanza dentro de un namespace.
+
+    # Aquí no necesitas cambiar los nombres de los controladores, ya que el namespace
+    # del nodo del controller_manager los manejará.
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    io_and_status_controller:
+      type: ur_controllers/GPIOController
+
+    speed_scaling_state_broadcaster:
+      type: ur_controllers/SpeedScalingStateBroadcaster
+
+    force_torque_sensor_broadcaster:
+      type: ur_controllers/ForceTorqueStateBroadcaster
+
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    scaled_joint_trajectory_controller:
+      type: ur_controllers/ScaledJointTrajectoryController
+
+    forward_velocity_controller:
+      type: velocity_controllers/JointGroupVelocityController
+
+    forward_position_controller:
+      type: position_controllers/JointGroupPositionController
+
+
+speed_scaling_state_broadcaster:
+  ros__parameters:
+    state_publish_rate: 100.0
+
+
+force_torque_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: tcp_fts_sensor
+    state_interface_names:
+      - force.x
+      - force.y
+      - force.z
+      - torque.x
+      - torque.y
+      - torque.z
+    frame_id: tool0
+    topic_name: ft_data
+
+
+joint_trajectory_controller:
+  ros__parameters:
+    # AQUI es donde debes prefijar los nombres de las articulaciones.
+    # Se recomienda que el prefijo sea parte del nombre de la articulación en el URDF.
+    # Si tu URDF ya usa el prefijo (ej. robot1/shoulder_pan_joint), entonces lo usas aquí.
+    # Si tu URDF NO usa el prefijo en los nombres de las articulaciones, y solo usas el namespace
+    # para distinguir los tópicos, entonces NO prefijes aquí.
+    # Basado en tu .launch.py, tu URDF *sí* usa el prefijo en los nombres de las articulaciones,
+    # por lo que DEBES prefijarlos aquí.
+    joints:
+      - $(arg robot_prefix)shoulder_pan_joint
+      - $(arg robot_prefix)shoulder_lift_joint
+      - $(arg robot_prefix)elbow_joint
+      - $(arg robot_prefix)wrist_1_joint
+      - $(arg robot_prefix)wrist_2_joint
+      - $(arg robot_prefix)wrist_3_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.2
+      goal_time: 0.0
+      # También aquí en las restricciones
+      $(arg robot_prefix)shoulder_pan_joint: { trajectory: 0.2, goal: 0.1 }
+      $(arg robot_prefix)shoulder_lift_joint: { trajectory: 0.2, goal: 0.1 }
+      $(arg robot_prefix)elbow_joint: { trajectory: 0.2, goal: 0.1 }
+      $(arg robot_prefix)wrist_1_joint: { trajectory: 0.2, goal: 0.1 }
+      $(arg robot_prefix)wrist_2_joint: { trajectory: 0.2, goal: 0.1 }
+      $(arg robot_prefix)wrist_3_joint: { trajectory: 0.2, goal: 0.1 }
+
+
+scaled_joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - $(arg robot_prefix)shoulder_pan_joint
+      - $(arg robot_prefix)shoulder_lift_joint
+      - $(arg robot_prefix)elbow_joint
+      - $(arg robot_prefix)wrist_1_joint
+      - $(arg robot_prefix)wrist_2_joint
+      - $(arg robot_prefix)wrist_3_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.2
+      goal_time: 0.0
+      $(arg robot_prefix)shoulder_pan_joint: { trajectory: 0.2, goal: 0.1 }
+      $(arg robot_prefix)shoulder_lift_joint: { trajectory: 0.2, goal: 0.1 }
+      $(arg robot_prefix)elbow_joint: { trajectory: 0.2, goal: 0.1 }
+      $(arg robot_prefix)wrist_1_joint: { trajectory: 0.2, goal: 0.1 }
+      $(arg robot_prefix)wrist_2_joint: { trajectory: 0.2, goal: 0.1 }
+      $(arg robot_prefix)wrist_3_joint: { trajectory: 0.2, goal: 0.1 }
+
+forward_velocity_controller:
+  ros__parameters:
+    joints:
+      - $(arg robot_prefix)shoulder_pan_joint
+      - $(arg robot_prefix)shoulder_lift_joint
+      - $(arg robot_prefix)elbow_joint
+      - $(arg robot_prefix)wrist_1_joint
+      - $(arg robot_prefix)wrist_2_joint
+      - $(arg robot_prefix)wrist_3_joint
+    interface_name: velocity
+
+forward_position_controller:
+  ros__parameters:
+    joints:
+      - $(arg robot_prefix)shoulder_pan_joint
+      - $(arg robot_prefix)shoulder_lift_joint
+      - $(arg robot_prefix)elbow_joint
+      - $(arg robot_prefix)wrist_1_joint
+      - $(arg robot_prefix)wrist_2_joint
+      - $(arg robot_prefix)wrist_3_joint
