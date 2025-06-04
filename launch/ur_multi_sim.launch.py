@@ -1,3 +1,5 @@
+
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -19,270 +21,148 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def launch_setup(context, *args, **kwargs):
-    # Arguments for robot 1 (UR5)
-    ur_type_1 = "ur5"
-    safety_limits_1 = LaunchConfiguration("safety_limits_1")
-    safety_pos_margin_1 = LaunchConfiguration("safety_pos_margin_1")
-    safety_k_position_1 = LaunchConfiguration("safety_k_position_1")
-    runtime_config_package_1 = LaunchConfiguration("runtime_config_package_1")
-    controllers_file_1 = LaunchConfiguration("controllers_file_1")
-    description_package_1 = LaunchConfiguration("description_package_1")
-    description_file_1 = LaunchConfiguration("description_file_1")
-    # Retrieve the actual prefix from LaunchConfiguration for robot 1
-    prefix_1 = LaunchConfiguration("prefix_1")
-    start_joint_controller_1 = LaunchConfiguration("start_joint_controller_1")
-    initial_joint_controller_1 = LaunchConfiguration("initial_joint_controller_1")
-
-    # Arguments for robot 2 (UR5e)
-    ur_type_2 = "ur5e"  # Fixed type for the second robot
-    safety_limits_2 = LaunchConfiguration("safety_limits_2")
-    safety_pos_margin_2 = LaunchConfiguration("safety_pos_margin_2")
-    safety_k_position_2 = LaunchConfiguration("safety_k_position_2")
-    runtime_config_package_2 = LaunchConfiguration("runtime_config_package_2")
-    controllers_file_2 = LaunchConfiguration("controllers_file_2")
-    description_package_2 = LaunchConfiguration("description_package_2")
-    description_file_2 = LaunchConfiguration("description_file_2")
-    # Retrieve the actual prefix from LaunchConfiguration for robot 2
-    prefix_2 = LaunchConfiguration("prefix_2")
-    start_joint_controller_2 = LaunchConfiguration("start_joint_controller_2")
-    initial_joint_controller_2 = LaunchConfiguration("initial_joint_controller_2")
-
+    # Inicializa ur_type con valor fijo
+    ur_type = "ur5"  # <-- Cambia aquí el valor fijo deseado
+    safety_limits = LaunchConfiguration("safety_limits")
+    safety_pos_margin = LaunchConfiguration("safety_pos_margin")
+    safety_k_position = LaunchConfiguration("safety_k_position")
     # General arguments
+    runtime_config_package = LaunchConfiguration("runtime_config_package")
+    controllers_file = LaunchConfiguration("controllers_file")
+    description_package = LaunchConfiguration("description_package")
+    description_file = LaunchConfiguration("description_file")
+    robot_identifier = "robot1"
+    prefix = robot_identifier + "/"
+    start_joint_controller = LaunchConfiguration("start_joint_controller")
+    initial_joint_controller = LaunchConfiguration("initial_joint_controller")
     launch_rviz = LaunchConfiguration("launch_rviz")
     gazebo_gui = LaunchConfiguration("gazebo_gui")
     world_file = LaunchConfiguration("world_file")
 
-    # Paths for Robot 1 (used to load parameters)
-    initial_joint_controllers_path_1 = PathJoinSubstitution(
-        [FindPackageShare(runtime_config_package_1), "config", controllers_file_1]
-    )
-    rviz_config_file_1 = PathJoinSubstitution(
-        [FindPackageShare(description_package_1), "rviz", "view_robot.rviz"]
+    initial_joint_controllers = PathJoinSubstitution(
+        [FindPackageShare(runtime_config_package), "config", controllers_file]
     )
 
-    # Robot Description for Robot 1
-    # Pass the prefix_1 directly to the xacro command
-    robot_description_content_1 = Command(
+    rviz_config_file = PathJoinSubstitution(
+        [FindPackageShare(description_package), "rviz", "view_robot.rviz"]
+    )
+
+    robot_description_content = Command(
         [
             PathJoinSubstitution([FindExecutable(name="xacro")]),
             " ",
             PathJoinSubstitution(
-                [FindPackageShare(description_package_1), "urdf", description_file_1]
+                [FindPackageShare(description_package), "urdf", description_file]
             ),
             " ",
             "safety_limits:=",
-            safety_limits_1,
+            safety_limits,
             " ",
             "safety_pos_margin:=",
-            safety_pos_margin_1,
+            safety_pos_margin,
             " ",
             "safety_k_position:=",
-            safety_k_position_1,
+            safety_k_position,
             " ",
             "name:=",
             "ur",
             " ",
             "ur_type:=",
-            ur_type_1,
+            ur_type,
             " ",
-            "prefix:=",  # Use prefix here for the URDF
-            prefix_1, # Use LaunchConfiguration for prefix here
-            " ",
-            "sim_ignition:=true",
-            " ",
-            "simulation_controllers:=",
-            initial_joint_controllers_path_1, # Pass the path to the controller YAML
-        ]
-    )
-    robot_description_1 = {"robot_description": robot_description_content_1}
-
-    # Paths for Robot 2 (used to load parameters)
-    initial_joint_controllers_path_2 = PathJoinSubstitution(
-        [FindPackageShare(runtime_config_package_2), "config", controllers_file_2]
-    )
-    rviz_config_file_2 = PathJoinSubstitution(
-        [FindPackageShare(description_package_2), "rviz", "view_robot.rviz"]
-    )
-
-    # Robot Description for Robot 2
-    # Pass the prefix_2 directly to the xacro command
-    robot_description_content_2 = Command(
-        [
-            PathJoinSubstitution([FindExecutable(name="xacro")]),
-            " ",
-            PathJoinSubstitution(
-                [FindPackageShare(description_package_2), "urdf", description_file_2]
-            ),
-            " ",
-            "safety_limits:=",
-            safety_limits_2,
-            " ",
-            "safety_pos_margin:=",
-            safety_pos_margin_2,
-            " ",
-            "safety_k_position:=",
-            safety_k_position_2,
-            " ",
-            "name:=",
-            "ur",
-            " ",
-            "ur_type:=",
-            ur_type_2,
-            " ",
-            "prefix:=",  # Use prefix here for the URDF
-            prefix_2, # Use LaunchConfiguration for prefix here
+            "tf_prefix:=",
+            prefix,
             " ",
             "sim_ignition:=true",
             " ",
             "simulation_controllers:=",
-            initial_joint_controllers_path_2, # Pass the path to the controller YAML
+            initial_joint_controllers,
         ]
     )
-    robot_description_2 = {"robot_description": robot_description_content_2}
+    robot_description = {"robot_description": robot_description_content}
 
-    # Robot State Publisher for Robot 1
-    robot_state_publisher_node_1 = Node(
+    robot_state_publisher_node = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
         output="both",
-        parameters=[{"use_sim_time": True}, robot_description_1],
-        remappings=[("/tf", "tf"), ("/tf_static", "tf_static")],
-        namespace=prefix_1,  # Apply namespace
+        parameters=[{"use_sim_time": True}, robot_description],
     )
 
-    # Robot State Publisher for Robot 2
-    robot_state_publisher_node_2 = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        output="both",
-        parameters=[{"use_sim_time": True}, robot_description_2],
-        remappings=[("/tf", "tf"), ("/tf_static", "tf_static")],
-        namespace=prefix_2,  # Apply namespace
-    )
-
-    # RViz Node (can visualize both if their topics are remapped correctly or by using namespaces)
     rviz_node = Node(
         package="rviz2",
         executable="rviz2",
         name="rviz2",
         output="log",
-        arguments=["-d", rviz_config_file_1],
+        arguments=["-d", rviz_config_file],
         condition=IfCondition(launch_rviz),
     )
 
-    # Joint State Broadcaster Spawner for Robot 1
-    joint_state_broadcaster_spawner_1 = Node(
+    joint_state_broadcaster_spawner = Node(
         package="controller_manager",
         executable="spawner",
-        arguments=["joint_state_broadcaster", "--controller-manager", [prefix_1, "controller_manager"]],
-        parameters=[
-            initial_joint_controllers_path_1, # Load the YAML
-            {"robot_prefix": prefix_1}, # Pass the robot_prefix parameter
-        ],
-        namespace=prefix_1,
+        arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
+        namespace=robot_identifier,
     )
 
-    # Joint State Broadcaster Spawner for Robot 2
-    joint_state_broadcaster_spawner_2 = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["joint_state_broadcaster", "--controller-manager", [prefix_2, "controller_manager"]],
-        parameters=[
-            initial_joint_controllers_path_2, # Load the YAML
-            {"robot_prefix": prefix_2}, # Pass the robot_prefix parameter
-        ],
-        namespace=prefix_2,
-    )
-
-    # Delay rviz start after `joint_state_broadcaster` (for Robot 1)
+    # Delay rviz start after `joint_state_broadcaster`
     delay_rviz_after_joint_state_broadcaster_spawner = RegisterEventHandler(
         event_handler=OnProcessExit(
-            target_action=joint_state_broadcaster_spawner_1,
+            target_action=joint_state_broadcaster_spawner,
             on_exit=[rviz_node],
         ),
         condition=IfCondition(launch_rviz),
     )
 
-    # Initial Joint Controller Spawner for Robot 1
-    initial_joint_controller_spawner_started_1 = Node(
+    # There may be other controllers of the joints, but this is the initially-started one
+    initial_joint_controller_spawner_started = Node(
         package="controller_manager",
         executable="spawner",
-        arguments=[initial_joint_controller_1, "-c", [prefix_1, "controller_manager"]],
-        parameters=[
-            initial_joint_controllers_path_1, # Load the YAML
-            {"robot_prefix": prefix_1}, # Pass the robot_prefix parameter
-        ],
-        condition=IfCondition(start_joint_controller_1),
-        namespace=prefix_1,
-    )
-    initial_joint_controller_spawner_stopped_1 = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[initial_joint_controller_1, "-c", [prefix_1, "controller_manager"], "--stopped"],
-        parameters=[
-            initial_joint_controllers_path_1, # Load the YAML
-            {"robot_prefix": prefix_1}, # Pass the robot_prefix parameter
-        ],
-        condition=UnlessCondition(start_joint_controller_1),
-        namespace=prefix_1,
+        arguments=[initial_joint_controller, "-c", "/controller_manager"],
+        condition=IfCondition(start_joint_controller),
+        namespace=robot_identifier,
     )
 
-    # Initial Joint Controller Spawner for Robot 2
-    initial_joint_controller_spawner_started_2 = Node(
+    initial_joint_controller_spawner_stopped = Node(
         package="controller_manager",
         executable="spawner",
-        arguments=[initial_joint_controller_2, "-c", [prefix_2, "controller_manager"]],
-        parameters=[
-            initial_joint_controllers_path_2, # Load the YAML
-            {"robot_prefix": prefix_2}, # Pass the robot_prefix parameter
-        ],
-        condition=IfCondition(start_joint_controller_2),
-        namespace=prefix_2,
-    )
-    initial_joint_controller_spawner_stopped_2 = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[initial_joint_controller_2, "-c", [prefix_2, "controller_manager"], "--stopped"],
-        parameters=[
-            initial_joint_controllers_path_2, # Load the YAML
-            {"robot_prefix": prefix_2}, # Pass the robot_prefix parameter
-        ],
-        condition=UnlessCondition(start_joint_controller_2),
-        namespace=prefix_2,
+        arguments=[initial_joint_controller, "-c", "/controller_manager", "--stopped"],
+        condition=UnlessCondition(start_joint_controller),
+        namespace=robot_identifier,
     )
 
-    # GZ nodes for Robot 1
-    gz_spawn_entity_1 = Node(
+    # GZ nodes
+    gz_spawn_entity = Node(
         package="ros_gz_sim",
         executable="create",
         output="screen",
         arguments=[
             "-string",
-            robot_description_content_1,
+            robot_description_content,
             "-name",
-            "ur1",  # Unique name in Gazebo
+            robot_identifier,
             "-allow_renaming",
             "true",
-            "-x", "0.0", "-y", "0.0", "-z", "0.0", # Initial position
         ],
     )
-
-    # GZ nodes for Robot 2
     gz_spawn_entity_2 = Node(
         package="ros_gz_sim",
         executable="create",
         output="screen",
         arguments=[
             "-string",
-            robot_description_content_2,
+            robot_description_content,
             "-name",
-            "ur2",  # Unique name in Gazebo
+            "ur",
             "-allow_renaming",
             "true",
-            "-x", "0.5", "-y", "0.5", "-z", "0.0", # Different initial position
+            "-x",
+            "0.5",
+            "-y",
+            "0.5",
+            "-z",
+            "0.0",
         ],
     )
-
     gz_launch_description_with_gui = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [FindPackageShare("ros_gz_sim"), "/launch/gz_sim.launch.py"]
@@ -308,25 +188,31 @@ def launch_setup(context, *args, **kwargs):
         ],
         output="screen",
     )
+    controller_manager_node = Node(
+    package="controller_manager",
+    executable="ros2_control_node",
+    parameters=[PathJoinSubstitution([
+        FindPackageShare("ur5_simulation"),
+        "config",
+        "ur_controllers_1.yaml"
+    ])],
+    namespace="robot1",
+    output="screen",
+)
+
 
     nodes_to_start = [
-        # Robot 1
-        robot_state_publisher_node_1,
-        joint_state_broadcaster_spawner_1,
-        initial_joint_controller_spawner_stopped_1,
-        initial_joint_controller_spawner_started_1,
-        gz_spawn_entity_1,
-        # Robot 2
-        robot_state_publisher_node_2,
-        joint_state_broadcaster_spawner_2,
-        initial_joint_controller_spawner_stopped_2,
-        initial_joint_controller_spawner_started_2,
-        gz_spawn_entity_2,
-        # Common nodes
+        robot_state_publisher_node,
+        controller_manager_node,
+        joint_state_broadcaster_spawner,
+        delay_rviz_after_joint_state_broadcaster_spawner,
+        initial_joint_controller_spawner_stopped,
+        initial_joint_controller_spawner_started,
+        gz_spawn_entity,
+        #gz_spawn_entity_2,
         gz_launch_description_with_gui,
         gz_launch_description_without_gui,
         gz_sim_bridge,
-        delay_rviz_after_joint_state_broadcaster_spawner, # RViz only needs to be launched once
     ]
 
     return nodes_to_start
@@ -334,170 +220,90 @@ def launch_setup(context, *args, **kwargs):
 
 def generate_launch_description():
     declared_arguments = []
-
-    # Arguments for Robot 1 (UR5)
+    # Elimina la declaración de argumento para "ur_type"
+    # declared_arguments.append(
+    #     DeclareLaunchArgument(
+    #         "ur_type",
+    #         description="Type/series of used UR robot.",
+    #         choices=["ur3", "ur3e", "ur5", "ur5e", "ur10", "ur10e", "ur16e", "ur20", "ur30"],
+    #         default_value="ur5e",
+    #     )
+    # )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "ur_type_1",
-            description="Type/series of UR robot 1.",
-            choices=["ur3", "ur3e", "ur5", "ur5e", "ur10", "ur10e", "ur16e", "ur20", "ur30"],
-            default_value="ur5",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "safety_limits_1",
+            "safety_limits",
             default_value="true",
-            description="Enables the safety limits controller for robot 1 if true.",
+            description="Enables the safety limits controller if true.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "safety_pos_margin_1",
+            "safety_pos_margin",
             default_value="0.15",
-            description="The margin to lower and upper limits in the safety controller for robot 1.",
+            description="The margin to lower and upper limits in the safety controller.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "safety_k_position_1",
+            "safety_k_position",
             default_value="20",
-            description="k-position factor in the safety controller for robot 1.",
+            description="k-position factor in the safety controller.",
         )
     )
+    # General arguments
     declared_arguments.append(
         DeclareLaunchArgument(
-            "runtime_config_package_1",
+            "runtime_config_package",
             default_value="ur5_simulation",
-            description='Package with the controller\'s configuration for robot 1 in "config" folder. \
+            description='Package with the controller\'s configuration in "config" folder. \
         Usually the argument is not set, it enables use of a custom setup.',
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "controllers_file_1",
-            default_value="ur_multi_controllers.yaml",
-            description="YAML file with the controllers configuration for robot 1.",
+            "controllers_file",
+            default_value="ur_controllers_1.yaml",
+            description="YAML file with the controllers configuration.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "description_package_1",
+            "description_package",
             default_value="ur5_simulation",
-            description="Description package with robot 1 URDF/XACRO files. Usually the argument \
+            description="Description package with robot URDF/XACRO files. Usually the argument \
         is not set, it enables use of a custom description.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "description_file_1",
+            "description_file",
             default_value="ur.urdf.xacro",
-            description="URDF/XACRO description file with robot 1.",
+            description="URDF/XACRO description file with the robot.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "prefix_1",
-            default_value="robot1/",
-            description="Prefix of the joint names for robot 1.",
+            "prefix",
+            default_value="",
+            description="Prefix of the joint names, useful for \
+        multi-robot setup. If changed than also joint names in the controllers' configuration \
+        have to be updated.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "start_joint_controller_1",
+            "start_joint_controller",
             default_value="true",
-            description="Enable headless mode for robot 1 control",
+            description="Enable headless mode for robot control",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "initial_joint_controller_1",
+            "initial_joint_controller",
             default_value="joint_trajectory_controller",
-            description="Robot 1 controller to start.",
+            description="Robot controller to start.",
         )
     )
-
-    # Arguments for Robot 2 (UR5e)
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "ur_type_2",
-            description="Type/series of UR robot 2.",
-            choices=["ur3", "ur3e", "ur5", "ur5e", "ur10", "ur10e", "ur16e", "ur20", "ur30"],
-            default_value="ur5e", # Fixed to ur5e
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "safety_limits_2",
-            default_value="true",
-            description="Enables the safety limits controller for robot 2 if true.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "safety_pos_margin_2",
-            default_value="0.15",
-            description="The margin to lower and upper limits in the safety controller for robot 2.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "safety_k_position_2",
-            default_value="20",
-            description="k-position factor in the safety controller for robot 2.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "runtime_config_package_2",
-            default_value="ur5_simulation", # You might want a different package for ur5e
-            description='Package with the controller\'s configuration for robot 2 in "config" folder.',
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "controllers_file_2",
-            default_value="ur_multi_controllers.yaml", # You might want a different controller file for ur5e
-            description="YAML file with the controllers configuration for robot 2.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "description_package_2",
-            default_value="ur5_simulation", # You might want a different package for ur5e
-            description="Description package with robot 2 URDF/XACRO files.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "description_file_2",
-            default_value="ur.urdf.xacro",
-            description="URDF/XACRO description file with robot 2.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "prefix_2",
-            default_value="robot2/",
-            description="Prefix of the joint names for robot 2.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "start_joint_controller_2",
-            default_value="true",
-            description="Enable headless mode for robot 2 control",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "initial_joint_controller_2",
-            default_value="joint_trajectory_controller",
-            description="Robot 2 controller to start.",
-        )
-    )
-
-    # General arguments
     declared_arguments.append(
         DeclareLaunchArgument("launch_rviz", default_value="true", description="Launch RViz?")
     )
