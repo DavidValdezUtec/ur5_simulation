@@ -27,6 +27,7 @@ include_directories(/usr/include/modbus)
 # Definir ejecutables
 set(EXECUTABLES       
     ur5_ik_node
+    ur5_impedance
 )
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
@@ -45,6 +46,7 @@ endforeach()
 
 set(EXECUTABLES_WITH_LIBRARIES
     ur5_ik_node
+    ur5_impedance
     
 )
 
@@ -60,7 +62,10 @@ foreach(EXEC ${EXECUTABLES_WITH_LIBRARIES})
     target_link_libraries(${EXEC} ${COMMON_LIBRARIES})
 endforeach()
 
-install(DIRECTORY config launch include urdf rviz src meshes DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY 
+    config 
+    launch include urdf 
+    rviz src meshes worlds DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 
 

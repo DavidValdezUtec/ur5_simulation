@@ -349,7 +349,7 @@ class JointTrajectoryPublisher : public rclcpp::Node
         {
             initializeUR5(model, data, tool_frame_id, urdf_path);
             publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
-                "/arm1/joint_trajectory_controller/joint_trajectory", 10);
+                "/arm1/arm_controller/joint_trajectory", 10);
 
             timer_ = this->create_wall_timer(
                 std::chrono::seconds(1),
