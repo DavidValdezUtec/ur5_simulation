@@ -13,6 +13,11 @@
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/frames.hpp>
+//dinamica
+#include <pinocchio/algorithm/crba.hpp>      // Para la matriz de inercia
+#include <pinocchio/algorithm/rnea.hpp>      // Para Coriolis y gravedad
+#include <pinocchio/algorithm/aba.hpp>  
+
 #include <OsqpEigen/OsqpEigen.h>
 #include <memory>
 #include <stdexcept>
@@ -470,3 +475,62 @@ void moveGripper(modbus_t* ctx, uint8_t position, uint8_t force) {
 }
 
 
+Eigen::VectorXd impedanceControl6D(
+    const pinocchio::Model& model,
+    pinocchio::Data& data,
+    const pinocchio::FrameIndex& tool_frame_id,
+    const Eigen::VectorXd& q,
+    const Eigen::VectorXd& dq,
+    const pinocchio::SE3& desired_pose,
+    const Eigen::Matrix<double,6,1>& dx_d,
+    const Eigen::Matrix<double,6,1>& ddx_d,
+    const Eigen::Matrix<double,6,6>& Kp,
+    const Eigen::Matrix<double,6,6>& Kd,
+    const Eigen::Matrix<double,6,1>& F_ext = Eigen::Matrix<double,6,1>::Zero()
+) {
+    // Cinemática directa y jacobiano
+    pinocchio::forwardKinematics(model, data, q, dq);
+    pinocchio::updateFramePlacement(model, data, tool_frame_id);
+    const pinocchio::SE3& current_pose = data.oMf[tool_frame_id];
+
+    // Error de posición
+    Eigen::Vector3d pos_error = desired_pose.translation() - current_pose.translation();
+
+    // Error de orientación (ángulo-eje)
+    Eigen::Matrix3d R_err = desired_pose.rotation() * current_pose.rotation().transpose();
+    Eigen::AngleAxisd aa(R_err);
+    Eigen::Vector3d ori_error = aa.axis() * aa.angle();
+
+    // Error total 6D
+    Eigen::Matrix<double,6,1> e;
+    e.head<3>() = pos_error;
+    e.tail<3>() = ori_error;
+
+    // Jacobiano espacial 6xN
+    pinocchio::Data::Matrix6x J(6, model.nv);
+    J.setZero();
+    pinocchio::computeFrameJacobian(model, data, q, tool_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, J);
+
+    // Velocidad espacial actual
+    Eigen::VectorXd v = J * dq; // 6x1
+
+    // Error de velocidad
+    Eigen::Matrix<double,6,1> de = dx_d - v;
+
+    // Dinámica
+    pinocchio::computeJointJacobians(model, data, q);
+    pinocchio::computeJointJacobiansTimeVariation(model, data, q, dq);
+    pinocchio::crba(model, data, q); // M
+    pinocchio::computeCoriolisMatrix(model, data, q, dq); // C
+    pinocchio::computeGeneralizedGravity(model, data, q); // g
+
+    Eigen::VectorXd b = data.nle; // Coriolis + gravedad
+
+    // Ley de impedancia 6D
+    Eigen::Matrix<double,6,1> F = Kp * e + Kd * de + F_ext + ddx_d;
+
+    // Torque articular: tau = J^T * F + b
+    Eigen::VectorXd tau = J.transpose() * F + b;
+
+    return tau;
+}

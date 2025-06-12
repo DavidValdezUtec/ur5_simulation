@@ -16,6 +16,8 @@ from launch.substitutions import (
 )
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
+
 
 
 def launch_setup(context, *args, **kwargs):
@@ -35,10 +37,14 @@ def launch_setup(context, *args, **kwargs):
     launch_rviz = LaunchConfiguration("launch_rviz")
     gazebo_gui = LaunchConfiguration("gazebo_gui")
     world_file = LaunchConfiguration("world_file")
+    
+       
 
     initial_joint_controllers = PathJoinSubstitution(
         [FindPackageShare(runtime_config_package), "config", controllers_file]
     )
+    
+    
 
     rviz_config_file = PathJoinSubstitution(
         [FindPackageShare(description_package), "rviz", "view_robot_orginal.rviz"]
@@ -77,6 +83,15 @@ def launch_setup(context, *args, **kwargs):
         ]
     )
     robot_description = {"robot_description": robot_description_content}
+    ur_control_node = Node(
+        package="ur_robot_driver",
+        executable="ur_ros2_control_node",
+        parameters=[
+            robot_description,
+            ParameterFile(initial_joint_controllers, allow_substs=True),
+        ],
+        output="screen",
+    )
 
     robot_state_publisher_node = Node(
         package="robot_state_publisher",
@@ -93,7 +108,7 @@ def launch_setup(context, *args, **kwargs):
         arguments=["-d", rviz_config_file],
         condition=IfCondition(launch_rviz),
     )
-
+    # Joint State Broadcaster is a controller that publishes the state of the robot's joints
     joint_state_broadcaster_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -183,6 +198,7 @@ def launch_setup(context, *args, **kwargs):
     )
 
     nodes_to_start = [
+        ur_control_node,
         robot_state_publisher_node,
         joint_state_broadcaster_spawner,
         delay_rviz_after_joint_state_broadcaster_spawner,
@@ -241,9 +257,9 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "controllers_file",
-            default_value="ur_controllers.yaml",
+            default_value="ur_controllers1.yaml",
             description="YAML file with the controllers configuration.",
-        )
+        ) 
     )
     declared_arguments.append(
         DeclareLaunchArgument(
