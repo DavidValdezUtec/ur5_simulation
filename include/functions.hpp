@@ -22,6 +22,7 @@
 #include <memory>
 #include <stdexcept>
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "omni_msgs/msg/omni_button_event.hpp"
 #include <fstream> 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <modbus/modbus.h>
@@ -524,13 +525,32 @@ Eigen::VectorXd impedanceControl6D(
     pinocchio::computeCoriolisMatrix(model, data, q, dq); // C
     pinocchio::computeGeneralizedGravity(model, data, q); // g
 
+    Eigen::MatrixXd M = data.M;
     Eigen::VectorXd b = data.nle; // Coriolis + gravedad
+    Eigen::MatrixXd M_inv;
+    // Asegurarse de que M sea invertible
+    if (M.determinant() == 0) {
+        throw std::runtime_error("Matriz de inercia no invertible");
+        //User un pseudo-inverso o manejar el caso de singularidad
+        M_inv = M.completeOrthogonalDecomposition().pseudoInverse();
+        //return J.transpose() * (J * M_inv * J.transpose()).inverse() * (J * M_inv * b - J * M_inv * data.g);             
+    }
+    else {
+        M_inv = M.inverse(); // Inversa de la matriz de inercia
+    }
+    // Inercia operacional (Lambda)
+    Eigen::MatrixXd Lambda = (J * M_inv * J.transpose()).inverse();
 
-    // Ley de impedancia 6D
-    Eigen::Matrix<double,6,1> F = Kp * e + Kd * de + F_ext + ddx_d;
+    // Término de acoplamiento (mu) y gravedad operacional (p)
+    Eigen::VectorXd mu = Lambda * (J * M_inv * b - J * M_inv * data.g);
+    Eigen::VectorXd p = Lambda * (J * M_inv * data.g);
 
-    // Torque articular: tau = J^T * F + b
-    Eigen::VectorXd tau = J.transpose() * F + b;
+    // Ley de impedancia operacional
+    Eigen::Matrix<double,6,1> F_star = ddx_d + Kd * de + Kp * e + F_ext;  
+    Eigen::Matrix<double,6,1> F = Lambda * F_star + mu + p;
+
+    // Torque articular: tau = J^T * F
+    Eigen::VectorXd tau = J.transpose() * F;
 
     return tau;
 }

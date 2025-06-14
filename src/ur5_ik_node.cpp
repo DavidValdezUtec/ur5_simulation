@@ -34,7 +34,7 @@ class UR5eJointController : public rclcpp::Node {
                 // Suscriptor para leer la posición cartesiana del haptic phantom
             subscription_haptic_ = this->create_subscription<geometry_msgs::msg::PoseStamped>("/phantom/pose", 10, std::bind(&UR5eJointController::pose_callback, this, std::placeholders::_1));
             subscription_phantom_joints_ = this->create_subscription<sensor_msgs::msg::JointState>("/phantom/joint_states", 10, std::bind(&UR5eJointController::phantom_joint_states_callback, this, std::placeholders::_1));
-                
+            subscription_phantom_button_ = this->create_subscription<omni_msgs::msg::OmniButtonEvent>( "/phantom/button",    10,  std::bind(&UR5eJointController::button_callback, this, std::placeholders::_1));
             // Temporizador para calcular y publicar nuevas posiciones articulares
             timer2_ = this->create_wall_timer(std::chrono::seconds(1),std::bind(&UR5eJointController::posicion_inicial, this));
             timer_ = this->create_wall_timer( std::chrono::milliseconds(control_loop_time), std::bind(&UR5eJointController::control_loop, this));
@@ -77,6 +77,7 @@ class UR5eJointController : public rclcpp::Node {
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr subscription_;
         rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subscription_haptic_;
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr subscription_phantom_joints_;
+        rclcpp::Subscription<omni_msgs::msg::OmniButtonEvent>::SharedPtr subscription_phantom_button_;
 
         rclcpp::TimerBase::SharedPtr timer_;
         rclcpp::TimerBase::SharedPtr timer2_;
@@ -143,7 +144,16 @@ class UR5eJointController : public rclcpp::Node {
             //q_z.w() =  std::cos(euler_angles[2] / 4); q_z.x() =  0; q_z.y() =  0; q_z.z() =  std::sin(euler_angles[2] / 4);
             
         }
-    
+        
+        void button_callback(const omni_msgs::msg::OmniButtonEvent::SharedPtr msg){
+            if (msg->grey_button == 1) {
+                RCLCPP_INFO(this->get_logger(), "Botón gris presionado");
+            }
+            if (msg->white_button == 1) {
+                RCLCPP_INFO(this->get_logger(), "Botón blanco presionado");
+            }
+        }
+
         void posicion_inicial() {
             
             if (posicion_inicial_alcanzada_) {
@@ -420,9 +430,9 @@ int main(int argc, char **argv) {
 
     // Cambiar aquí la posición (0-255) y fuerza (0-255)
     sleep(2);
-    moveGripper(ctx, 255, 255);  // Mitad cerrado con fuerza alta
+    moveGripper(ctx, 33, 255);  // Mitad cerrado con fuerza alta
     sleep(5);
-    moveGripper(ctx, 0, 150);    // Abrir con fuerza media
+    moveGripper(ctx, 77, 150);    // Abrir con fuerza media
 
     modbus_close(ctx);
     modbus_free(ctx);

@@ -198,7 +198,7 @@ def launch_setup(context, *args, **kwargs):
     )
 
     nodes_to_start = [
-        ur_control_node,
+        #ur_control_node,
         robot_state_publisher_node,
         joint_state_broadcaster_spawner,
         delay_rviz_after_joint_state_broadcaster_spawner,
@@ -257,7 +257,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "controllers_file",
-            default_value="ur_controllers1.yaml",
+            default_value="ur_controllers.yaml",
             description="YAML file with the controllers configuration.",
         ) 
     )

@@ -13,6 +13,7 @@ find_package(rcl REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(omni_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(GLOG REQUIRED)
@@ -28,6 +29,7 @@ include_directories(/usr/include/modbus)
 set(EXECUTABLES       
     ur5_ik_node
     ur5_impedance
+    gripper
 )
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
@@ -40,6 +42,7 @@ foreach(EXEC ${EXECUTABLES})
         rclcpp 
         trajectory_msgs 
         sensor_msgs
+        omni_msgs
         geometry_msgs
     )
 endforeach()
@@ -47,7 +50,7 @@ endforeach()
 set(EXECUTABLES_WITH_LIBRARIES
     ur5_ik_node
     ur5_impedance
-    
+    gripper
 )
 
 set(COMMON_LIBRARIES
