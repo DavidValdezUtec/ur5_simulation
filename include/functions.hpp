@@ -9,6 +9,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <algorithm> // Para std::clamp
 #include <Eigen/Dense>
+//pinocchio
 #include <pinocchio/parsers/urdf.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
@@ -16,7 +17,7 @@
 //dinamica
 #include <pinocchio/algorithm/crba.hpp>      // Para la matriz de inercia
 #include <pinocchio/algorithm/rnea.hpp>      // Para Coriolis y gravedad
-#include <pinocchio/algorithm/aba.hpp>  
+#include <pinocchio/algorithm/aba.hpp>       // Para la dinámica inversa
 
 #include <OsqpEigen/OsqpEigen.h>
 #include <memory>
@@ -497,7 +498,7 @@ Eigen::VectorXd impedanceControl6D(
     // Error de posición
     Eigen::Vector3d pos_error = desired_pose.translation() - current_pose.translation();
 
-    // Error de orientación (ángulo-eje)
+    // Error de orientación (ángulo-eje
     Eigen::Matrix3d R_err = desired_pose.rotation() * current_pose.rotation().transpose();
     Eigen::AngleAxisd aa(R_err);
     Eigen::Vector3d ori_error = aa.axis() * aa.angle();
