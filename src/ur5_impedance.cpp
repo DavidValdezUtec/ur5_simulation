@@ -60,6 +60,38 @@ Eigen::MatrixXd jacobian(const pinocchio::Model& model, pinocchio::Data& data,
     return J;
 }
 
+Eigen::VectorXd computeError(pinocchio::Data& data, 
+                             const pinocchio::FrameIndex& tool_frame_id, const pinocchio::SE3& desired_pose) {
+    /* const pinocchio::SE3 current_pose = data.oMf[tool_frame_id];
+    
+    const pinocchio::SE3 error_pose = current_pose.actInv(desired_pose);
+    return pinocchio::log6(error_pose).toVector(); // Error en SE(3) */
+    const pinocchio::SE3 current_pose = data.oMf[tool_frame_id];
+
+    // Error de posición
+    Eigen::Vector3d position_error = desired_pose.translation() - current_pose.translation();
+
+    // Error de orientación usando cuaterniones
+    Eigen::Quaterniond current_orientation = Eigen::Quaterniond(current_pose.rotation());
+    Eigen::Quaterniond desired_orientation = Eigen::Quaterniond(desired_pose.rotation());
+
+    Eigen::Quaterniond error_quat = desired_orientation * current_orientation.inverse();
+    Eigen::Vector3d angular_error;
+
+    // Convertir el cuaternión de error a una representación vectorial del error angular
+    if (error_quat.w() < 0) {
+        error_quat.w() = -error_quat.w(); // Asegurar la parte escalar positiva para la representación del error más corta
+    }
+    angular_error = error_quat.vec(); // El vector parte del cuaternión representa el eje de rotación escalado por sin(ángulo/2)
+
+    Eigen::VectorXd error(6);
+    error << position_error, angular_error;
+    return error;
+}
+
+
+
+
 class UR5eJointController : public rclcpp::Node {
     public:
         UR5eJointController() : Node("ur5e_joint_controller"), time_elapsed_(0.0) {
@@ -79,8 +111,8 @@ class UR5eJointController : public rclcpp::Node {
         double previous_error_[3] = {0, 0, 0}; // Error anterior
         double error_[3] = {0, 0, 0}; // Error actual
         double r_[3] = {0, 0, 0}; // Posiciones del haptic phantom
-        double qt_[4] = {0, 0, 0, 0}; // Orientacion del haptic phantom  
-        double qt_inv[4] = {0, 0, 0, 0}; // Orientacion del haptic phantom inverso
+        double qt_[4] = {1, 0, 0, 0}; // Orientacion del haptic phantom  
+        double qt_inv[4] = {1, 0, 0, 0}; // Orientacion del haptic phantom inverso
         std::ofstream output_file_;
         std::ofstream output_file_2;
         std::ofstream output_file_3;
@@ -93,12 +125,15 @@ class UR5eJointController : public rclcpp::Node {
         Eigen::Quaterniond quat_real_geo; 
         
         
-        double q_[6] ;
-        double qd_[6] ;
-        double h_[6] ;
+        Eigen::VectorXd q_={0,0,0,0,0,0};
+        Eigen::VectorXd qd_={0,0,0,0,0,0};
+        double qd_anterior[6];
+        double qdd_[6] ;
+
         double q_init[6];
         double x_init[3]; 
-        double x_des[3];
+        double x_des[3] = {0.5, 0.0, 0.5}; // Posición deseada del UR5
+        Eigen::VectorXd v_des={0,0,0,0,0,0}; // Velocidad deseada del UR5 en espacio cartesiano
         double qt_init_ur5[4];
         double qt_init_geo[4];
         int control_loop_time = 1; 
@@ -115,7 +150,7 @@ class UR5eJointController : public rclcpp::Node {
         std::unique_ptr<pinocchio::Model> model; // declarar puntero único para el modelo
         std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos
         pinocchio::FrameIndex tool_frame_id; 
-
+        Eigen::MatrixXd J_anterior= Eigen::MatrixXd::Zero(6, 6); // Inicializar J_anterior como una matriz de ceros
         std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
 
         
@@ -150,10 +185,29 @@ class UR5eJointController : public rclcpp::Node {
         
         void posicion_inicial() {
             //calcula el jacobiano y la cinemática directa
-            pinocchio::forwardKinematics(*model, *data, Eigen::Map<Eigen::VectorXd>(q_, 6));
+            pinocchio::forwardKinematics(*model, *data, q_);
             pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
+            Eigen::MatrixXd J = jacobian(*model, *data, tool_frame_id, q_);
+            // Derivada de Jacobiano
+            Eigen::MatrixXd J_dot = (J-J_anterior)/0.01; // 0.01 es el tiempo de control en segundos
+            
+
+            Eigen::Quaterniond desired_orientation(qt_[0], qt_[1], qt_[2], qt_[3]);//(,,,w)
+            desired_orientation.normalize(); // Asegúrate de que el cuaternión esté normalizado
+            pinocchio::SE3 desired_pose_eigen(desired_orientation.toRotationMatrix(), Eigen::Vector3d(x_des[0], x_des[1], x_des[2]));
+            Eigen::VectorXd x_error = computeError(*data, tool_frame_id, desired_pose_eigen); //e
+
+           
+            // Calcula la velocidad cartesiana actual (vx,vy,vz,wx,wy,wz)
+            Eigen::VectorXd v_cartesian = J * qd_;  // Velocidad cartesiana actual
+            // Calcula la velocidad angular actual
+            Eigen::Matrix<double,6,1> de = v_des - v_cartesian;  // e_dot
+            // Calcula la aceleración cartesiana deseada
 
             
+
+
+
             auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
             trajectory_msg.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
                                         "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
@@ -164,6 +218,7 @@ class UR5eJointController : public rclcpp::Node {
             point.time_from_start = rclcpp::Duration::from_seconds(0.1);
             trajectory_msg.points.push_back(point);
             joint_trajectory_pub_->publish(trajectory_msg);
+            J_anterior = J; // Actualizar J_anterior con el Jacobiano actual
 
             
         }
