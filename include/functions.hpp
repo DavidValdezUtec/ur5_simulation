@@ -520,8 +520,8 @@ Eigen::VectorXd impedanceControl6D(
     Eigen::Matrix<double,6,1> de = dx_d - v;
 
     // Dinámica
-    pinocchio::computeJointJacobians(model, data, q);
-    pinocchio::computeJointJacobiansTimeVariation(model, data, q, dq);
+    pinocchio::computeJointJacobians(model, data, q); // J
+    pinocchio::computeJointJacobiansTimeVariation(model, data, q, dq);// J_dot
     pinocchio::crba(model, data, q); // M
     pinocchio::computeCoriolisMatrix(model, data, q, dq); // C
     pinocchio::computeGeneralizedGravity(model, data, q); // g
@@ -529,6 +529,7 @@ Eigen::VectorXd impedanceControl6D(
     Eigen::MatrixXd M = data.M;
     Eigen::VectorXd b = data.nle; // Coriolis + gravedad
     Eigen::MatrixXd M_inv;
+    
     // Asegurarse de que M sea invertible
     if (M.determinant() == 0) {
         throw std::runtime_error("Matriz de inercia no invertible");
