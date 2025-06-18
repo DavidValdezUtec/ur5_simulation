@@ -172,6 +172,111 @@ Eigen::VectorXd impedanceControl6D(
     return tau;
 }
 
+Eigen::VectorXd impedanceControlPythonStyle(
+    const pinocchio::Model& model,
+    pinocchio::Data& data,
+    const pinocchio::FrameIndex& tool_frame_id,
+    const Eigen::VectorXd& q,
+    const Eigen::VectorXd& dq,
+    const pinocchio::SE3& desired_pose, // Para xdes
+    const Eigen::VectorXd& dx_des,      // ddxdes
+    const Eigen::VectorXd& ddx_des,     // ddxdes
+    const Eigen::Matrix<double,6,6>& Kp_task, // Matriz de rigidez (Kd en Python)
+    const Eigen::Matrix<double,6,6>& Kd_task, // Matriz de amortiguamiento (Bd en Python)
+    double dt,
+    Eigen::MatrixXd& J_anterior // Pasado por referencia para actualizar y usar
+) {
+    // 1. Cinemática directa y Jacobiano actual
+    pinocchio::forwardKinematics(model, data, q, dq);
+    pinocchio::updateFramePlacement(model, data, tool_frame_id);
+
+    pinocchio::Data::Matrix6x J(6, model.nv);
+    J.setZero();
+    pinocchio::computeFrameJacobian(model, data, q, tool_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, J);
+
+    // 2. Derivada del Jacobiano (dJ en Python)
+    // Se asume que J_anterior se actualiza después de cada llamada a esta función.
+    Eigen::MatrixXd dJ = (J - J_anterior) / dt;
+
+    // 3. Obtener x y dx (posición y velocidad cartesiana actual)
+    Eigen::Vector3d x_current_pos = data.oMf[tool_frame_id].translation();
+    // Para la orientación, necesitamos extraerla de data.oMf[tool_frame_id] y la deseada
+    // Usaremos la función computeError para obtener el error completo y las posiciones/orientaciones
+    
+    // Obtener la velocidad cartesiana actual
+    Eigen::VectorXd dx_current_cartesian = J * dq; // (6x6) * (6x1) = 6x1
+
+    // 4. Calcular el error (xdes - x y dxdes - dx)
+    // Para el error de posición/orientación, usaremos tu función computeError existente
+    // que devuelve un vector 6x1 (pos_error, ang_error)
+    Eigen::VectorXd error_pose = computeError(data, tool_frame_id, desired_pose); // (x_d - x)
+
+    // Error de velocidad (dx_des - dx_current_cartesian)
+    Eigen::VectorXd error_velocity = dx_des - dx_current_cartesian; // (dx_d - dx)
+
+
+    // 5. Cálculos de dinámica (M, c, g)
+    // Necesitamos recalcular estas para cada paso de tiempo
+    pinocchio::computeJointJacobians(model, data, q); // Necesario para crba y otros
+    pinocchio::crba(model, data, q); // Calcula la matriz de inercia M
+    pinocchio::computeCoriolisMatrix(model, data, q, dq); // Calcula el término de Coriolis
+    pinocchio::computeGeneralizedGravity(model, data, q); // Calcula el vector de gravedad g
+
+    Eigen::MatrixXd M = data.M; // Matriz de inercia
+    // data.nle ya es (Coriolis + Gravity) en Pinocchio
+    Eigen::VectorXd c_term = data.nle - data.g; // Solo el término de Coriolis (c en Python)
+    Eigen::VectorXd g_term = data.g; // Solo el término de gravedad (g en Python)
+
+    // 6. Calcular Md (Matriz de inercia deseada en el espacio de tarea)
+    // Asegurarse de usar pseudo-inversa como en Python
+    Eigen::MatrixXd J_pinv = J.completeOrthogonalDecomposition().pseudoInverse(); // np.linalg.pinv(J)
+
+    // Md = (J_pinv.T) * M * J_pinv
+    // Dimensiones: (6x6).transpose() * (6x6) * (6x6) = (6x6) * (6x6) * (6x6) = 6x6
+    Eigen::Matrix<double,6,6> Md = J_pinv.transpose() * M * J_pinv;
+
+    // Asegurarse de que Md sea invertible para Md.inverse()
+    // En la práctica, Md puede volverse singular si J es singular, aunque la pseudo-inversa lo maneja.
+    // Una opción más robusta sería usar la pseudo-inversa de Md si es necesario.
+    Eigen::Matrix<double,6,6> Md_inv;
+    if (Md.determinant() == 0) {
+        // Esto puede ocurrir si J es singular, haciendo Md singular.
+        // Se podría usar la pseudo-inversa de Md para mayor robustez
+        // Md_inv = Md.completeOrthogonalDecomposition().pseudoInverse();
+        // Por simplicidad, por ahora lanzamos un error o manejamos la excepción
+        throw std::runtime_error("Matriz Md singular en impedanceControlPythonStyle.");
+    } else {
+        Md_inv = Md.inverse(); // np.linalg.pinv(Md) si Md es singular
+    }
+
+
+    // 7. Calcular el torque final
+    // torque = M@(np.linalg.pinv(J))@(ddxdes - dJ@dq + np.linalg.pinv(Md)@(Bd@(dxdes-dx) + Kd@(xdes - x))) + c + g
+    //           ^----------- Termino A -----------^ ^------------------- Termino B -------------------^   ^---- Termino C ----^
+
+    // Término A: M * J_pinv
+    Eigen::MatrixXd TermA = M * J_pinv; // (6x6) * (6x6) = 6x6
+
+    // Término B: (ddxdes - dJ@dq + Md_inv@(Kd_task@(error_pose) + Kd_task@(error_velocity)))
+    // Nota: Kp_task es Kd en Python, Kd_task es Bd en Python
+    Eigen::VectorXd InnerTermB = Kd_task * error_velocity + Kp_task * error_pose; // (6x6)*(6x1) + (6x6)*(6x1) = 6x1
+    Eigen::VectorXd TermB_part2 = Md_inv * InnerTermB; // (6x6)*(6x1) = 6x1
+
+    Eigen::VectorXd TermB = ddx_des - (dJ * dq) + TermB_part2; // (6x1) - (6x1) + (6x1) = 6x1
+
+    // Término C: c_term + g_term
+    Eigen::VectorXd TermC = c_term + g_term; // (6x1) + (6x1) = 6x1
+
+    // Torque final: TermA * TermB + TermC
+    Eigen::VectorXd tau = TermA * TermB + TermC; // (6x6) * (6x1) + (6x1) = 6x1
+
+    // Actualizar J_anterior para la próxima iteración
+    J_anterior = J;
+
+    return tau;
+}
+
+
 class UR5eJointController : public rclcpp::Node {
     public:
         UR5eJointController() : Node("ur5e_joint_controller"), time_elapsed_(0.0) {
@@ -198,7 +303,7 @@ class UR5eJointController : public rclcpp::Node {
             subscription_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&UR5eJointController::update_joint_positions, this, std::placeholders::_1));            
                 // Suscriptor para leer la posición cartesiana del haptic phantom
             
-            timer2_ = this->create_wall_timer(std::chrono::milliseconds(10),std::bind(&UR5eJointController::posicion_inicial, this));
+            timer2_ = this->create_wall_timer(std::chrono::milliseconds(100),std::bind(&UR5eJointController::posicion_inicial, this));
         }
     
     private:
@@ -271,104 +376,206 @@ class UR5eJointController : public rclcpp::Node {
                 }
             }
             // Imprimir las posiciones articulares
-            RCLCPP_INFO(this->get_logger(), "Posiciones articulares: %.4f %.4f %.4f %.4f %.4f %.4f",
-                        q_[0], q_[1], q_[2], q_[3], q_[4], q_[5]);
+            //RCLCPP_INFO(this->get_logger(), "Posiciones articulares: %.4f %.4f %.4f %.4f %.4f %.4f",   q_[0], q_[1], q_[2], q_[3], q_[4], q_[5]);
             // Imprimir las velocidades articulares
-            RCLCPP_INFO(this->get_logger(), "Velocidades articulares: %.4f %.4f %.4f %.4f %.4f %.4f",
-                        qd_[0], qd_[1], qd_[2], qd_[3], qd_[4], qd_[5]);
+            //RCLCPP_INFO(this->get_logger(), "Velocidades articulares: %.4f %.4f %.4f %.4f %.4f %.4f",  qd_[0], qd_[1], qd_[2], qd_[3], qd_[4], qd_[5]);
         }
         
         
         void posicion_inicial() {
-            //calcula el jacobiano y la cinemática directa
-            pinocchio::forwardKinematics(*model, *data, q_);
-            pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
-            Eigen::MatrixXd J = jacobian(*model, *data, tool_frame_id, q_);
-            cout << "Jacobian: " << J << endl;
-            // Derivada de Jacobiano
-            Eigen::MatrixXd J_dot = (J-J_anterior)/0.01; // 0.01 es el tiempo de control en segundos
-            cout << "Jacobian Derivative: " << J_dot << endl;
-            // aceleración articular
-            qdd_ = (qd_-qd_anterior)/0.01; // 0.01 es el tiempo de control en segundos
+            // //calcula el jacobiano y la cinemática directa
+            // pinocchio::forwardKinematics(*model, *data, q_);
+            // pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
+            // Eigen::MatrixXd J = jacobian(*model, *data, tool_frame_id, q_);
+            // cout << "Jacobian: " << J << endl;
+            // // Derivada de Jacobiano
+            // Eigen::MatrixXd J_dot = (J-J_anterior)/0.01; // 0.01 es el tiempo de control en segundos
+            // cout << "Jacobian Derivative: " << J_dot << endl;
+            // // aceleración articular
+            // qdd_ = (qd_-qd_anterior)/0.01; // 0.01 es el tiempo de control en segundos
 
             
 
-            Eigen::Quaterniond desired_orientation(qt_[0], qt_[1], qt_[2], qt_[3]);//(,,,w)
-            desired_orientation.normalize(); // Asegúrate de que el cuaternión esté normalizado
-            pinocchio::SE3 desired_pose_eigen(desired_orientation.toRotationMatrix(), x_des);
-            Eigen::VectorXd x_e = computeError(*data, tool_frame_id, desired_pose_eigen); //e = {ex,ey,ez,exy,exz,eyz}
+            // Eigen::Quaterniond desired_orientation(qt_[0], qt_[1], qt_[2], qt_[3]);//(,,,w)
+            // desired_orientation.normalize(); // Asegúrate de que el cuaternión esté normalizado
+            // pinocchio::SE3 desired_pose_eigen(desired_orientation.toRotationMatrix(), x_des);
+            // Eigen::VectorXd x_e = computeError(*data, tool_frame_id, desired_pose_eigen); //e = {ex,ey,ez,exy,exz,eyz}
 
            
-            // Calcula la velocidad cartesiana actual (vx,vy,vz,wx,wy,wz)
-            Eigen::VectorXd dx = J * qd_;  // Velocidad cartesiana actual
-            // Calcula la velocidad angular actual
-            Eigen::Matrix<double,6,1> de = dx_des - dx;  // e_dot = {ex_dot, ey_dot, ez_dot, exy_dot, exz_dot, eyz_dot}
+            // // Calcula la velocidad cartesiana actual (vx,vy,vz,wx,wy,wz)
+            // Eigen::VectorXd dx = J * qd_;  // Velocidad cartesiana actual
+            // // Calcula la velocidad angular actual
 
-            pinocchio::computeJointJacobians(*model, *data, q_); // J
-            pinocchio::computeJointJacobiansTimeVariation(*model, *data, q_, qd_);// J_dot
-            pinocchio::crba(*model, *data, q_); // M
-            pinocchio::computeCoriolisMatrix(*model, *data, q_, qd_); // C
-            pinocchio::computeGeneralizedGravity(*model, *data, q_); // g
+            // pinocchio::computeJointJacobians(*model, *data, q_); // J
+            // pinocchio::computeJointJacobiansTimeVariation(*model, *data, q_, qd_);// J_dot
+            // pinocchio::crba(*model, *data, q_); // M
+            // pinocchio::computeCoriolisMatrix(*model, *data, q_, qd_); // C
+            // pinocchio::computeGeneralizedGravity(*model, *data, q_); // g
 
-            Eigen::MatrixXd M = (*data).M;
-            Eigen::VectorXd b = (*data).nle; // Coriolis + gravedad
+            // Eigen::MatrixXd M = (*data).M;
+            // Eigen::VectorXd b = (*data).nle; // Coriolis + gravedad
 
+            // Eigen::Matrix<double,6,6> K = Eigen::Matrix<double,6,6>::Identity();
+            // // Ejemplo de sintonización (ajústalo a tus necesidades)
+            // // Para los 3 primeros elementos (lineal) y los 3 últimos (angular)
+            // K.diagonal() << 20.0, 20.0, 20.0, 50.0, 50.0, 50.0;
+
+            // Eigen::Matrix<double,6,6> B = Eigen::Matrix<double,6,6>::Identity();
+            // // Ejemplo de sintonización
+            // B.diagonal() << 20.0, 20.0, 20.0, 5.0, 5.0, 5.0;
+
+
+            // // Llama a tu función de control de impedancia
+            // // F_ext_zero es para fuerzas externas, puedes inicializarla a cero si no hay
+            // Eigen::Matrix<double,6,1> F_ext_zero = Eigen::Matrix<double,6,1>::Zero();
+
+            // Eigen::VectorXd tau = impedanceControl6D(
+            //     *model, *data, tool_frame_id, q_, qd_,
+            //     desired_pose_eigen, // pinocchio::SE3
+            //     dx_des,             // Eigen::Matrix<double,6,1> para velocidad cartesiana deseada
+            //     ddx_des,            // Eigen::Matrix<double,6,1> para aceleración cartesiana deseada
+            //     K,
+            //     B,
+            //     F_ext_zero
+            // );
+
+            // // Después de obtener tau, calcula qdd y actualiza q_ y qd_
+            // // Asegúrate de que *data.M esté actualizada para calcular M_inv
+            // pinocchio::crba(*model, *data, q_); // Asegura que la matriz M de Pinocchio esté actualizada
+            
+            // Eigen::MatrixXd M_inv;
+            // if (M.determinant() == 0) {
+            //     RCLCPP_ERROR(this->get_logger(), "Matriz de inercia no invertible en posicion_inicial(). Usando pseudo-inversa.");
+            //     M_inv = M.completeOrthogonalDecomposition().pseudoInverse();
+            // } else {
+            //     M_inv = M.inverse();
+            // }
+
+            // Eigen::VectorXd qdd = M_inv * tau; // Aceleración articular
+
+            // // Integrar velocidades y posiciones
+            // qd_ += qdd * 0.01;
+            // q_ += qd_ * 0.01;
             
 
 
-            Eigen::Matrix<double,6,6> K = Eigen::Matrix<double,6,6>::Identity();
-            // Ejemplo de sintonización (ajústalo a tus necesidades)
-            // Para los 3 primeros elementos (lineal) y los 3 últimos (angular)
-            K.diagonal() << 200.0, 200.0, 200.0, 50.0, 50.0, 50.0;
 
-            Eigen::Matrix<double,6,6> B = Eigen::Matrix<double,6,6>::Identity();
-            // Ejemplo de sintonización
-            B.diagonal() << 20.0, 20.0, 20.0, 5.0, 5.0, 5.0;
+            // // q_[0] = 0.0 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q1
+            // // q_[1] = -1.57 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q2
+            // // q_[2] = 1.57 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q3
+            // // q_[3] = 0.0 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q4
+            // // q_[4] = 0.0 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q5
+            // // q_[5] = 0.0 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q6
+            // time_elapsed_ += 0.01; // Incrementa el tiempo transcurrido
 
 
-            // Llama a tu función de control de impedancia
-            // F_ext_zero es para fuerzas externas, puedes inicializarla a cero si no hay
-            Eigen::Matrix<double,6,1> F_ext_zero = Eigen::Matrix<double,6,1>::Zero();
+            // auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
+            // trajectory_msg.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+            //                             "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
+            // auto point = trajectory_msgs::msg::JointTrajectoryPoint();
+            // RCLCPP_INFO(this->get_logger(), "Enviando posición: %.4f %.4f %.4f %.4f %.4f %.4f",
+            //             q_[0], q_[1], q_[2], q_[3], q_[4], q_[5]);
+            // point.positions = {q_[0], q_[1], q_[2], q_[3], q_[4], q_[5]};
+            // point.time_from_start = rclcpp::Duration::from_seconds(0.2);
+            // trajectory_msg.points.push_back(point);
+            // joint_trajectory_pub_->publish(trajectory_msg);
+            // J_anterior = J; // Actualizar J_anterior con el Jacobiano actual
+            // qd_anterior = qd_; // Actualizar qd_anterior con la velocidad actual
 
-            Eigen::VectorXd tau = impedanceControl6D(
-                *model, *data, tool_frame_id, q_, qd_,
-                desired_pose_eigen, // pinocchio::SE3
-                dx_des,             // Eigen::Matrix<double,6,1> para velocidad cartesiana deseada
-                ddx_des,            // Eigen::Matrix<double,6,1> para aceleración cartesiana deseada
-                K,
-                B,
-                F_ext_zero
-            );
+            // ... (parte inicial de la función, incluyendo la obtención de q_ y qd_)
 
-            // Después de obtener tau, calcula qdd y actualiza q_ y qd_
-            // Asegúrate de que *data.M esté actualizada para calcular M_inv
-            pinocchio::crba(*model, *data, q_); // Asegura que la matriz M de Pinocchio esté actualizada
-            Eigen::MatrixXd M = (*data).M;
-            Eigen::MatrixXd M_inv;
-            if (M.determinant() == 0) {
-                RCLCPP_ERROR(this->get_logger(), "Matriz de inercia no invertible en posicion_inicial(). Usando pseudo-inversa.");
-                M_inv = M.completeOrthogonalDecomposition().pseudoInverse();
-            } else {
-                M_inv = M.inverse();
+            // 1. Define tu pose deseada (posición y orientación)
+            // Para simplificar, la posición deseada podría ser fija o variar sinusoidalmente
+            // Aquí usamos x_des definida en el constructor
+            // Para la orientación, usas qt_ para el cuaternión. Asegúrate de que qt_ esté bien definido.
+            // Si qt_ no cambia, será una orientación fija.
+            Eigen::Quaterniond desired_orientation_quat(qt_[0], qt_[1], qt_[2], qt_[3]);
+            desired_orientation_quat.normalize();
+            pinocchio::SE3 desired_pose_eigen(desired_orientation_quat.toRotationMatrix(), x_des);
+
+            // 2. Define las ganancias Kp y Kd (6x6 matrices, como las de tu Python)
+            // Los valores son solo ejemplos, DEBEN SER SINTONIZADOS para tu robot
+            Eigen::Matrix<double,6,6> Kp_impedancia_py = Eigen::Matrix<double,6,6>::Identity();
+            // Ajusta estos valores según la respuesta deseada (Kd en Python)
+            Kp_impedancia_py.diagonal() << 100.0, 100.0, 100.0, 50.0, 50.0, 50.0;
+
+            Eigen::Matrix<double,6,6> Kd_impedancia_py = Eigen::Matrix<double,6,6>::Identity();
+            // Ajusta estos valores según la respuesta deseada (Bd en Python)
+            Kd_impedancia_py.diagonal() << 10.0, 10.0, 10.0, 5.0, 5.0, 5.0;
+
+            // 3. Llama a la nueva función
+            // El dt de tu python es 0.01, que coincide con tu tiempo de control
+            double control_dt = 0.01;
+
+            // Asegúrate de que q_ y qd_ están actualizados desde el suscriptor antes de llamar a esto.
+            // Si `last_joint_state_` no se ha recibido todavía, q_ y qd_ estarán en sus valores iniciales.
+            if (!last_joint_state_) {
+                RCLCPP_WARN(this->get_logger(), "No se han recibido joint_states. Usando posiciones/velocidades iniciales.");
+                // Podrías añadir un 'return' o esperar hasta tener datos.
+                // Para este ejemplo, asumiremos que se reciben rápidamente.
             }
 
-            Eigen::VectorXd qdd = M_inv * tau; // Aceleración articular
+            Eigen::VectorXd tau = impedanceControlPythonStyle(
+                *model, *data, tool_frame_id, q_, qd_,
+                desired_pose_eigen, // pinocchio::SE3 xdes
+                dx_des,             // Eigen::VectorXd dxdes
+                ddx_des,            // Eigen::VectorXd ddxdes
+                Kp_impedancia_py,   // Kp (Kd en Python)
+                Kd_impedancia_py,   // Kd (Bd en Python)
+                control_dt,
+                J_anterior          // Se pasará por referencia para actualizar J_anterior dentro de la función
+                                    // y usarlo en el siguiente ciclo.
+            );
 
-            // Integrar velocidades y posiciones
-            qd_ += qdd * 0.01;
-            q_ += qd_ * 0.01;
-            
+            // Para simular el comportamiento del robot con estos torques,
+            // necesitamos la dinámica inversa para obtener la aceleración articular:
+            // tau = M * qdd + C + G
+            // qdd = M_inv * (tau - C - G)
+            // Sin embargo, tu Python simplemente calcula el torque y lo envía.
+            // Si quieres actualizar q_ y qd_ localmente para predecir el siguiente estado,
+            // puedes usar aba (forward dynamics) o rnea (inverse dynamics) con los torques.
 
+            // Opción 1: Usa la ley de impedancia para generar torques y envíalos (como en Python)
+            // Aquí, `tau` es el torque calculado.
+            // Si tu control real se basa en `tau`, lo envías directamente al controlador de torques.
+            // Sin embargo, tu `joint_trajectory_controller` espera posiciones, no torques.
+            // Este es un punto de discrepancia importante.
 
+            // Si tu objetivo es controlar por POSICIONES/VELOCIDADES articulares, entonces necesitas
+            // usar el `tau` calculado para determinar `qdd`, y luego integrar `qdd` a `qd` y `q`.
+            // Esto es lo que estabas haciendo antes:
 
-            // q_[0] = 0.0 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q1
-            // q_[1] = -1.57 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q2
-            // q_[2] = 1.57 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q3
-            // q_[3] = 0.0 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q4
-            // q_[4] = 0.0 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q5
-            // q_[5] = 0.0 + 0.5 * sin(2 * M_PI * 0.1 * time_elapsed_); // Movimiento sinusoidal en q6
-            time_elapsed_ += 0.01; // Incrementa el tiempo transcurrido
+            pinocchio::crba(*model, *data, q_); // Asegura que la matriz M de Pinocchio esté actualizada
+            Eigen::MatrixXd M_current = (*data).M;
+            Eigen::MatrixXd M_inv_current;
+            if (M_current.determinant() == 0) {
+                RCLCPP_WARN(this->get_logger(), "Matriz de inercia singular al final del ciclo. Usando pseudo-inversa.");
+                M_inv_current = M_current.completeOrthogonalDecomposition().pseudoInverse();
+            } else {
+                M_inv_current = M_current.inverse();
+            }
 
+            // Calcula los términos no lineales C y G para el cálculo de qdd
+            // Necesarios para qdd = M_inv * (tau - (C+G))
+            pinocchio::computeCoriolisMatrix(*model, *data, q_, qd_);
+            pinocchio::computeGeneralizedGravity(*model, *data, q_);
+            Eigen::VectorXd C_plus_G = (*data).nle; // nle = Coriolis + Gravity
+
+            // Calcula la aceleración articular deseada
+            Eigen::VectorXd qdd_calculated = M_inv_current * (tau - C_plus_G);
+
+            // Integrar para obtener nuevas velocidades y posiciones articulares
+            qd_ += qdd_calculated * control_dt;
+            q_ += qd_ * control_dt;
+            for (int i = 0; i < 6; ++i) {
+                if (q_[i] > 2*M_PI) {
+                    q_[i] = 2 * M_PI; // Normaliza a [-pi, pi]
+                } else if (q_[i] < -2*M_PI) {
+                    q_[i] = -2 * M_PI; // Normaliza a [-pi, pi]
+                }
+            }
+
+            // ... (el resto del código para publicar la trayectoria con las nuevas q_)
 
             auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
             trajectory_msg.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
@@ -377,12 +584,14 @@ class UR5eJointController : public rclcpp::Node {
             RCLCPP_INFO(this->get_logger(), "Enviando posición: %.4f %.4f %.4f %.4f %.4f %.4f",
                         q_[0], q_[1], q_[2], q_[3], q_[4], q_[5]);
             point.positions = {q_[0], q_[1], q_[2], q_[3], q_[4], q_[5]};
-            point.time_from_start = rclcpp::Duration::from_seconds(0.1);
+            point.time_from_start = rclcpp::Duration::from_seconds(control_dt); // El tiempo de control
             trajectory_msg.points.push_back(point);
             joint_trajectory_pub_->publish(trajectory_msg);
-            J_anterior = J; // Actualizar J_anterior con el Jacobiano actual
-            qd_anterior = qd_; // Actualizar qd_anterior con la velocidad actual
+
+            // J_anterior se actualiza dentro de impedanceControlPythonStyle, no aquí
+            qd_anterior = qd_; // Actualizar qd_anterior para el cálculo de qdd_ en el próximo ciclo
             
+            time_elapsed_ += control_dt; // Incrementa el tiempo transcurrido
         }
 
     };
