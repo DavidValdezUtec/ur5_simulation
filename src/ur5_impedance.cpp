@@ -226,8 +226,31 @@ Eigen::VectorXd impedanceControlPythonStyle(
 
     // Actualizar J_anterior para la próxima iteración
     J_anterior = J;
+    pinocchio::crba(model, data, q); // Asegura que la matriz M de Pinocchio esté actualizada
+    Eigen::MatrixXd M_current = (data).M;
+    Eigen::MatrixXd M_inv_current;
+    if (M_current.determinant() == 0) {
+        M_inv_current = M_current.completeOrthogonalDecomposition().pseudoInverse();
+    } else {
+        M_inv_current = M_current.inverse();
+    }
 
-    return tau;
+    // Calcula los términos no lineales C y G para el cálculo de qdd
+    // Necesarios para qdd = M_inv * (tau - (C+G))
+    pinocchio::computeCoriolisMatrix(model, data, q, dq);
+    pinocchio::computeGeneralizedGravity(model, data, q);
+    Eigen::VectorXd C_plus_G = (data).nle; // nle = Coriolis + Gravity
+
+    // Calcula la aceleración articular deseada
+    Eigen::VectorXd qdd_calculated = M_inv_current * (tau - C_plus_G);
+    Eigen::VectorXd q_solution;
+    Eigen::VectorXd qd_solution;
+    // Integrar para obtener nuevas velocidades y posiciones articulares
+
+
+    qd_solution =dq + qdd_calculated * 0.01;
+    q_solution = q + qd_solution * 0.01;
+    return q_solution;
 }
 Eigen::VectorXd impedanceControl_OnlyStiffness(
     const pinocchio::Model& model,
@@ -276,6 +299,7 @@ class UR5eJointController : public rclcpp::Node {
             initializeUR5(model, data, tool_frame_id, urdf_path);            // Publicador para enviar trayectorias
             joint_trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(control_topic, 10);
     
+            
             // Suscriptor para leer el estado articular actual
             subscription_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&UR5eJointController::update_joint_positions, this, std::placeholders::_1));            
                 // Suscriptor para leer la posición cartesiana del haptic phantom
@@ -362,6 +386,7 @@ class UR5eJointController : public rclcpp::Node {
             x_des(0) = x_des_[0]; x_des(1) = x_des_[1]; x_des(2) = x_des_[2];
             
             
+            
             auto start = std::chrono::high_resolution_clock::now();
             Eigen::Quaterniond desired_orientation_quat(qt_[0], qt_[1], qt_[2], qt_[3]); // w, x, y, z
             desired_orientation_quat.normalize();
@@ -393,7 +418,7 @@ class UR5eJointController : public rclcpp::Node {
                 // Para este ejemplo, asumiremos que se reciben rápidamente.
             }
 
-            Eigen::VectorXd tau = impedanceControlPythonStyle(
+            Eigen::VectorXd q_solution = impedanceControlPythonStyle(
                 *model, *data, tool_frame_id, q_, qd_,
                 desired_pose_eigen, // pinocchio::SE3 xdes
                 dx_des,             // Eigen::VectorXd dxdes
@@ -405,7 +430,7 @@ class UR5eJointController : public rclcpp::Node {
                                     // y usarlo en el siguiente ciclo.
             );
             //Eigen::VectorXd tau = impedanceControl_OnlyStiffness( *model, *data,   q_,       q_des,    K[0]);
-
+            
             /* Para simular el comportamiento del robot con estos torques,
             necesitamos la dinámica inversa para obtener la aceleración articular:
             tau = M * qdd + C + G
@@ -424,31 +449,31 @@ class UR5eJointController : public rclcpp::Node {
             usar el `tau` calculado para determinar `qdd`, y luego integrar `qdd` a `qd` y `q`.
             Esto es lo que estabas haciendo antes: */
 
-            pinocchio::crba(*model, *data, q_); // Asegura que la matriz M de Pinocchio esté actualizada
-            Eigen::MatrixXd M_current = (*data).M;
-            Eigen::MatrixXd M_inv_current;
-            if (M_current.determinant() == 0) {
-                RCLCPP_WARN(this->get_logger(), "Matriz de inercia singular al final del ciclo. Usando pseudo-inversa.");
-                M_inv_current = M_current.completeOrthogonalDecomposition().pseudoInverse();
-            } else {
-                M_inv_current = M_current.inverse();
-            }
+            // pinocchio::crba(*model, *data, q_); // Asegura que la matriz M de Pinocchio esté actualizada
+            // Eigen::MatrixXd M_current = (*data).M;
+            // Eigen::MatrixXd M_inv_current;
+            // if (M_current.determinant() == 0) {
+            //     RCLCPP_WARN(this->get_logger(), "Matriz de inercia singular al final del ciclo. Usando pseudo-inversa.");
+            //     M_inv_current = M_current.completeOrthogonalDecomposition().pseudoInverse();
+            // } else {
+            //     M_inv_current = M_current.inverse();
+            // }
 
-            // Calcula los términos no lineales C y G para el cálculo de qdd
-            // Necesarios para qdd = M_inv * (tau - (C+G))
-            pinocchio::computeCoriolisMatrix(*model, *data, q_, qd_);
-            pinocchio::computeGeneralizedGravity(*model, *data, q_);
-            Eigen::VectorXd C_plus_G = (*data).nle; // nle = Coriolis + Gravity
+            // // Calcula los términos no lineales C y G para el cálculo de qdd
+            // // Necesarios para qdd = M_inv * (tau - (C+G))
+            // pinocchio::computeCoriolisMatrix(*model, *data, q_, qd_);
+            // pinocchio::computeGeneralizedGravity(*model, *data, q_);
+            // Eigen::VectorXd C_plus_G = (*data).nle; // nle = Coriolis + Gravity
 
-            // Calcula la aceleración articular deseada
-            Eigen::VectorXd qdd_calculated = M_inv_current * (tau - C_plus_G);
-            Eigen::VectorXd q_solution;
-            Eigen::VectorXd qd_solution;
-            // Integrar para obtener nuevas velocidades y posiciones articulares
+            // // Calcula la aceleración articular deseada
+            // Eigen::VectorXd qdd_calculated = M_inv_current * (tau - C_plus_G);
+            // Eigen::VectorXd q_solution;
+            // Eigen::VectorXd qd_solution;
+            // // Integrar para obtener nuevas velocidades y posiciones articulares
 
 
-            qd_solution =qd_ + qdd_calculated * control_dt;
-            q_solution = q_ + qd_solution * control_dt;
+            // qd_solution =qd_ + qdd_calculated * control_dt;
+            // q_solution = q_ + qd_solution * control_dt;
 
 
             for (int i = 0; i < 6; ++i) {
