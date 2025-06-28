@@ -30,6 +30,12 @@
     w         x        y       z
 
 
+
+//CONTROLADOR    1-imoednacia 2-optmizador
+1
+
+
+
 ros2 topic pub /joint_trajectory_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory '{header: {stamp: {sec: 0, nanosec: 0}, frame_id: ""}, joint_names: ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"], points: [{positions: [0.0, -1.57, 1.07, 0.80, 1.57, 0.0], velocities: [], accelerations: [], time_from_start: {sec: 2, nanosec: 0}}]}'
 
 ros2 launch ur_calibration calibration_correction.launch.py \

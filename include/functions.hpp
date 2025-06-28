@@ -337,7 +337,7 @@ Eigen::VectorXd inverseKinematicsQP(const pinocchio::Model& model, pinocchio::Da
 }
 
 
-Eigen::VectorXd Cinematica_Inversa(double q_init[],  double desired_pose[], 
+Eigen::VectorXd Cinematica_Inversa(const Eigen::VectorXd& q_init,  double desired_pose[], 
                                    double desired_quat[],  int max_iteraciones,    double alpha,
                                    std::unique_ptr<pinocchio::Model>& model,  std::unique_ptr<pinocchio::Data>& data,
                                    pinocchio::FrameIndex& tool_frame_id) {
@@ -345,10 +345,7 @@ Eigen::VectorXd Cinematica_Inversa(double q_init[],  double desired_pose[],
 
     //initializeUR5(model, data, tool_frame_id, path_urdf);
 
-    Eigen::VectorXd q_init_eigen(6);
-    for (int i = 0; i < 6; ++i) {
-        q_init_eigen(i) = q_init[i];
-    }
+    
     //Eigen::Matrix3d orientation = Rotx(desired_quat[0])*Roty(desired_quat[1])*Rotz(desired_quat[2]);//Eigen::Matrix3d::Identity();
    
     //desired_quat = {0.54, -0.84, 0, 0.04}; donde w 
@@ -359,7 +356,7 @@ Eigen::VectorXd Cinematica_Inversa(double q_init[],  double desired_pose[],
     cout<<"desired_pose_eigen: \n"<<desired_pose_eigen<<endl;
 
     auto start = std::chrono::high_resolution_clock::now();
-    Eigen::VectorXd q_solution = inverseKinematicsQP(*model, *data, tool_frame_id, q_init_eigen, desired_pose_eigen, max_iteraciones , alpha);
+    Eigen::VectorXd q_solution = inverseKinematicsQP(*model, *data, tool_frame_id, q_init, desired_pose_eigen, max_iteraciones , alpha);
     auto end = std::chrono::high_resolution_clock::now();
 
     std::cout << "Tiempo total: " << std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() << " ns" << std::endl;
@@ -478,24 +475,38 @@ void moveGripper(modbus_t* ctx, uint8_t position, uint8_t force) {
     sendRawWithCRC(ctx, cmd, sizeof(cmd) - 2);
 }
 
-
 Eigen::VectorXd impedanceControlPythonStyle(
     const pinocchio::Model& model,
     pinocchio::Data& data,
     const pinocchio::FrameIndex& tool_frame_id,
     const Eigen::VectorXd& q,
     const Eigen::VectorXd& dq,
-    const pinocchio::SE3& desired_pose, // Para xdes
-    const Eigen::VectorXd& dx_des,      // ddxdes
-    const Eigen::VectorXd& ddx_des,     // ddxdes
-    const Eigen::Matrix<double,6,6>& Kp_task, // Matriz de rigidez (Kd en Python)
-    const Eigen::Matrix<double,6,6>& Kd_task, // Matriz de amortiguamiento (Bd en Python)
+    string config_path,
+    double qt_[4], // Cuaternión deseado (w, x, y, z)
+    double x_des[3], // Para xdes
     double dt,
     Eigen::MatrixXd& J_anterior // Pasado por referencia para actualizar y usar
 ) {
     // 1. Cinemática directa y Jacobiano actual
     pinocchio::forwardKinematics(model, data, q, dq);
     pinocchio::updateFramePlacement(model, data, tool_frame_id);
+    Eigen::VectorXd dx_des;   
+    dx_des = Eigen::VectorXd::Zero(6);
+    Eigen::VectorXd ddx_des;     // ddxdes
+    ddx_des = Eigen::VectorXd::Zero(6);
+    double K[6]; // Matriz de rigidez K
+    double B[6]; // Matriz de amortiguamiento B
+    load_values_from_file(config_path, K, 6, 23);       // Leer la 23ma línea para q_init del UR5
+    load_values_from_file(config_path, B, 6, 25);       // Leer la 25ma línea para q_init del UR5
+    Eigen::Matrix<double,6,6> Kp_task = Eigen::Matrix<double,6,6>::Identity();
+    Eigen::Matrix<double,6,6> Kd_task = Eigen::Matrix<double,6,6>::Identity();
+    Kp_task.diagonal() << K[0], K[1], K[2], K[3], K[4], K[5]; // Asigna los valores de K
+    Kd_task.diagonal() << B[0], B[1], B[2], B[3], B[4], B[5]; // Asigna los valores de B
+    
+    Eigen::Quaterniond desired_orientation_quat(qt_[0], qt_[1], qt_[2], qt_[3]); // w, x, y, z
+    desired_orientation_quat.normalize();
+    pinocchio::SE3 desired_pose_eigen(desired_orientation_quat.toRotationMatrix(), Eigen::Vector3d(x_des[0], x_des[1], x_des[2]));
+
 
     pinocchio::Data::Matrix6x J(6, model.nv);
     J.setZero();
@@ -516,7 +527,7 @@ Eigen::VectorXd impedanceControlPythonStyle(
     // 4. Calcular el error (xdes - x y dxdes - dx)
     // Para el error de posición/orientación, usaremos tu función computeError existente
     // que devuelve un vector 6x1 (pos_error, ang_error)
-    Eigen::VectorXd error_pose = computeError(data, tool_frame_id, desired_pose); // (x_d - x)
+    Eigen::VectorXd error_pose = computeError(data, tool_frame_id, desired_pose_eigen); // (x_d - x)
 
     // Error de velocidad (dx_des - dx_current_cartesian)
     Eigen::VectorXd error_velocity = dx_des - dx_current_cartesian; // (dx_d - dx)
@@ -606,7 +617,5 @@ Eigen::VectorXd impedanceControlPythonStyle(
 
     qd_solution =dq + qdd_calculated * 0.01;
     q_solution = q + qd_solution * 0.01;
-
-    return tau;
-    
+    return q_solution;
 }

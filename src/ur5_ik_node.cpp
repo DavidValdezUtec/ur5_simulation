@@ -14,11 +14,23 @@ class UR5eJointController : public rclcpp::Node {
             //llama constantes de config
             try {
                 load_values_from_file(config_path, q_init, 6, 7);       // Leer la 7ma línea para q_init del UR5
+                load_values_from_file(config_path, controlador, 1, 35);       // Leer la 7ma línea para q_init del UR5
+                load_values_from_file(config_path, qt_init_geo, 4, 11);       // Leer la 1va línea para qt_init del GeomagicTouch
             } catch (const std::exception &e) {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }
             try {
-                load_values_from_file(config_path, qt_init_geo, 4, 11);       // Leer la 1va línea para qt_init del GeomagicTouch
+                
+            if (controlador[0] == 1) {
+                control_loop_time = 1000; // 1 segundo
+                ur5_time = 0.1; // 20 milisegundos
+            } else if (controlador[0] == 2) {
+                control_loop_time = 1; // 1 milisegundo
+            } else if (controlador[0] == 3) {
+                control_loop_time = 1; // 1 segundo
+            } else {
+                RCLCPP_ERROR(this->get_logger(), "Controlador no válido. Debe ser 1, 2 o 3.");
+            }
             } catch (const std::exception &e) {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }
@@ -59,8 +71,12 @@ class UR5eJointController : public rclcpp::Node {
         Eigen::Quaterniond quat_initial_geo; 
         Eigen::Quaterniond quat_real_geo; 
         
-        
-        double q_[6] ;
+        Eigen::MatrixXd J_anterior= Eigen::MatrixXd::Zero(6, 6);
+
+        Eigen::VectorXd q_ = Eigen::VectorXd::Zero(6);
+        Eigen::VectorXd qd_ = Eigen::VectorXd::Zero(6);
+        Eigen::VectorXd q_solution = Eigen::VectorXd::Zero(6);
+
         double h_[6] ;
         double q_init[6];
         double x_init[3]; 
@@ -71,6 +87,7 @@ class UR5eJointController : public rclcpp::Node {
         int ur5_time = 0.01;
         double max_iteraciones[1];
         double alpha[1];
+        double controlador[1];
         
         sensor_msgs::msg::JointState::SharedPtr last_joint_state_;    
         rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
@@ -101,14 +118,11 @@ class UR5eJointController : public rclcpp::Node {
             }
             
             r_[0] = msg->pose.position.x;      r_[1] = msg->pose.position.y;       r_[2] = msg->pose.position.z;
-
    
             quat_real_geo.w() = msg->pose.orientation.w;
             quat_real_geo.x() = msg->pose.orientation.x;
             quat_real_geo.y() = msg->pose.orientation.y;
-            quat_real_geo.z() = msg->pose.orientation.z;
-
-            
+            quat_real_geo.z() = msg->pose.orientation.z;           
                         
         }    
             
@@ -116,19 +130,26 @@ class UR5eJointController : public rclcpp::Node {
         // POSICIONES ARTICULARES DEL UR5
         void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
             last_joint_state_ = msg;
+            bool implementacion = false; // Variable para determinar si se implementa la cinemática inversa
             if (implementacion){
-                q_[0] = msg->position[5];
-                q_[1] = msg->position[0];
-                q_[2] = msg->position[1];
-                q_[3] = msg->position[2];
-                q_[4] = msg->position[3];
-                q_[5] = msg->position[4];
+                q_[0] = msg->position[5];           qd_[0] = msg->velocity[5];
+                q_[1] = msg->position[0];           qd_[1] = msg->velocity[0];
+                q_[2] = msg->position[1];           qd_[2] = msg->velocity[1];
+                q_[3] = msg->position[2];           qd_[3] = msg->velocity[2];
+                q_[4] = msg->position[3];           qd_[4] = msg->velocity[3];
+                q_[5] = msg->position[4];           qd_[5] = msg->velocity[4];
             }
             else{
                 for (int i = 0; i < 6; ++i) {
                     q_[i] = msg->position[i];
+                    qd_[i] = msg->velocity[i];
+
                 }
             }
+            // Imprimir las posiciones articulares
+            //RCLCPP_INFO(this->get_logger(), "Posiciones articulares: %.4f %.4f %.4f %.4f %.4f %.4f",   q_[0], q_[1], q_[2], q_[3], q_[4], q_[5]);
+            // Imprimir las velocidades articulares
+            //RCLCPP_INFO(this->get_logger(), "Velocidades articulares: %.4f %.4f %.4f %.4f %.4f %.4f",  qd_[0], qd_[1], qd_[2], qd_[3], qd_[4], qd_[5]);
         }
         
         void phantom_joint_states_callback(const sensor_msgs::msg::JointState::SharedPtr msg) {
@@ -167,14 +188,15 @@ class UR5eJointController : public rclcpp::Node {
             RCLCPP_INFO(this->get_logger(), "Enviando posición inicial: %.2f %.2f %.2f %.2f %.2f %.2f",
                         q_init[0], q_init[1], q_init[2], q_init[3], q_init[4], q_init[5]);
             point.positions = {q_init[0], q_init[1], q_init[2], q_init[3], q_init[4], q_init[5]};
-            point.time_from_start = rclcpp::Duration::from_seconds(1);
+
+            point.time_from_start = rclcpp::Duration::from_seconds(4); // El tiempo de control
             trajectory_msg.points.push_back(point);
             joint_trajectory_pub_->publish(trajectory_msg);
 
             // Verificar si la posición actual coincide con la posición inicial
             bool posicion_correcta = true;
             for (int i = 0; i < 6; ++i) {
-                cout<<"posicion del ur5"<<q_[0]<<" "<<q_[1]<<" "<<q_[2]<<" "<<q_[3]<<" "<<q_[4]<<" "<<q_[5]<<endl;
+                cout<<"posicion del ur5"<<q_<<endl;
                 cout<<"diferencia articular: "<<q_[i] - q_init[i]<<endl;
                 if (std::abs(q_[i] - q_init[i]) > 0.01) { // Tolerancia de 0.01 radianes
                     posicion_correcta = false;
@@ -182,7 +204,7 @@ class UR5eJointController : public rclcpp::Node {
                 }
             }
             // imprimir la pos cartesiana del UR5
-            pinocchio::forwardKinematics(*model, *data, Eigen::Map<Eigen::VectorXd>(q_, 6));
+            pinocchio::forwardKinematics(*model, *data, q_); //Eigen::Map<Eigen::VectorXd>(q_, 6) -> converite duble[] a eigen::vector
             pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
             cout<< "x: "<< data->oMf[tool_frame_id].translation()[0]<<" y: "<< data->oMf[tool_frame_id].translation()[1]<<" z: "<< data->oMf[tool_frame_id].translation()[2]<<endl; 
             //cout<< "quat: "<< data->oMf[tool_frame_id].rotation().w()<<" "<< data->oMf[tool_frame_id].rotation().x()<<" "<< data->oMf[tool_frame_id].rotation().y()<<" "<< data->oMf[tool_frame_id].rotation().z()<<endl;
@@ -302,28 +324,36 @@ class UR5eJointController : public rclcpp::Node {
             }
             
             double rot_des[4] = {current_orientation.w(), current_orientation.x(), current_orientation.y(), current_orientation.z()};
-          
-
-            Eigen::VectorXd q_solution = Cinematica_Inversa(q_, x_des,rot_des, max_iteraciones[0], alpha[0], model, data, tool_frame_id);
-            // Verificar si la solución es válida
-            if (!q_solution.allFinite()) {
+            
+            if (controlador[0] == 1) {
+                // Controlador de impedancia
+                cout<<"Controlador de impedancia"<<endl;
+                q_solution = impedanceControlPythonStyle(*model,*data,tool_frame_id,q_,qd_,config_path,rot_des,x_des,0.01,J_anterior);
+                if (!q_solution.allFinite()) {
+                    RCLCPP_ERROR(this->get_logger(), "La solución de IK no es válida.");
+                    return;
+                }
+            } else if (controlador[0] == 2) {
+                // Cinemática inversa
+                cout<<"Cinemática inversa"<<endl;
+                q_solution = Cinematica_Inversa(q_, x_des,rot_des, max_iteraciones[0], alpha[0], model, data, tool_frame_id);
+                if (!q_solution.allFinite()) {
                 //
                 RCLCPP_ERROR(this->get_logger(), "La solución de IK no es válida.");
                 return;
             }
-            Eigen::VectorXd q_init_eigen(6);
-            for (int i = 0; i < 6; ++i) {
-                q_init_eigen(i) = q_[i];
-            }
-            
 
-            if ((q_init_eigen-q_solution).norm() > 1) {
+            }
+            // Verificar si la solución es válida
+           
+
+            if ((q_-q_solution).norm() > 1) {
                 RCLCPP_ERROR(this->get_logger(), "La diferencia entre la posición inicial y la solución es demasiado grande.");
-                q_solution = q_init_eigen;
+                q_solution = q_;
                 
             }
-            if ((q_init_eigen-q_solution).norm() < 0.001) {               
-                q_solution = q_init_eigen;
+            if ((q_-q_solution).norm() < 0.001) {       // si la diferencia entre la posición inicial y la solución es muy pequeña, se usa la posición actual         
+                q_solution = q_;
                 
             }
             cout<<"q_enviado"<<q_solution[0]<<" "<<q_solution[1]<<" "<<q_solution[2]<<" "<<q_solution[3]<<" "<<q_solution[4]<<" "<<q_solution[5]<<endl;
@@ -421,21 +451,7 @@ class JointTrajectoryPublisher : public rclcpp::Node
 
 
 int main(int argc, char **argv) {
-    std::system("sudo chmod 666 /dev/ttyUSB0"); // En Linux, lista los archivos en el directorio actual
-
-    modbus_t* ctx = modbus_new_rtu("/dev/ttyUSB0", 115200, 'N', 8, 1);
-    if (!ctx || modbus_set_slave(ctx, SLAVE_ID) == -1 || modbus_connect(ctx) == -1) {
-        std::cerr << "Error al configurar Modbus\n";
-    }
-
-    // Cambiar aquí la posición (0-255) y fuerza (0-255)
-    sleep(2);
-    moveGripper(ctx, 33, 255);  // Mitad cerrado con fuerza alta
-    sleep(5);
-    moveGripper(ctx, 77, 150);    // Abrir con fuerza media
-
-    modbus_close(ctx);
-    modbus_free(ctx);
+    
     // Inicializar ROS2
     int l;int l3;
     cout<<"Simulacion o Implementacion? 1.-Simulacion 2.-Implementacion"<<endl;cin>>l3;
@@ -514,7 +530,7 @@ int main(int argc, char **argv) {
         std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos
         pinocchio::FrameIndex tool_frame_id;
         initializeUR5(model, data, tool_frame_id, urdf_path);
-        Eigen::VectorXd q_result = Cinematica_Inversa(q_init, desired_pose,rot_des, max_iteraciones[0], alpha[0], model, data, tool_frame_id);
+        Eigen::VectorXd q_result = Cinematica_Inversa(Eigen::Map<Eigen::VectorXd>(q_init, 6), desired_pose,rot_des, max_iteraciones[0], alpha[0], model, data, tool_frame_id);
         cout << "Resultado de la cinemática inversa: " << q_result.transpose() << endl; 
     } else if (l == 4) {
         rclcpp::init(argc, argv);

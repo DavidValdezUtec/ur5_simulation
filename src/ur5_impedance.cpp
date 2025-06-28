@@ -129,17 +129,32 @@ Eigen::VectorXd impedanceControlPythonStyle(
     const pinocchio::FrameIndex& tool_frame_id,
     const Eigen::VectorXd& q,
     const Eigen::VectorXd& dq,
-    const pinocchio::SE3& desired_pose, // Para xdes
-    const Eigen::VectorXd& dx_des,      // ddxdes
-    const Eigen::VectorXd& ddx_des,     // ddxdes
-    const Eigen::Matrix<double,6,6>& Kp_task, // Matriz de rigidez (Kd en Python)
-    const Eigen::Matrix<double,6,6>& Kd_task, // Matriz de amortiguamiento (Bd en Python)
+    string config_path,
+    double qt_[4], // Cuaternión deseado (w, x, y, z)
+    double x_des[3], // Para xdes
     double dt,
     Eigen::MatrixXd& J_anterior // Pasado por referencia para actualizar y usar
 ) {
     // 1. Cinemática directa y Jacobiano actual
     pinocchio::forwardKinematics(model, data, q, dq);
     pinocchio::updateFramePlacement(model, data, tool_frame_id);
+    Eigen::VectorXd dx_des;   
+    dx_des = Eigen::VectorXd::Zero(6);
+    Eigen::VectorXd ddx_des;     // ddxdes
+    ddx_des = Eigen::VectorXd::Zero(6);
+    double K[6]; // Matriz de rigidez K
+    double B[6]; // Matriz de amortiguamiento B
+    load_values_from_file(config_path, K, 6, 23);       // Leer la 23ma línea para q_init del UR5
+    load_values_from_file(config_path, B, 6, 25);       // Leer la 25ma línea para q_init del UR5
+    Eigen::Matrix<double,6,6> Kp_task = Eigen::Matrix<double,6,6>::Identity();
+    Eigen::Matrix<double,6,6> Kd_task = Eigen::Matrix<double,6,6>::Identity();
+    Kp_task.diagonal() << K[0], K[1], K[2], K[3], K[4], K[5]; // Asigna los valores de K
+    Kd_task.diagonal() << B[0], B[1], B[2], B[3], B[4], B[5]; // Asigna los valores de B
+    
+    Eigen::Quaterniond desired_orientation_quat(qt_[0], qt_[1], qt_[2], qt_[3]); // w, x, y, z
+    desired_orientation_quat.normalize();
+    pinocchio::SE3 desired_pose_eigen(desired_orientation_quat.toRotationMatrix(), Eigen::Vector3d(x_des[0], x_des[1], x_des[2]));
+
 
     pinocchio::Data::Matrix6x J(6, model.nv);
     J.setZero();
@@ -160,7 +175,7 @@ Eigen::VectorXd impedanceControlPythonStyle(
     // 4. Calcular el error (xdes - x y dxdes - dx)
     // Para el error de posición/orientación, usaremos tu función computeError existente
     // que devuelve un vector 6x1 (pos_error, ang_error)
-    Eigen::VectorXd error_pose = computeError(data, tool_frame_id, desired_pose); // (x_d - x)
+    Eigen::VectorXd error_pose = computeError(data, tool_frame_id, desired_pose_eigen); // (x_d - x)
 
     // Error de velocidad (dx_des - dx_current_cartesian)
     Eigen::VectorXd error_velocity = dx_des - dx_current_cartesian; // (dx_d - dx)
@@ -252,13 +267,8 @@ Eigen::VectorXd impedanceControlPythonStyle(
     q_solution = q + qd_solution * 0.01;
     return q_solution;
 }
-Eigen::VectorXd impedanceControl_OnlyStiffness(
-    const pinocchio::Model& model,
-    pinocchio::Data& data,
-    const Eigen::VectorXd& q,
-    const Eigen::VectorXd& q_desired,
-    double K_val // Valor escalar para K
-) {
+Eigen::VectorXd impedanceControl_OnlyStiffness(    const pinocchio::Model& model,    pinocchio::Data& data,    const Eigen::VectorXd& q,    const Eigen::VectorXd& q_desired,    double K_val )
+ {
     // Calculamos los términos dinámicos por si acaso (aunque no se usen directamente en esta ecuación simple)
     pinocchio::computeAllTerms(model, data, q, Eigen::VectorXd::Zero(model.nv)); // dq=0 para Coriolis y gravedad estática
     Eigen::VectorXd tau_ext = Eigen::Matrix<double,6,1>::Zero();
@@ -279,16 +289,12 @@ class UR5eJointController : public rclcpp::Node {
             q_des<< 1.0,-1.57,1.57,0,0,0; // Asigna los valores deseados
 
             qd_ = Eigen::VectorXd::Zero(6); // Inicializa con 6 elementos, todos a cero
-            qd_anterior = Eigen::VectorXd::Zero(6); // Inicializa con 6 elementos, todos a cero
             qdd_ = Eigen::VectorXd::Zero(6); // Inicializa con 6 elementos, todos a cero
 
             q_init = Eigen::VectorXd::Zero(6); // Inicializa con 6 elementos, todos a cero
             q_init << 0,-1.57,1.57,0,0,0; // Asigna los valores deseados
 
-            x_des = Eigen::Vector3d::Zero(); // Inicializa con 3 elementos, todos a cero
 
-            dx_des = Eigen::VectorXd::Zero(6); // Inicializa con 3 elementos, todos a cero
-            ddx_des = Eigen::VectorXd::Zero(6); // Inicializa con 3 elementos, todos a cero
             try {
                 load_values_from_file(config_path, control_loop_time, 1, 21);       // Leer la 7ma línea para q_init del UR5
             } catch (const std::exception &e) {
@@ -320,13 +326,9 @@ class UR5eJointController : public rclcpp::Node {
         Eigen::VectorXd q_ = Eigen::VectorXd::Zero(6);
         Eigen::VectorXd q_des;
         Eigen::VectorXd qd_;
-        Eigen::VectorXd qd_anterior;
         Eigen::VectorXd qdd_;
 
         Eigen::VectorXd q_init; // Inicialización de las posiciones articulares del UR50
-        Eigen::Vector3d x_des; // Posición deseada del UR5
-        Eigen::VectorXd dx_des; // Velocidad deseada del UR5 en espacio cartesiano
-        Eigen::VectorXd ddx_des;
         double K[6];
         double B[6];
         double control_loop_time[1]; 
@@ -376,21 +378,17 @@ class UR5eJointController : public rclcpp::Node {
         
         void posicion_inicial() {
             try {
-                load_values_from_file(config_path, K, 6, 23);       // Leer la 23ma línea para q_init del UR5
-                load_values_from_file(config_path, B, 6, 25);       // Leer la 25ma línea para q_init del UR5
+                
                 load_values_from_file(config_path, qt_,4, 29);
                 load_values_from_file(config_path, x_des_,3, 27);
             } catch (const std::exception &e) {
                 cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
             }
-            x_des(0) = x_des_[0]; x_des(1) = x_des_[1]; x_des(2) = x_des_[2];
             
             
             
             auto start = std::chrono::high_resolution_clock::now();
-            Eigen::Quaterniond desired_orientation_quat(qt_[0], qt_[1], qt_[2], qt_[3]); // w, x, y, z
-            desired_orientation_quat.normalize();
-            pinocchio::SE3 desired_pose_eigen(desired_orientation_quat.toRotationMatrix(), x_des);
+            
 
             // 2. Define las ganancias Kp y Kd (6x6 matrices, como las de tu Python)
             // Los valores son solo ejemplos, DEBEN SER SINTONIZADOS para tu robot
@@ -420,15 +418,13 @@ class UR5eJointController : public rclcpp::Node {
 
             Eigen::VectorXd q_solution = impedanceControlPythonStyle(
                 *model, *data, tool_frame_id, q_, qd_,
-                desired_pose_eigen, // pinocchio::SE3 xdes
-                dx_des,             // Eigen::VectorXd dxdes
-                ddx_des,            // Eigen::VectorXd ddxdes
-                Kp_impedancia_py,   // Kp (Kd en Python)
-                Kd_impedancia_py,   // Kd (Bd en Python)
+                  config_path,// Kd (Bd en Python)
+                qt_, // Cuaternión deseado (w, x, y, z)
+                x_des_, // Para xdes
                 control_dt,
-                J_anterior          // Se pasará por referencia para actualizar J_anterior dentro de la función
+                J_anterior);         // Se pasará por referencia para actualizar J_anterior dentro de la función
                                     // y usarlo en el siguiente ciclo.
-            );
+           
             //Eigen::VectorXd tau = impedanceControl_OnlyStiffness( *model, *data,   q_,       q_des,    K[0]);
             
             /* Para simular el comportamiento del robot con estos torques,
@@ -449,31 +445,7 @@ class UR5eJointController : public rclcpp::Node {
             usar el `tau` calculado para determinar `qdd`, y luego integrar `qdd` a `qd` y `q`.
             Esto es lo que estabas haciendo antes: */
 
-            // pinocchio::crba(*model, *data, q_); // Asegura que la matriz M de Pinocchio esté actualizada
-            // Eigen::MatrixXd M_current = (*data).M;
-            // Eigen::MatrixXd M_inv_current;
-            // if (M_current.determinant() == 0) {
-            //     RCLCPP_WARN(this->get_logger(), "Matriz de inercia singular al final del ciclo. Usando pseudo-inversa.");
-            //     M_inv_current = M_current.completeOrthogonalDecomposition().pseudoInverse();
-            // } else {
-            //     M_inv_current = M_current.inverse();
-            // }
-
-            // // Calcula los términos no lineales C y G para el cálculo de qdd
-            // // Necesarios para qdd = M_inv * (tau - (C+G))
-            // pinocchio::computeCoriolisMatrix(*model, *data, q_, qd_);
-            // pinocchio::computeGeneralizedGravity(*model, *data, q_);
-            // Eigen::VectorXd C_plus_G = (*data).nle; // nle = Coriolis + Gravity
-
-            // // Calcula la aceleración articular deseada
-            // Eigen::VectorXd qdd_calculated = M_inv_current * (tau - C_plus_G);
-            // Eigen::VectorXd q_solution;
-            // Eigen::VectorXd qd_solution;
-            // // Integrar para obtener nuevas velocidades y posiciones articulares
-
-
-            // qd_solution =qd_ + qdd_calculated * control_dt;
-            // q_solution = q_ + qd_solution * control_dt;
+            
 
 
             for (int i = 0; i < 6; ++i) {
@@ -502,12 +474,10 @@ class UR5eJointController : public rclcpp::Node {
             pinocchio::SE3 current_pose = (*data).oMf[tool_frame_id];
             Eigen::Vector3d current_position = current_pose.translation();
             Eigen::Quaterniond current_orientation(current_pose.rotation());
-            cout << "Posición deseada del UR5: " << x_des.transpose() << std::endl;
+            cout << "Posición deseada del UR5: " << x_des_[0] << ", " << x_des_[1] << ", " << x_des_[2] << std::endl;
             cout << "Posición actual del UR5: " << current_position.transpose() << std::endl;
-
-            // J_anterior se actualiza dentro de impedanceControlPythonStyle, no aquí
-            qd_anterior = qd_; // Actualizar qd_anterior para el cálculo de qdd_ en el próximo ciclo
             
+            // J_anterior se actualiza dentro de impedanceControlPythonStyle, no aquí
             time_elapsed_ += control_dt; // Incrementa el tiempo transcurrido
         }
 
