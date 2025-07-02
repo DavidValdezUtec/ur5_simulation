@@ -1,6 +1,6 @@
 
 #include "functions.hpp"
-
+string ur = "";
 
 class UR5eJointController : public rclcpp::Node {
     public:
@@ -103,8 +103,7 @@ class UR5eJointController : public rclcpp::Node {
         pinocchio::FrameIndex tool_frame_id; 
 
         std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
-        std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
-
+        std::string urdf_path = get_file_path("ur5_simulation", "include/" + ur + ".urdf");
         std::string ur5_pos = get_file_path("ur5_simulation",     "launch/output_data3.txt");
         std::string control_pos = get_file_path("ur5_simulation",     "launch/output_data2.txt");
         std::string geo_pos = get_file_path("ur5_simulation",     "launch/output_data.txt");
@@ -130,7 +129,7 @@ class UR5eJointController : public rclcpp::Node {
         // POSICIONES ARTICULARES DEL UR5
         void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
             last_joint_state_ = msg;
-            bool implementacion = false; // Variable para determinar si se implementa la cinemática inversa
+            //bool implementacion = false; // Variable para determinar si se implementa la cinemática inversa
             if (implementacion){
                 q_[0] = msg->position[5];           qd_[0] = msg->velocity[5];
                 q_[1] = msg->position[0];           qd_[1] = msg->velocity[0];
@@ -389,7 +388,7 @@ class JointTrajectoryPublisher : public rclcpp::Node
         {
             initializeUR5(model, data, tool_frame_id, urdf_path);
             publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
-                "/joint_trajectory_controller/joint_trajectory", 10);
+                control_topic, 10);
 
             timer_ = this->create_wall_timer(
                 std::chrono::seconds(1),
@@ -458,9 +457,31 @@ int main(int argc, char **argv) {
     if (l3==1){
         implementacion = false;
         control_topic = "/joint_trajectory_controller/joint_trajectory";
+        cout<<"Elija robot: 1.-UR5 \n 2.-UR5e"<<endl;cin>>l;
+        if (l == 1) {
+            cout<<"UR5"<<endl;
+            ur = "ur5";
+        } else if (l == 2) {
+            cout<<"UR5e"<<endl;
+            ur = "ur5e";
+        } else {
+            cout<<"Opcion no valida"<<endl;
+            return 0;
+        }
     }else if (l3 ==2){
         implementacion = true;
         control_topic = "/scaled_joint_trajectory_controller/joint_trajectory";
+        cout<<"Elija robot: 1.-UR5 \n 2.-UR5e"<<endl;cin>>l;
+        if (l == 1) {
+            cout<<"UR5"<<endl;
+            ur = "ur5";
+        } else if (l == 2) {
+            cout<<"UR5e"<<endl;
+            ur = "ur5e";
+        } else {
+            cout<<"Opcion no valida"<<endl;
+            return 0;
+        }
     }
     
     cout<<"Elija:\n1.-Control con Geomagic\n2.-Trayectoria\n3.-Solo Inversa\n4.-Movimiento Articualar"<<endl;cin>> l;
@@ -491,7 +512,7 @@ int main(int argc, char **argv) {
     } else if (l == 3) {
         cout<<"Solo Inversa"<<endl;
         std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
-        std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
+        std::string urdf_path = get_file_path("ur5_simulation",   "include/"+ur+".urdf");
 
         double q_init[6];        
         double desired_pose[3];        

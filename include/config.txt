@@ -4,7 +4,7 @@
 
 
 //CONFIGURACION UR5: 
--1.57, -1.91, 1.638, -2.488, -1.57, 0.0
+1.509709803, -2.03697, 1.78547, 0.86656, 1.57, 0.0
 
 
 //CONFIGURACION GEOMAGIG:
@@ -32,7 +32,7 @@
 
 
 //CONTROLADOR    1-imoednacia 2-optmizador
-1
+2
 
 
 

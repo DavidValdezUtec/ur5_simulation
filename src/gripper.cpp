@@ -43,7 +43,7 @@ private:
         if (apretado){
             if (boton) {
             
-            moveGripper(ctx, 33, 255); 
+            moveGripper(ctx, 20, 255); 
             cout << "cerrado con fuerza alta" << std::endl;
             } else {
                 moveGripper(ctx, 77, 150); 

@@ -22,7 +22,7 @@ from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 
 def launch_setup(context, *args, **kwargs):
     # Inicializa ur_type con valor fijo
-    ur_type = "ur5"  # <-- Cambia aquí el valor fijo deseado
+    ur_type = LaunchConfiguration("ur_type")  # <-- Cambia aquí el valor fijo deseado
     safety_limits = LaunchConfiguration("safety_limits")
     safety_pos_margin = LaunchConfiguration("safety_pos_margin")
     safety_k_position = LaunchConfiguration("safety_k_position")
@@ -215,15 +215,15 @@ def launch_setup(context, *args, **kwargs):
 
 def generate_launch_description():
     declared_arguments = []
-    # Elimina la declaración de argumento para "ur_type"
-    # declared_arguments.append(
-    #     DeclareLaunchArgument(
-    #         "ur_type",
-    #         description="Type/series of used UR robot.",
-    #         choices=["ur3", "ur3e", "ur5", "ur5e", "ur10", "ur10e", "ur16e", "ur20", "ur30"],
-    #         default_value="ur5e",
-    #     )
-    # )
+    #Elimina la declaración de argumento para "ur_type"
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "ur_type",
+            description="Type/series of used UR robot.",
+            choices=["ur3", "ur3e", "ur5", "ur5e", "ur10", "ur10e", "ur16e", "ur20", "ur30"],
+            default_value="ur5e",
+        )
+    )
     declared_arguments.append(
         DeclareLaunchArgument(
             "safety_limits",
