@@ -30,7 +30,6 @@ set(EXECUTABLES
     ur5_ik_node
     ur5_impedance
     gripper
-    torque
 )
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
@@ -52,7 +51,6 @@ set(EXECUTABLES_WITH_LIBRARIES
     ur5_ik_node
     ur5_impedance
     gripper
-    torque
 )
 
 set(COMMON_LIBRARIES

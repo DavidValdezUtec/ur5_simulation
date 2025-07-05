@@ -37,9 +37,8 @@ target_link_libraries(torque
 )
 
 install(DIRECTORY 
-    src include DESTINATION share/${PROJECT_NAME})
-install(DIRECTORY include/ DESTINATION include)
-
+    src DESTINATION share/${PROJECT_NAME})
+    
 install(TARGETS torque
   DESTINATION lib/${PROJECT_NAME}
   )
