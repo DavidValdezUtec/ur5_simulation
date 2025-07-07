@@ -54,6 +54,7 @@ class UR5eJointController : public rclcpp::Node {
     
     private:
         bool posicion_inicial_alcanzada_ = false; // Bandera para sincronización
+        bool capturar_pose_inicial_ = false; // Bandera para capturar pose inicial
         double time_elapsed_;
         double previous_error_[3] = {0, 0, 0}; // Error anterior
         double error_[3] = {0, 0, 0}; // Error actual
@@ -69,6 +70,7 @@ class UR5eJointController : public rclcpp::Node {
         Eigen::Quaterniond q_x;        Eigen::Quaterniond q_y;        Eigen::Quaterniond q_z;        
         Eigen::Quaterniond quat_initial_UR5; 
         Eigen::Quaterniond quat_initial_geo; 
+        Eigen::Vector3d r_initial_geo;
         Eigen::Quaterniond quat_real_geo; 
         
         Eigen::MatrixXd J_anterior= Eigen::MatrixXd::Zero(6, 6);
@@ -166,6 +168,21 @@ class UR5eJointController : public rclcpp::Node {
         }
         
         void button_callback(const omni_msgs::msg::OmniButtonEvent::SharedPtr msg){
+            if (msg->grey_button == 1 && capturar_pose_inicial_) {
+                RCLCPP_INFO(this->get_logger(), "Botón gris presionado: Capturando pose inicial del Geomagic.");
+                for (int i = 0; i < 3; ++i) {
+                    r_initial_geo[i] = r_[i]; // Guarda la posición inicial del Geomagic
+                }
+                // Guarda la posición y orientación actuales del Geomagic
+                // Si tienes orientación, aquí puedes guardar el valor correcto
+                // Si tienes orientación en quat_real_geo:
+                qt_init_geo[0] = quat_real_geo.w();
+                qt_init_geo[1] = quat_real_geo.x();
+                qt_init_geo[2] = quat_real_geo.y();
+                qt_init_geo[3] = quat_real_geo.z();
+
+                capturar_pose_inicial_ = false; // Solo captura una vez
+            }
             if (msg->grey_button == 1) {
                 RCLCPP_INFO(this->get_logger(), "Botón gris presionado");
             }
@@ -211,6 +228,7 @@ class UR5eJointController : public rclcpp::Node {
             if (posicion_correcta) {
                 RCLCPP_INFO(this->get_logger(), "Posición inicial alcanzada.");
                 posicion_inicial_alcanzada_ = true;
+                capturar_pose_inicial_ = true;
             }
         }
 
@@ -263,7 +281,7 @@ class UR5eJointController : public rclcpp::Node {
             //axis.y() = -axis.y();
 
             // Escalar el ángulo (por ejemplo, a la mitad)
-            double escala = 0.2;
+            double escala = 0.5;
             Eigen::AngleAxisd aa_escalado(angle * escala, axis);
             
 
@@ -275,11 +293,11 @@ class UR5eJointController : public rclcpp::Node {
             cout<<"r_init: "<<r_[0]<<" "<<r_[1]<<" "<<r_[2]<<endl;
             time_elapsed_ += 0.01; // Incremento de 100 ms
             if (geomagic) {
-                int escala = 1.5;
+                int escala = 2.5;
                 // Si se está usando el haptic phantom, actualizar las posiciones
-                x_des[0] = -r_[0]*escala + x_init[0]; // -r_[0]*2+0.647514
-                x_des[1] = (x_init[1]- (r_[1]-0.0881142)*escala);
-                x_des[2] = (r_[2]+0.0655108)*escala + x_init[2];
+                x_des[0] = (r_[1]-r_initial_geo[1])*escala + x_init[0]; // -r_[0]*2+0.647514 //0.0881142
+                x_des[1] = (x_init[1]- (r_[0]-r_initial_geo[0])*escala);
+                x_des[2] = (r_[2]-r_initial_geo[2])*escala + x_init[2];
             }else {                
                 x_des[0] = x_init[0] + 0.1 * cos(2 * PI * 0.5 * time_elapsed_); // X_BASE + AMPLITUDE * cos(2 * PI * FREQUENCY * time_elapsed_)
                 x_des[1] = x_init[1] + 0.1 * sin(2 * PI * 0.5 * time_elapsed_);                                           // Y_CONST
