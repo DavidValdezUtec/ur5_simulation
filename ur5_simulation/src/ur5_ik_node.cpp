@@ -316,15 +316,26 @@ class UR5eJointController : public rclcpp::Node {
             // guarda la posicion del haptico en el archivo
             if (output_file_.is_open()) {
                 output_file_ << "Haptic Position: " << r_[0] << " " << r_[1] << " " << r_[2] << " ";
-                output_file_ << "Haptic Orientation (quaternion): " << qt_[0] << " " << qt_[1] << " " << qt_[2] << " " << qt_[3] << "\n";
+                output_file_ << "Haptic Orientation (quaternion): " << quat_trans_geo.w() << " " << quat_trans_geo.x() << " " << quat_trans_geo.y() << " " << quat_trans_geo.z() << "\n";
+
             }
+
+
+            //convierte la pocision articular a acartesiana y quaternion
+            pinocchio::forwardKinematics(*model, *data, q_);
+            pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
+            // Imprimir la posición cartesiana del UR5
+            
+
             // guarda la posicion del ur5 en el archivo
             if (output_file_3.is_open()) {
-                output_file_3 << "Joint Positions ur: ";
-                for (int i = 0; i < 6; ++i) {
-                    output_file_3 << q_[i] << " ";
-                }
-                output_file_3 << "\n";
+                output_file_3 << "Positions ur: "<<data->oMf[tool_frame_id].translation()[0]<<" "<<data->oMf[tool_frame_id].translation()[1]<<" "<<data->oMf[tool_frame_id].translation()[2]<<" ";  
+                output_file_3 << "Orientation (quaternion): "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).w()<<" "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).x()<<" "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).y()<<" "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).z()<<endl; 
+
+                // for (int i = 0; i < 6; ++i) {
+                //     output_file_3 << q_[i] << " ";
+                // }
+                // output_file_3 << "\n";
             }
 
             
@@ -374,14 +385,18 @@ class UR5eJointController : public rclcpp::Node {
                 
             }
             cout<<"q_enviado"<<q_solution[0]<<" "<<q_solution[1]<<" "<<q_solution[2]<<" "<<q_solution[3]<<" "<<q_solution[4]<<" "<<q_solution[5]<<endl;
-
+            pinocchio::forwardKinematics(*model, *data, q_solution);
+            pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
             //limit_joint_changes(q_, q_solution);
             if (output_file_2.is_open()) {
-                output_file_2 << "Joint Positions: ";
-                for (int i = 0; i < 6; ++i) {
-                    output_file_2 << q_solution[i] << " ";
-                }
-                output_file_2 << "\n";
+                output_file_2 << "Positions control: "<< data->oMf[tool_frame_id].translation()[0]<<" "<<data->oMf[tool_frame_id].translation()[1]<<" "<<data->oMf[tool_frame_id].translation()[2]<<" ";
+                output_file_2 << "Orientation (quaternion): "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).w()<<" "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).x()<<" "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).y()<<" "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).z()<<endl; 
+
+
+                // for (int i = 0; i < 6; ++i) {
+                //     output_file_2 << q_solution[i] << " ";
+                // }
+                // output_file_2 << "\n";
             }
 
             // Publicar las nuevas posiciones articulares

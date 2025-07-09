@@ -209,10 +209,7 @@ Eigen::VectorXd impedanceControlPythonStyle(
     // Una opción más robusta sería usar la pseudo-inversa de Md si es necesario.
     Eigen::Matrix<double,6,6> Md_inv;
     if (Md.determinant() == 0) {
-        // Esto puede ocurrir si J es singular, haciendo Md singular.
-        // Se podría usar la pseudo-inversa de Md para mayor robustez
-        // Md_inv = Md.completeOrthogonalDecomposition().pseudoInverse();
-        // Por simplicidad, por ahora lanzamos un error o manejamos la excepción
+        
         throw std::runtime_error("Matriz Md singular en impedanceControlPythonStyle.");
     } else {
         Md_inv = Md.inverse(); // np.linalg.pinv(Md) si Md es singular

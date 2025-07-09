@@ -550,10 +550,10 @@ Eigen::VectorXd impedanceControlPythonStyle(
     }
     // 6. Calcular Md (Matriz de inercia deseada en el espacio de tarea)
     // Asegurarse de usar pseudo-inversa como en Python
-    Eigen::MatrixXd J_pinv = J.completeOrthogonalDecomposition().pseudoInverse(); // np.linalg.pinv(J)
+    Eigen::MatrixXd J_pinv = J.inverse();//completeOrthogonalDecomposition().pseudoInverse(); // np.linalg.pinv(J)
 
     // Md = (J_pinv.T) * M * J_pinv
-    // Dimensiones: (6x6).transpose() * (6x6) * (6x6) = (6x6) * (6x6) * (6x6) = 6x6
+    // Dimensiones: (6x6).transpose() * (6x6) * (6x6) = (6x6) * (6x6) * (6x6) = 6x6 
     Eigen::Matrix<double,6,6> Md = J_pinv.transpose() * M * J_pinv;
 
     // Asegurarse de que Md sea invertible para Md.inverse()
