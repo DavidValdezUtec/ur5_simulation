@@ -588,7 +588,7 @@
   <link name="tool0"/>
   <joint name="flange-tool0" type="fixed">
     <!-- default toolframe - X+ left, Y+ up, Z+ front -->
-    <origin rpy="1.5707963267948966 0 1.5707963267948966" xyz="0.5 0 -0.05"/>
+    <origin rpy="1.5707963267948966 0 1.5707963267948966" xyz="0.63 0 -0.05"/>
     <parent link="flange"/>
     <child link="tool0"/>
   </joint>
