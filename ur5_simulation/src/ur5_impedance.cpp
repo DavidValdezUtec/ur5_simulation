@@ -193,8 +193,10 @@ Eigen::VectorXd impedanceControlPythonStyle(
     string config_path,
     double qt_[4], // Cuaternión deseado (w, x, y, z)
     double x_des[3], // Para xdes
-    double dt,
-    Eigen::MatrixXd& J_anterior // Pasado por referencia para actualizar y usar
+    Eigen::MatrixXd& J_anterior,
+    double dt=0.01,
+    const Eigen::Vector3d& v_des = Eigen::Vector3d::Zero(), // <-- valor por defecto
+    const Eigen::Vector3d& a_des = Eigen::Vector3d::Zero() 
 ) {
     // 1. Cinemática directa y Jacobiano actual
     pinocchio::forwardKinematics(model, data, q, dq);
@@ -204,8 +206,12 @@ Eigen::VectorXd impedanceControlPythonStyle(
     Eigen::MatrixXd dJ = (J - J_anterior) / dt; //7x6
     Eigen::VectorXd dx_current_cartesian = J * dq; // (7x6) * (6x1) = 7x1
 
-    Eigen::VectorXd vel_des;       vel_des = Eigen::VectorXd::Zero(7);
-    Eigen::VectorXd dvel_des;     dvel_des = Eigen::VectorXd::Zero(7);
+    Eigen::Vector4d vel_ori_d = Eigen::Vector4d::Zero();
+    Eigen::Vector4d acc_ori_d = Eigen::Vector4d::Zero();
+    Eigen::VectorXd vel_des(7), dvel_des(7);
+    vel_des << v_des, vel_ori_d;
+    dvel_des << a_des, acc_ori_d;
+    
     // Cargar valores de K y B desde el archivo de configuración
     double K[7]; load_values_from_file(config_path, K, 7, 23);       // 7 valores de K
     double B[7]; load_values_from_file(config_path, B, 7, 25);       // 7 valores de B
@@ -366,7 +372,7 @@ class UR5eJointController : public rclcpp::Node {
         double B[6];
         double control_loop_time[1]; 
         int ur5_time = 0.01;
-        string control_topic = "/scaled_joint_trajectory_controller/joint_trajectory";
+        string control_topic = "/joint_trajectory_controller/joint_trajectory";
         sensor_msgs::msg::JointState::SharedPtr last_joint_state_;    
         rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr subscription_;
@@ -387,7 +393,7 @@ class UR5eJointController : public rclcpp::Node {
         // POSICIONES ARTICULARES DEL UR5
         void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
             last_joint_state_ = msg;
-            bool implementacion = true; // Variable para determinar si se implementa la cinemática inversa
+            bool implementacion = false; // Variable para determinar si se implementa la cinemática inversa
             if (implementacion){
                 q_[0] = msg->position[5];           qd_[0] = msg->velocity[5];
                 q_[1] = msg->position[0];           qd_[1] = msg->velocity[0];
@@ -454,6 +460,7 @@ class UR5eJointController : public rclcpp::Node {
                 // Si no se ha alcanzado la posición inicial, no ejecutar el bucle de control
                 return;
             }
+            load_values_from_file(config_path, qt_,4, 29);
             // try {
                 
             //     load_values_from_file(config_path, qt_,4, 29);
@@ -468,12 +475,36 @@ class UR5eJointController : public rclcpp::Node {
                 x_init_set_ = true;
                 t_traj_ = 0.0;
             }
+            double c0 = 0.1;
+            double wn = 0.8;  // frecuencia angular (rad/s)
+            double Ax = 0.25, Ay = 0.25, Az = 0.15;  // Amplitudes
+            double exp_c0 = std::exp(-c0 * t_traj_);
 
+            // Trayectoria deseada A*sin()
+            double x_d = x_init_[0] + Ax * exp_c0 * std::sin(wn * t_traj_);
+            double y_d = x_init_[1] + Ay * exp_c0 * std::cos(wn * t_traj_);
+            double z_d = x_init_[2] + Az * exp_c0 * std::sin(wn * t_traj_);
+
+            // Velocidad deseada
+            double x_dot_d = Ax * ( -c0 * exp_c0 * std::sin(wn * t_traj_) + exp_c0 * wn * std::cos(wn * t_traj_) );
+            double y_dot_d = Ay * ( -c0 * exp_c0 * std::cos(wn * t_traj_) - exp_c0 * wn * std::sin(wn * t_traj_) );
+            double z_dot_d = Az * ( -c0 * exp_c0 * std::sin(wn * t_traj_) + exp_c0 * wn * std::cos(wn * t_traj_) );
+
+            // Aceleración deseada
+            double x_ddot_d = Ax * exp_c0 * ( (c0*c0 - wn*wn) * std::sin(wn*t_traj_) - 2*c0*wn * std::cos(wn*t_traj_) );
+            double y_ddot_d = Ay * exp_c0 * ( (c0*c0 - wn*wn) * std::cos(wn*t_traj_) + 2*c0*wn * std::sin(wn*t_traj_) );
+            double z_ddot_d = Az * exp_c0 * ( (c0*c0 - wn*wn) * std::sin(wn*t_traj_) - 2*c0*wn * std::cos(wn*t_traj_) );
+
+            Eigen::Vector3d vel_d(x_dot_d, y_dot_d, z_dot_d);
+            Eigen::Vector3d acc_d(x_ddot_d, y_ddot_d, z_ddot_d);
             // 2. Calcular la trayectoria deseada
             double A[3] = {0.1, 0.1, 0.1}; // Amplitud para cada eje (ajusta según tu necesidad)
-            for (int i = 0; i < 3; ++i) {
-                x_des_[i] = x_init_[i] + 0.1;//A[i] * sin(0.05 * t_traj_) * exp(-0.05 * t_traj_);
-            }
+            // for (int i = 0; i < 3; ++i) {
+            //     x_des_[i] = x_init_[i] + 0.1;//A[i] * sin(0.05 * t_traj_) * exp(-0.05 * t_traj_);
+            // }
+            x_des_[0] = x_d; // Asigna la posición deseada en x
+            x_des_[1] = y_d; // Asigna la posición deseada en y
+            x_des_[2] = z_d; // Asigna la posición deseada en z
 
             // 3. Incrementar t_traj_ (por ejemplo, en 0.01 por ciclo)
             t_traj_ += 0.01;
@@ -482,13 +513,6 @@ class UR5eJointController : public rclcpp::Node {
             //capturar la posición actual del UR5
             
             auto start = std::chrono::high_resolution_clock::now();
-            
-
-        
-            Eigen::Matrix<double,6,6> Kd_impedancia_py = Eigen::Matrix<double,6,6>::Identity();
-            // Ajusta estos valores según la respuesta deseada (Bd en Python)
-            //Kd_impedancia_py.diagonal() << 10.0, 10.0, 10.0, 5.0, 5.0, 5.0;
-            Kd_impedancia_py.diagonal() << B[0], B[1], B[2], B[3], B[4], B[5]; // Asigna los valores de B
 
             // 3. Llama a la nueva función
             // El dt de tu python es 0.01, que coincide con tu tiempo de control
@@ -507,8 +531,8 @@ class UR5eJointController : public rclcpp::Node {
                   config_path,// Kd (Bd en Python)
                 qt_, // Cuaternión deseado (w, x, y, z)
                 x_des_, // Para xdes
-                control_dt,
-                J_anterior);         // Se pasará por referencia para actualizar J_anterior dentro de la función
+                J_anterior, control_dt,
+                vel_d, acc_d);         // Se pasará por referencia para actualizar J_anterior dentro de la función
                                     // y usarlo en el siguiente ciclo.
            
 
@@ -542,7 +566,7 @@ class UR5eJointController : public rclcpp::Node {
             cout << "Posición deseada del UR5: " << x_des_[0] << ", " << x_des_[1] << ", " << x_des_[2] << std::endl;
             cout << "Posición actual del UR5: " << current_position.transpose() << std::endl;
             if (output_file_.is_open()) {
-                output_file_ << current_position[0] << " " << current_position[1] << " " << current_position[2] << " "<<endl;
+                output_file_ << x_d << " " << y_d << " " << z_d << " " << current_position[0] << " " << current_position[1] << " " << current_position[2] << " " << endl;
             }
             // J_anterior se actualiza dentro de impedanceControlPythonStyle, no aquí
             time_elapsed_ += control_dt; // Incrementa el tiempo transcurrido

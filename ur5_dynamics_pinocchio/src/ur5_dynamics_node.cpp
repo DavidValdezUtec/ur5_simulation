@@ -78,7 +78,7 @@ public:
         q_home << 0.0, -M_PI / 2.0, 0, -M_PI / 2.0, 0.0, 0.0;
 
         // --- Publicadores y Suscriptores de ROS ---
-        publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("/joint_trajectory_controller/joint_trajectory", 10);
+        publisher_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("/scaled_joint_trajectory_controller/joint_trajectory", 10);
         subscription_ = this->create_subscription<sensor_msgs::msg::JointState>(
             "/joint_states", 10, std::bind(&UR5DynamicsNode::jointStateCallback, this, std::placeholders::_1));
 
@@ -171,19 +171,31 @@ private:
             k_ = Eigen::VectorXd::Constant(6, 0.6);
             boundary_ = 0.1;
             waypoint_tolerance_ = 0.01;
-            dt_ = 0.02;
-            max_joint_velocity_ = 3.0;
+            dt_ = 0.2;
+            max_joint_velocity_ = 2.0;
         }
     }
 
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
-        for (int i = 0; i < nq_ && i < int(msg->name.size()); ++i) {
-            q_current_[i] = msg->position[i];
-            if (i < int(msg->velocity.size())) {
-                v_current_[i] = msg->velocity[i];
-            }
-        }
+        q_current_[0] = msg->position[5];
+        q_current_[1] = msg->position[0];
+        q_current_[2] = msg->position[1];
+        q_current_[3] = msg->position[2];
+        q_current_[4] = msg->position[3];
+        q_current_[5] = msg->position[4];
+
+
+
+        v_current_[0] = msg->velocity[5];
+        v_current_[1] = msg->velocity[0];
+        v_current_[2] = msg->velocity[1];
+        v_current_[3] = msg->velocity[2];
+        v_current_[4] = msg->velocity[3];
+        v_current_[5] = msg->velocity[4];
+
+
+
         
         if (first_callback_) {
             RCLCPP_INFO(this->get_logger(), "Primera lectura de estado recibida. Iniciando control.");
@@ -232,6 +244,8 @@ private:
     void stream_data(){
         RCLCPP_INFO_STREAM(this->get_logger(), "error = " << time_error_.transpose());
         //RCLCPP_INFO_STREAM(this->get_logger(), "error = " << time_error_.cwiseAbs().transpose());
+        std::cout << "q_command_ = " << q_command_.transpose() << std::endl;
+        std::cout << "q_current_ = " << q_current_.transpose() << std::endl;
         RCLCPP_INFO_STREAM(this->get_logger(), "pose_desired = " << pose_desired_.translation().transpose());
 
     }
@@ -266,11 +280,11 @@ private:
 
             // Parámetros de trayectoria
             double c0 = 0.1;
-            double wn = 1.0;  // frecuencia angular (rad/s)
+            double wn = 0.8;  // frecuencia angular (rad/s)
             double Ax = 0.25, Ay = 0.25, Az = 0.15;  // Amplitudes
             double exp_c0 = std::exp(-c0 * t);
 
-            // Trayectoria deseada
+            // Trayectoria deseada A*sin()
             double x_d = pos0.x() + Ax * exp_c0 * std::sin(wn * t);
             double y_d = pos0.y() + Ay * exp_c0 * std::cos(wn * t);
             double z_d = pos0.z() + Az * exp_c0 * std::sin(wn * t);
@@ -343,9 +357,10 @@ private:
             v_command_ = v_current_ + q_ddot_desired * dt_; 
 
             for (int i = 0; i < nv_; ++i) {
-                v_command_[i] = std::max(-max_joint_velocity_, std::min(max_joint_velocity_, v_command_[i]));
+                v_command_[i] = std::max(-2.0, std::min(2.0, v_command_[i]));
             }
             q_command_ = q_current_ + v_command_ * dt_;
+            
             //RCLCPP_INFO_STREAM(this->get_logger(), "q = " << q_command_.transpose());
             if (pos_error.norm() < 1e-2 && ori_error.norm() < 18e-3 && flag_pos1_done){
                 rclcpp::Time current_time = this->now();
