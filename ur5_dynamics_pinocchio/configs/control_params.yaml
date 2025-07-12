@@ -1,0 +1,12 @@
+control_params:
+  lambda: [8.0, 8.0, 8.0, 2.0, 2.0, 2.0] # Increased for faster error decay
+  k: [50, 50, 50, 50, 50, 50]     # Increased for stronger corrective action
+  k2: [0.3, 0.3, 0.3, 1., 1., 1.]
+  boundary: 0.3                         # Keep this for now
+  damping_factor: 0.01                  # Reduced slightly to allow more aggressive response
+  waypoint_tolerance: 0.02              # Keep
+  safety_limits:
+    max_joint_velocity: 5.0             # Keep
+  waypoints:
+    - position: [0.2, 0.1, 0.5]
+      orientation: [0.0, 0.0, 0.0, 1.0]

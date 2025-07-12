@@ -475,6 +475,43 @@ void moveGripper(modbus_t* ctx, uint8_t position, uint8_t force) {
     sendRawWithCRC(ctx, cmd, sizeof(cmd) - 2);
 }
 
+Eigen::MatrixXd computeFullJacobianQuaternion(
+    const pinocchio::Model& model,
+    pinocchio::Data& data,
+    const pinocchio::FrameIndex& tool_frame_id,
+    const Eigen::VectorXd& q,
+    double delta = 1e-8)
+{
+    int nq = q.size();
+    Eigen::MatrixXd J_full(7, nq); // 3 pos + 4 quat
+
+    // Estado nominal
+    pinocchio::forwardKinematics(model, data, q);
+    pinocchio::updateFramePlacement(model, data, tool_frame_id);
+    Eigen::Vector3d pos0 = data.oMf[tool_frame_id].translation();
+    Eigen::Quaterniond quat0(data.oMf[tool_frame_id].rotation());
+
+    for (int i = 0; i < nq; ++i) {
+        Eigen::VectorXd q_perturbed = q;
+        q_perturbed[i] += delta;
+
+        pinocchio::forwardKinematics(model, data, q_perturbed);
+        pinocchio::updateFramePlacement(model, data, tool_frame_id);
+        Eigen::Vector3d pos1 = data.oMf[tool_frame_id].translation();
+        Eigen::Quaterniond quat1(data.oMf[tool_frame_id].rotation());
+
+        // Diferencia numérica para posición
+        Eigen::Vector3d dpos = (pos1 - pos0) / delta;
+        // Diferencia numérica para cuaternión (Eigen almacena como x, y, z, w)
+        Eigen::Vector4d dquat = (quat1.coeffs() - quat0.coeffs()) / delta;
+
+        // Guardar en la columna i
+        J_full.block<3,1>(0, i) = dpos;
+        J_full.block<4,1>(3, i) = dquat;
+    }
+    return J_full;
+}
+
 Eigen::VectorXd impedanceControlPythonStyle(
     const pinocchio::Model& model,
     pinocchio::Data& data,
@@ -490,47 +527,42 @@ Eigen::VectorXd impedanceControlPythonStyle(
     // 1. Cinemática directa y Jacobiano actual
     pinocchio::forwardKinematics(model, data, q, dq);
     pinocchio::updateFramePlacement(model, data, tool_frame_id);
-    Eigen::VectorXd dx_des;   
-    dx_des = Eigen::VectorXd::Zero(6);
-    Eigen::VectorXd ddx_des;     // ddxdes
-    ddx_des = Eigen::VectorXd::Zero(6);
-    double K[6]; // Matriz de rigidez K
-    double B[6]; // Matriz de amortiguamiento B
-    load_values_from_file(config_path, K, 6, 23);       // Leer la 23ma línea para q_init del UR5
-    load_values_from_file(config_path, B, 6, 25);       // Leer la 25ma línea para q_init del UR5
-    Eigen::Matrix<double,6,6> Kp_task = Eigen::Matrix<double,6,6>::Identity();
-    Eigen::Matrix<double,6,6> Kd_task = Eigen::Matrix<double,6,6>::Identity();
-    Kp_task.diagonal() << K[0], K[1], K[2], K[3], K[4], K[5]; // Asigna los valores de K
-    Kd_task.diagonal() << B[0], B[1], B[2], B[3], B[4], B[5]; // Asigna los valores de B
-    
+
+    Eigen::MatrixXd J = computeFullJacobianQuaternion(model, data, tool_frame_id, q);
+    Eigen::MatrixXd dJ = (J - J_anterior) / dt; //7x6
+    Eigen::VectorXd dx_current_cartesian = J * dq; // (7x6) * (6x1) = 7x1
+
+    Eigen::VectorXd vel_des;       vel_des = Eigen::VectorXd::Zero(7);
+    Eigen::VectorXd dvel_des;     dvel_des = Eigen::VectorXd::Zero(7);
+    // Cargar valores de K y B desde el archivo de configuración
+    double K[7]; // Matriz de rigidez K
+    double B[7]; // Matriz de amortiguamiento B
+    load_values_from_file(config_path, K, 7, 23);       // Leer la 23ma línea para q_init del UR5
+    load_values_from_file(config_path, B, 7, 25);       // Leer la 25ma línea para q_init del UR5
+    Eigen::Matrix<double,7,7> Kp_task = Eigen::Matrix<double,7,7>::Identity();
+    Eigen::Matrix<double,7,7> Kd_task = Eigen::Matrix<double,7,7>::Identity();
+    Kp_task.diagonal() << K[0], K[1], K[2], K[3], K[4], K[5], K[6]; // Asigna los valores de K
+    Kd_task.diagonal() << B[0], B[1], B[2], B[3], B[4], B[5], B[6]; // Asigna los valores de B
+
+
+ 
     Eigen::Quaterniond desired_orientation_quat(qt_[0], qt_[1], qt_[2], qt_[3]); // w, x, y, z
     desired_orientation_quat.normalize();
-    pinocchio::SE3 desired_pose_eigen(desired_orientation_quat.toRotationMatrix(), Eigen::Vector3d(x_des[0], x_des[1], x_des[2]));
-
-
-    pinocchio::Data::Matrix6x J(6, model.nv);
-    J.setZero();
-    pinocchio::computeFrameJacobian(model, data, q, tool_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, J);
-    pinocchio::Data::Matrix3x submatrix = J.block<3, 3>(3, 3);
-    // 2. Derivada del Jacobiano (dJ en Python)
-    // Se asume que J_anterior se actualiza después de cada llamada a esta función.
-    Eigen::MatrixXd dJ = (J - J_anterior) / dt;
-
-    // 3. Obtener x y dx (posición y velocidad cartesiana actual)
-    //Eigen::Vector3d x_current_pos = data.oMf[tool_frame_id].translation();
-    // Para la orientación, necesitamos extraerla de data.oMf[tool_frame_id] y la deseada
-    // Usaremos la función computeError para obtener el error completo y las posiciones/orientaciones
     
-    // Obtener la velocidad cartesiana actual
-    Eigen::VectorXd dx_current_cartesian = J * dq; // (6x6) * (6x1) = 6x1
 
-    // 4. Calcular el error (xdes - x y dxdes - dx)
-    // Para el error de posición/orientación, usaremos tu función computeError existente
-    // que devuelve un vector 6x1 (pos_error, ang_error)
-    Eigen::VectorXd error_pose = computeError(data, tool_frame_id, desired_pose_eigen); // (x_d - x)
+    
+    // Error de posición
+    Eigen::Vector3d position_error(x_des[0],x_des[1],x_des[2]);
+    position_error-=data.oMf[tool_frame_id].translation();
 
-    // Error de velocidad (dx_des - dx_current_cartesian)
-    Eigen::VectorXd error_velocity = dx_des - dx_current_cartesian; // (dx_d - dx)
+    // Error de orientación usando cuaterniones
+    Eigen::Quaterniond current_orientation(data.oMf[tool_frame_id].rotation());
+
+    // Error de velocidad (vel_des - dx_current_cartesian)
+    Eigen::VectorXd error_velocity = vel_des - dx_current_cartesian; // (7x1)
+    Eigen::VectorXd error_pose(7);
+    error_pose << position_error, -(current_orientation.coeffs() - desired_orientation_quat.coeffs());
+
 
 
     // 5. Cálculos de dinámica (M, c, g)
@@ -543,56 +575,26 @@ Eigen::VectorXd impedanceControlPythonStyle(
     Eigen::MatrixXd M = data.M; // Matriz de inercia
     // data.nle ya es (Coriolis + Gravity) en Pinocchio
     Eigen::VectorXd c_term = data.nle - data.g; // Solo el término de Coriolis (c en Python)
-    Eigen::VectorXd g_term = data.g; // Solo el término de gravedad (g en Python)
-    cout<<submatrix<<endl;
-    if (submatrix.determinant()==0){
-        cout<<"Jacobiano de orientación indeterminado3"<<endl;
-    }
-    // 6. Calcular Md (Matriz de inercia deseada en el espacio de tarea)
+    Eigen::VectorXd g_term = data.g; // Solo el término de gravedad (g en Python)  6*1
+    
     // Asegurarse de usar pseudo-inversa como en Python
-    Eigen::MatrixXd J_pinv = J.inverse();//completeOrthogonalDecomposition().pseudoInverse(); // np.linalg.pinv(J)
-
-    // Md = (J_pinv.T) * M * J_pinv
-    // Dimensiones: (6x6).transpose() * (6x6) * (6x6) = (6x6) * (6x6) * (6x6) = 6x6 
-    Eigen::Matrix<double,6,6> Md = J_pinv.transpose() * M * J_pinv;
-
-    // Asegurarse de que Md sea invertible para Md.inverse()
-    // En la práctica, Md puede volverse singular si J es singular, aunque la pseudo-inversa lo maneja.
-    // Una opción más robusta sería usar la pseudo-inversa de Md si es necesario.
-    Eigen::Matrix<double,6,6> Md_inv;
+    Eigen::MatrixXd J_pinv = J.completeOrthogonalDecomposition().pseudoInverse(); // (N x 7)
+    Eigen::MatrixXd Md = J_pinv.transpose() * M * J_pinv; // (7x7) //inercia deseada en el espacio de tarea
+    Eigen::MatrixXd Md_inv;
     if (Md.determinant() == 0) {
-        // Esto puede ocurrir si J es singular, haciendo Md singular.
-        // Se podría usar la pseudo-inversa de Md para mayor robustez
-        // Md_inv = Md.completeOrthogonalDecomposition().pseudoInverse();
-        // Por simplicidad, por ahora lanzamos un error o manejamos la excepción
-        throw std::runtime_error("Matriz Md singular en impedanceControlPythonStyle.");
+        Md_inv = Md.completeOrthogonalDecomposition().pseudoInverse();
     } else {
-        Md_inv = Md.inverse(); // np.linalg.pinv(Md) si Md es singular
+        Md_inv = Md.inverse();
     }
 
+    
+    // Torque final: TermA * TermB + TermC 
+    Eigen::VectorXd tau = J.transpose() * (Kp_task * error_pose + Kd_task * error_velocity + J_pinv.transpose() * g_term);
 
-    // 7. Calcular el torque final
-    // torque = M@(np.linalg.pinv(J))@(ddxdes - dJ@dq + np.linalg.pinv(Md)@(Bd@(dxdes-dx) + Kd@(xdes - x))) + c + g
-    //           ^----------- Termino A -----------^ ^------------------- Termino B -------------------^   ^---- Termino C ----^
-
-    // Término A: M * J_pinv
-    Eigen::MatrixXd TermA = M * J_pinv; // (6x6) * (6x6) = 6x6
-
-    // Término B: (ddxdes - dJ@dq + Md_inv@(Kd_task@(error_pose) + Kd_task@(error_velocity)))
-    // Nota: Kp_task es Kd en Python, Kd_task es Bd en Python
-    Eigen::VectorXd InnerTermB = Kd_task * error_velocity + Kp_task * error_pose; // (6x6)*(6x1) + (6x6)*(6x1) = 6x1
-    Eigen::VectorXd TermB_part2 = Md_inv * InnerTermB; // (6x6)*(6x1) = 6x1
-
-    Eigen::VectorXd TermB = ddx_des - (dJ * dq) + TermB_part2; // (6x1) - (6x1) + (6x1) = 6x1
-
-    // Término C: c_term + g_term
-    Eigen::VectorXd TermC = c_term + g_term; // (6x1) + (6x1) = 6x1
-
-    // Torque final: TermA * TermB + TermC
-    Eigen::VectorXd tau = TermA * TermB + TermC; // (6x6) * (6x1) + (6x1) = 6x1
 
     // Actualizar J_anterior para la próxima iteración
     J_anterior = J;
+    //dbg("Torque calculado: " + std::to_string(tau.norm()));
     pinocchio::crba(model, data, q); // Asegura que la matriz M de Pinocchio esté actualizada
     Eigen::MatrixXd M_current = (data).M;
     Eigen::MatrixXd M_inv_current;
@@ -619,3 +621,5 @@ Eigen::VectorXd impedanceControlPythonStyle(
     q_solution = q + qd_solution * 0.01;
     return q_solution;
 }
+
+

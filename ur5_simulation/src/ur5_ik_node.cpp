@@ -22,10 +22,11 @@ class UR5eJointController : public rclcpp::Node {
             try {
                 
             if (controlador[0] == 1) {
-                control_loop_time = 1000; // 1 segundo
-                ur5_time = 0.1; // 20 milisegundos
+                control_loop_time = 10; // 1 segundo
+                ur5_time = 0.1; // 100 milisegundos
             } else if (controlador[0] == 2) {
                 control_loop_time = 1; // 1 milisegundo
+                ur5_time = 0.01; // 100 milisegundos
             } else if (controlador[0] == 3) {
                 control_loop_time = 1; // 1 segundo
             } else {
@@ -73,7 +74,7 @@ class UR5eJointController : public rclcpp::Node {
         Eigen::Vector3d r_initial_geo;
         Eigen::Quaterniond quat_real_geo; 
         
-        Eigen::MatrixXd J_anterior= Eigen::MatrixXd::Zero(6, 6);
+        Eigen::MatrixXd J_anterior= Eigen::MatrixXd::Zero(7, 6);
 
         Eigen::VectorXd q_ = Eigen::VectorXd::Zero(6);
         Eigen::VectorXd qd_ = Eigen::VectorXd::Zero(6);
@@ -86,7 +87,7 @@ class UR5eJointController : public rclcpp::Node {
         double qt_init_ur5[4];
         double qt_init_geo[4];
         int control_loop_time = 1; 
-        int ur5_time = 0.01;
+        int ur5_time;
         double max_iteraciones[1];
         double alpha[1];
         double controlador[1];
@@ -299,10 +300,10 @@ class UR5eJointController : public rclcpp::Node {
                 x_des[1] = (x_init[1]- (r_[0]-r_initial_geo[0])*escala);
                 x_des[2] = (r_[2]-r_initial_geo[2])*escala + x_init[2];
             }else {                
-                x_des[0] = x_init[0] + 0.1 * cos(2 * PI * 0.5 * time_elapsed_); // X_BASE + AMPLITUDE * cos(2 * PI * FREQUENCY * time_elapsed_)
-                x_des[1] = x_init[1] + 0.1 * sin(2 * PI * 0.5 * time_elapsed_);                                           // Y_CONST
-                x_des[2] = x_init[2];//.5 + 0.1 * sin(2 * PI * 0.5 * time_elapsed_)                                          // Z_CONST
-     
+                x_des[0] = x_init[0] + 0.1 * sin(2 * PI * 0.05 * time_elapsed_)* exp(-0.05 * time_elapsed_); //-0.10912;//x_init[0] + 0.1 * cos(2 * PI * 0.5 * time_elapsed_); // X_BASE + AMPLITUDE * cos(2 * PI * FREQUENCY * time_elapsed_)
+                x_des[1] = x_init[1] + 0.1 * sin(2 * PI * 0.05 * time_elapsed_)* exp(-0.05 * time_elapsed_); //0.9479;//x_init[1] + 0.1 * sin(2 * PI * 0.5 * time_elapsed_);                                           // Y_CONST
+                x_des[2] = x_init[2] + 0.1 * sin(2 * PI * 0.05 * time_elapsed_)* exp(-0.05 * time_elapsed_);//0.187537;//x_init[2];//.5 + 0.1 * sin(2 * PI * 0.5 * time_elapsed_)                                          // Z_CONST
+
             }
             
             //x_init[0] = -0.1152; x_init[1] = 0.493; x_init[2] =  0.293;
@@ -375,11 +376,11 @@ class UR5eJointController : public rclcpp::Node {
             // Verificar si la solución es válida
            
 
-            if ((q_-q_solution).norm() > 1) {
-                RCLCPP_ERROR(this->get_logger(), "La diferencia entre la posición inicial y la solución es demasiado grande.");
-                q_solution = q_;
+            // if ((q_-q_solution).norm() > 1) {
+            //     RCLCPP_ERROR(this->get_logger(), "La diferencia entre la posición inicial y la solución es demasiado grande.");
+            //     q_solution = q_;
                 
-            }
+            // }
             if ((q_-q_solution).norm() < 0.001) {       // si la diferencia entre la posición inicial y la solución es muy pequeña, se usa la posición actual         
                 q_solution = q_;
                 
@@ -391,12 +392,6 @@ class UR5eJointController : public rclcpp::Node {
             if (output_file_2.is_open()) {
                 output_file_2 << "Positions control: "<< data->oMf[tool_frame_id].translation()[0]<<" "<<data->oMf[tool_frame_id].translation()[1]<<" "<<data->oMf[tool_frame_id].translation()[2]<<" ";
                 output_file_2 << "Orientation (quaternion): "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).w()<<" "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).x()<<" "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).y()<<" "<< Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).z()<<endl; 
-
-
-                // for (int i = 0; i < 6; ++i) {
-                //     output_file_2 << q_solution[i] << " ";
-                // }
-                // output_file_2 << "\n";
             }
 
             // Publicar las nuevas posiciones articulares
