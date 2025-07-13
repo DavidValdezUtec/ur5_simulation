@@ -202,6 +202,8 @@ Eigen::VectorXd impedanceControlPythonStyle(
     pinocchio::forwardKinematics(model, data, q, dq);
     pinocchio::updateFramePlacement(model, data, tool_frame_id);
 
+    
+
     Eigen::MatrixXd J = computeFullJacobianQuaternion(model, data, tool_frame_id, q);
     Eigen::MatrixXd dJ = (J - J_anterior) / dt; //7x6
     Eigen::VectorXd dx_current_cartesian = J * dq; // (7x6) * (6x1) = 7x1
@@ -234,7 +236,7 @@ Eigen::VectorXd impedanceControlPythonStyle(
     // Error de velocidad (vel_des - dx_current_cartesian)
     Eigen::VectorXd error_velocity = vel_des - dx_current_cartesian; // (7x1)
     Eigen::VectorXd error_pose(7);
-    error_pose << position_error, -(current_orientation.coeffs() - desired_orientation_quat.coeffs());
+    error_pose << -position_error, (current_orientation.coeffs() - desired_orientation_quat.coeffs());
 
 
 
@@ -256,17 +258,15 @@ Eigen::VectorXd impedanceControlPythonStyle(
     // 6. Calcular Md (Matriz de inercia deseada en el espacio de tarea)
     // Asegurarse de usar pseudo-inversa como en Python
     Eigen::MatrixXd J_pinv = J.completeOrthogonalDecomposition().pseudoInverse(); // (N x 7)
-    Eigen::MatrixXd Md = J_pinv.transpose() * M * J_pinv; // (7x7) //inercia deseada en el espacio de tarea
+    Eigen::MatrixXd Md = J * M.inverse() * J.transpose(); // (7x7) //inercia deseada en el espacio de tarea
     Eigen::MatrixXd Md_inv;
-    if (Md.determinant() == 0) {
-        Md_inv = Md.completeOrthogonalDecomposition().pseudoInverse();
-    } else {
-        Md_inv = Md.inverse();
-    }
-
+    
+    Md_inv = Md.completeOrthogonalDecomposition().pseudoInverse();
+    
+    //MJ-¹[xdd_d-J] 
 
     // Torque final: TermA * TermB + TermC 
-    Eigen::VectorXd tau = J.transpose() * (Kp_task * error_pose + Kd_task * error_velocity + J_pinv.transpose() * g_term);
+    Eigen::VectorXd tau = M*J_pinv * ((dvel_des-Kp_task*(error_pose)-Kd_task*(error_velocity))-J*dq)+data.nle;
 
     std::string geo_pos = get_file_path("ur5_simulation",     "launch/output_data_esfuerzo.txt");
     std::ofstream output_file_;
@@ -276,7 +276,14 @@ Eigen::VectorXd impedanceControlPythonStyle(
                 output_file_ << tau[0] << " " << tau[1] << " " << tau[2] << " " << tau[3] << " " << tau[4] << " " << tau[5] <<endl;
             }
 
-
+    std::string doc_vel = get_file_path("ur5_simulation",     "launch/output_data_velocidad.txt");
+    std::ofstream output_file_vel_;
+    output_file_vel_.open(doc_vel, std::ios::out | std::ios::app);
+    Eigen::VectorXd vel_cartesiana = J * dq; // (6x1) // Torque en el espacio de velocidad
+    //guardar torques en aoutput_data_esfuerz.txt
+    if (output_file_vel_.is_open()) {
+                output_file_vel_ << vel_cartesiana[0] << " " << vel_cartesiana[1] << " " << vel_cartesiana[2] << " " << vel_cartesiana[3] << " " << vel_cartesiana[4] << " " << vel_cartesiana[5] <<endl;
+            }
     // Actualizar J_anterior para la próxima iteración
     J_anterior = J;
     dbg("Torque calculado: " + std::to_string(tau.norm()));
@@ -477,7 +484,7 @@ class UR5eJointController : public rclcpp::Node {
             }
             double c0 = 0.1;
             double wn = 0.8;  // frecuencia angular (rad/s)
-            double Ax = 0.25, Ay = 0.25, Az = 0.15;  // Amplitudes
+            double Ax = 0.10, Ay = 0.10, Az = 0.10;  // Amplitudes
             double exp_c0 = std::exp(-c0 * t_traj_);
 
             // Trayectoria deseada A*sin()
