@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
+plt.rcParams.update({'font.size': 14}) # Establece el tamaño de fuente global a 12
 
-data = np.loadtxt('/tmp/ur5_log.txt', skiprows=1)
+data = np.loadtxt('/home/david/ur5_log.txt', skiprows=1)
 
 t = data[:,0]
 # Comandos y actuales
@@ -22,32 +23,57 @@ pos_error = data[:,34:37]
 ori_error = data[:,37:40]
 v_cart_actual = data[:,40:46]
 v_cart_desired = data[:,46:52]
+tau = data[:,52:58]
 
+plt.figure(figsize=(12, 10)) # Adjust figure size for multiple subplots
+
+for i in range(6): # Loop through each of the 6 joints
+    plt.subplot(3, 2, i + 1) # Create a 3x2 grid of subplots
+    plt.plot(t, q_cmd[:, i], label=f'q_cmd[{i+1}]') # Plot commanded joint position
+    plt.plot(t, q_cur[:, i], '--', label=f'q_cur[{i+1}]') # Plot actual joint position
+    plt.ylabel('Posición (rad)') # Joint positions are typically in radians
+    plt.legend()
+    plt.grid()
+    plt.title(f'Articulación {i+1}: Deseada vs Actual')
+
+plt.tight_layout() # Adjust layout to prevent overlapping titles/labels
+plt.show()
 
 plt.figure(figsize=(12,6))
-plt.subplot(2,1,1)
-plt.plot(t, p_traj[:,0], label='x_trayectoria')
-plt.plot(t, p_act[:,0], '--', label='x_efector')
-plt.plot(t, p_traj[:,1], label='y_trayectoria')
-plt.plot(t, p_act[:,1], '--', label='y_efector')
-plt.plot(t, p_traj[:,2], label='z_trayectoria')
-plt.plot(t, p_act[:,2], '--', label='z_efector')
+plt.subplot(3,1,1)
+plt.plot(t, p_traj[:,0], label='x $^{des}$')
+plt.plot(t, p_act[:,0], '--', label='x')
 plt.ylabel('Posición (m)')
-plt.legend()
-plt.grid()
+plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
 plt.title('Trayectoria deseada vs actual')
-
-plt.subplot(2,1,2)
-plt.plot(t, pos_error[:,0], label='Error x')
-plt.plot(t, pos_error[:,1], label='Error y')
-plt.plot(t, pos_error[:,2], label='Error z')
-plt.ylabel('Error (m)')
-plt.xlabel('Tiempo (s)')
-plt.legend()
 plt.grid()
-plt.title('Error cartesiano')
 
-plt.tight_layout()
+plt.subplot(3,1,2)
+plt.plot(t, p_traj[:,1], label='y $^{des}$')
+plt.plot(t, p_act[:,1], '--', label='y')
+plt.ylabel('Posición (m)')
+plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+plt.grid()
+
+plt.subplot(3,1,3)
+plt.plot(t, p_traj[:,2], label='z $^{des}$')
+plt.plot(t, p_act[:,2], '--', label='z')
+plt.ylabel('Posición (m)')
+plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+plt.grid()
+
+
+# plt.subplot(2,1,2)
+# plt.plot(t, pos_error[:,0], label='Error x')
+# plt.plot(t, pos_error[:,1], label='Error y')
+# plt.plot(t, pos_error[:,2], label='Error z')
+# plt.ylabel('Error (m)')
+# plt.xlabel('Tiempo (s)')
+# plt.legend()
+# plt.grid()
+# plt.title('Error cartesiano')
+
+# plt.tight_layout()
 plt.show()
 
 plt.figure()
@@ -85,6 +111,15 @@ plt.xlabel('Tiempo (s)')
 plt.legend()
 plt.grid()
 plt.title('Velocidades angulares cartesianas')
-
 plt.tight_layout()
 plt.show()
+
+plt.figure()
+plt.plot(t, tau)
+plt.xlabel('Tiempo (s)')
+plt.ylabel('Torque (N.m)')
+plt.title('ley de control tau')
+plt.legend(['u1','u2','u3','u4','u5','u6'])
+plt.grid()
+plt.show()
+

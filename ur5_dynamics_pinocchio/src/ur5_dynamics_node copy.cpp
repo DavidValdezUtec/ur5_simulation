@@ -133,7 +133,27 @@ private:
             Eigen::VectorXd G = data_.g;
             RCLCPP_INFO(this->get_logger(), "DEBUG: se asigno G");
 
-            // 3. Calculate the desired torque (Tau_SMC)
+            
+            /*
+            reumen de smc en un ur uu
+            tau = M*ddq + C*q + G
+            tau = M*(inv(Ja)*(ddx - Ja_dot*q_dot)) + C*q + G
+            ddx = Ja*inv(M)*(tau - C*q - G ) + Ja_dot*q_dot (----1-----)
+            S = dx - dxdes + lambda*(x - xdes)
+            S_dot = ddx -ddxdes + lambda*(dx - dxdes)
+            V = 0.5*S^T*S
+            V_dot = S^T*(S_dot) -> S_dot = -k*s -k2*tanh(10*s) -> vdot siempre nega
+            -k*s -k2*tanh(10*s) = ddx -ddxdes + lambda*(dx - dxdes)
+            reemplazando (----1-----)
+            -k*s -k2*tanh(10*s) = ddx = Ja*inv(M)*(tau - C*q - G) + Ja_dot*q_dot -ddxdes + lambda*(dx - dxdes)
+            tau = M*inv(Ja)*[-k*s -k2*tanh(10*s) - (Ja_dot*q_dot -ddxdes + lambda*(dx - dxdes))] + C*q + G
+            done, pero el ur solo recibe pos ._. t.t
+            so:
+            M*ddq + C*q + G = tau
+            M*ddq + C*q + G =  M*inv(Ja)*[-k*s -k2*tanh(10*s) - (Ja_dot*q_dot -ddxdes + lambda*(dx - dxdes))] + C*q + G
+            M*ddq = M*inv(Ja)*[-k*s -k2*tanh(10*s) - (Ja_dot*q_dot -ddxdes + lambda*(dx - dxdes))]
+            ddq = inv(Ja)*[-ks-k2*tanh(10*s) - (Ja_dot*q_dot -ddxdes + lambda*(dx - dxdes))]
+            */
             Eigen::VectorXd tau_smc = M * (-lambda_.cwiseProduct(e_v)) + C_times_V + G - k_.cwiseProduct(s.cwiseSign());
 
             // 4. Calculate joint accelerations (forward dynamics)

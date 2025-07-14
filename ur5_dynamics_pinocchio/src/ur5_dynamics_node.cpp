@@ -27,7 +27,7 @@ public:
     {
         // --- Carga de Modelo y Configuración Inicial ---
         std::string pkg_share_dir = ament_index_cpp::get_package_share_directory("ur5_dynamics_pinocchio");
-        std::string urdf_path = pkg_share_dir + "/urdf/ur5.urdf";
+        std::string urdf_path = pkg_share_dir + "/urdf/ur5e.urdf";
         std::string joint_config_path = pkg_share_dir + "/configs/joint_config.yaml";
         std::string control_params_path = pkg_share_dir + "/configs/control_params.yaml";
 
@@ -111,6 +111,7 @@ public:
                 << "ori_error_x ori_error_y ori_error_z "
                 << "v_cart_actual_x v_cart_actual_y v_cart_actual_z v_cart_actual_rx v_cart_actual_ry v_cart_actual_rz "
                 << "v_cart_desired_x v_cart_desired_y v_cart_desired_z v_cart_desired_rx v_cart_desired_ry v_cart_desired_rz "
+                << "tau "
                 << std::endl;
 
         RCLCPP_INFO(this->get_logger(), "Nodo de dinámica UR5 con SMC en Espacio de Trabajo inicializado.");
@@ -171,31 +172,24 @@ private:
             k_ = Eigen::VectorXd::Constant(6, 0.6);
             boundary_ = 0.1;
             waypoint_tolerance_ = 0.01;
-            dt_ = 0.2;
-            max_joint_velocity_ = 2.0;
+            dt_ = 0.02;
+            max_joint_velocity_ = 3.0;
         }
     }
 
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
-        q_current_[0] = msg->position[5];
-        q_current_[1] = msg->position[0];
-        q_current_[2] = msg->position[1];
-        q_current_[3] = msg->position[2];
-        q_current_[4] = msg->position[3];
-        q_current_[5] = msg->position[4];
-
-
-
-        v_current_[0] = msg->velocity[5];
-        v_current_[1] = msg->velocity[0];
-        v_current_[2] = msg->velocity[1];
-        v_current_[3] = msg->velocity[2];
-        v_current_[4] = msg->velocity[3];
-        v_current_[5] = msg->velocity[4];
-
-
-
+        for (int i = 0; i < nq_ && i < int(msg->name.size()); ++i) {
+            q_current_[i] = msg->position[i];
+            if (i < int(msg->velocity.size())) {
+                // Aplicar filtro EMA a la velocidad
+                v_filtered_[i] = filter_alpha_ * v_filtered_[i] + (1.0 - filter_alpha_) * msg->velocity[i];
+            }
+        }
+            if (i < int(msg->velocity.size())) {
+                v_current_[i] = msg->velocity[i];
+            }
+        }
         
         if (first_callback_) {
             RCLCPP_INFO(this->get_logger(), "Primera lectura de estado recibida. Iniciando control.");
@@ -244,8 +238,6 @@ private:
     void stream_data(){
         RCLCPP_INFO_STREAM(this->get_logger(), "error = " << time_error_.transpose());
         //RCLCPP_INFO_STREAM(this->get_logger(), "error = " << time_error_.cwiseAbs().transpose());
-        std::cout << "q_command_ = " << q_command_.transpose() << std::endl;
-        std::cout << "q_current_ = " << q_current_.transpose() << std::endl;
         RCLCPP_INFO_STREAM(this->get_logger(), "pose_desired = " << pose_desired_.translation().transpose());
 
     }
@@ -279,12 +271,12 @@ private:
             double t = (this->now() - start_time_).seconds();
 
             // Parámetros de trayectoria
-            double c0 = 0.1;
-            double wn = 0.8;  // frecuencia angular (rad/s)
-            double Ax = 0.25, Ay = 0.25, Az = 0.15;  // Amplitudes
+            double c0 = 0.065;
+            double wn = 0.5;  // frecuencia angular (rad/s)
+            double Ax = 0.22, Ay = 0.22, Az = 0.15;  // Amplitudes
             double exp_c0 = std::exp(-c0 * t);
 
-            // Trayectoria deseada A*sin()
+            // Trayectoria deseada
             double x_d = pos0.x() + Ax * exp_c0 * std::sin(wn * t);
             double y_d = pos0.y() + Ay * exp_c0 * std::cos(wn * t);
             double z_d = pos0.z() + Az * exp_c0 * std::sin(wn * t);
@@ -314,8 +306,8 @@ private:
 
             // Nueva pose objetivo para el efector final
             pinocchio::SE3 pose_trayectoria(R_d, pos_d);
-            RCLCPP_INFO_STREAM(this->get_logger(), "x_d = " << x_d << ", y_d = " << y_d << ", z_d = " << z_d << ", t = " << t << pos0.transpose() 
-            << "k"<<k_.transpose() << "k2" << k2_.transpose() << "lambda" << lambda_.transpose());
+            //RCLCPP_INFO_STREAM(this->get_logger(), "x_d = " << x_d << ", y_d = " << y_d << ", z_d = " << z_d << ", t = " << t << pos0.transpose() 
+            //<< "k"<<k_.transpose() << "k2" << k2_.transpose() << "lambda" << lambda_.transpose());
 
             // Error posición y orientación (igual que antes)
             Eigen::Vector3d pos_error = current_pose.translation() - pose_trayectoria.translation();
@@ -347,8 +339,11 @@ private:
             
             // q_ddot_desired = J_pinv * (a_cartesian_desired - J_dot * v_current_)
             Eigen::VectorXd q_ddot_desired = J_pinv * (a_cartesian_desired - J_dot * v_current_);
-
-            //RCLCPP_INFO_STREAM(this->get_logger(), "sat = " << sat.transpose());
+            Eigen::MatrixXd M = data_.M;
+            Eigen::VectorXd Cq = data_.C * v_current_;
+            Eigen::VectorXd G = data_.g;
+            Eigen::VectorXd tau_smc_ = M*q_ddot_desired + Cq + G;
+            RCLCPP_INFO_STREAM(this->get_logger(), "tau_smc = " << tau_smc_.transpose());
             //RCLCPP_INFO_STREAM(this->get_logger(), "s = " << s.transpose());
             //RCLCPP_INFO_STREAM(this->get_logger(), "J_dot = " << J_dot);
             //RCLCPP_INFO_STREAM(this->get_logger(), "current_pose = " << current_pose.translation());
@@ -357,10 +352,9 @@ private:
             v_command_ = v_current_ + q_ddot_desired * dt_; 
 
             for (int i = 0; i < nv_; ++i) {
-                v_command_[i] = std::max(-2.0, std::min(2.0, v_command_[i]));
+                v_command_[i] = std::max(-max_joint_velocity_, std::min(max_joint_velocity_, v_command_[i]));
             }
             q_command_ = q_current_ + v_command_ * dt_;
-            
             //RCLCPP_INFO_STREAM(this->get_logger(), "q = " << q_command_.transpose());
             if (pos_error.norm() < 1e-2 && ori_error.norm() < 18e-3 && flag_pos1_done){
                 rclcpp::Time current_time = this->now();
@@ -413,6 +407,7 @@ private:
             log_file_ << ori_error.x() << " " << ori_error.y() << " " << ori_error.z() << " ";
             for(int i=0; i<6; ++i) log_file_ << v_cartesian[i] << " ";
             for(int i=0; i<6; ++i) log_file_ << v_desired[i] << " ";
+            for(int i=0; i<6; ++i) log_file_ << tau_smc_[i] << " ";
             log_file_ << std::endl;
 
 
@@ -468,7 +463,8 @@ private:
     double initial_torque_boost_;
     double torque_boost_duration_;
     double max_joint_velocity_;
-
+    Eigen::VectorXd v_filtered_;
+double filter_alpha_ = 0.85; 
     //data 
     std::ofstream log_file_;
     // ROS
