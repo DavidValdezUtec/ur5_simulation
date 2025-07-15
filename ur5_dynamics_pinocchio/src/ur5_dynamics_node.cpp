@@ -179,14 +179,14 @@ private:
 
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
-        for (int i = 0; i < nq_ && i < int(msg->name.size()); ++i) {
-            q_current_[i] = msg->position[i];
-            if (i < int(msg->velocity.size())) {
-                // Aplicar filtro EMA a la velocidad
-                v_filtered_[i] = filter_alpha_ * v_filtered_[i] + (1.0 - filter_alpha_) * msg->velocity[i];
-            }
+        bool implementacion =true;
+        if(implementacion){
+            q_current_ << msg->position[5], msg->position[0], msg->position[1], msg->position[2], msg->position[3], msg->position[4];
+            v_current_ << msg->velocity[5], msg->velocity[0], msg->velocity[1], msg->velocity[2], msg->velocity[3], msg->velocity[4];
         }
-            if (i < int(msg->velocity.size())) {
+        else{
+            for (int i = 0; i < 6; ++i) {
+                q_current_[i] = msg->position[i];
                 v_current_[i] = msg->velocity[i];
             }
         }
@@ -272,24 +272,66 @@ private:
 
             // Parámetros de trayectoria
             double c0 = 0.065;
-            double wn = 0.5;  // frecuencia angular (rad/s)
-            double Ax = 0.22, Ay = 0.22, Az = 0.15;  // Amplitudes
             double exp_c0 = std::exp(-c0 * t);
+            
 
-            // Trayectoria deseada
-            double x_d = pos0.x() + Ax * exp_c0 * std::sin(wn * t);
-            double y_d = pos0.y() + Ay * exp_c0 * std::cos(wn * t);
-            double z_d = pos0.z() + Az * exp_c0 * std::sin(wn * t);
+            // Declarar las variables ANTES de los bloques if/else con valores por defecto
+            double x_d = pos0.x(), y_d = pos0.y(), z_d = pos0.z();
+            double x_dot_d = 0.0, y_dot_d = 0.0, z_dot_d = 0.0;
+            double x_ddot_d = 0.0, y_ddot_d = 0.0, z_ddot_d = 0.0;
 
-            // Velocidad deseada
-            double x_dot_d = Ax * ( -c0 * exp_c0 * std::sin(wn * t) + exp_c0 * wn * std::cos(wn * t) );
-            double y_dot_d = Ay * ( -c0 * exp_c0 * std::cos(wn * t) - exp_c0 * wn * std::sin(wn * t) );
-            double z_dot_d = Az * ( -c0 * exp_c0 * std::sin(wn * t) + exp_c0 * wn * std::cos(wn * t) );
+            int trayectoria = 2;
+            if(trayectoria==1){
+                    // Trayectoria deseada
+                x_d = pos0.x() - 0.3 + 0.3 * exp_c0;
+                y_d = pos0.y() + 0.1 - 0.1* exp_c0;
+                z_d = pos0.z() + 0.1 - 0.1 * exp_c0;
 
-            // Aceleración deseada
-            double x_ddot_d = Ax * exp_c0 * ( (c0*c0 - wn*wn) * std::sin(wn*t) - 2*c0*wn * std::cos(wn*t) );
-            double y_ddot_d = Ay * exp_c0 * ( (c0*c0 - wn*wn) * std::cos(wn*t) + 2*c0*wn * std::sin(wn*t) );
-            double z_ddot_d = Az * exp_c0 * ( (c0*c0 - wn*wn) * std::sin(wn*t) - 2*c0*wn * std::cos(wn*t) );
+                // Velocidad deseada
+                x_dot_d = 0.3 * ( -c0 * exp_c0 );
+                y_dot_d = -0.1 * ( -c0 * exp_c0 );
+                z_dot_d = -0.1 * ( -c0 * exp_c0 );
+
+                // Aceleración deseada
+                x_ddot_d = 0.3 * exp_c0 * (c0*c0 );
+                y_ddot_d = -0.1 * exp_c0 * (c0*c0 );
+                z_ddot_d = -0.1 * exp_c0 * (c0*c0 );
+
+            } else if (trayectoria==2) { 
+                double wn = 0.5;   // Frecuencia angular (rad/s)
+                double Ax = 0.05, Ay = 0.05, Az = 0.02; // Amplitudes máximas
+
+                // Términos comunes para eficiencia
+                double exp_neg_c0_t = std::exp(-c0 * t);
+                double sin_wn_t = std::sin(wn * t);
+                double cos_wn_t = std::cos(wn * t);
+
+                // Factor de amplitud que crece de 0 a 1
+                double amp_factor = 1.0 - exp_neg_c0_t;
+
+                // Trayectoria deseada (inicia en pos0 y la amplitud crece)
+                x_d = pos0.x() + Ax * amp_factor * sin_wn_t;
+                y_d = pos0.y() + Ay * amp_factor * cos_wn_t;
+                z_d = pos0.z() + Az * amp_factor * sin_wn_t;
+
+                // --- Derivadas para la nueva trayectoria ---
+
+                // Velocidad deseada
+                double d_amp_factor_dt = c0 * exp_neg_c0_t; // Derivada del factor de amplitud
+                x_dot_d = Ax * (d_amp_factor_dt * sin_wn_t + amp_factor * wn * cos_wn_t);
+                y_dot_d = Ay * (d_amp_factor_dt * cos_wn_t - amp_factor * wn * sin_wn_t);
+                z_dot_d = Az * (d_amp_factor_dt * sin_wn_t + amp_factor * wn * cos_wn_t);
+
+                // Aceleración deseada
+                double d2_amp_factor_dt2 = -c0 * c0 * exp_neg_c0_t; // Segunda derivada del factor de amplitud
+                double term1_sin = d2_amp_factor_dt2 - amp_factor * wn * wn;
+                double term2_cos = 2 * d_amp_factor_dt * wn;
+
+                x_ddot_d = Ax * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
+                y_ddot_d = Ay * (term1_sin * cos_wn_t - term2_cos * sin_wn_t);
+                z_ddot_d = Az * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
+            }
+            
 
             // Vectores Eigen
             Eigen::Vector3d pos_d(x_d, y_d, z_d);
@@ -366,7 +408,7 @@ private:
                     << ". Tiempo transcurrido: " << elapsed_time.seconds() << "segundos error menor a 1 cm y 1 grado");
                 */
                 //this->publish_timer_->cancel();
-                flag_pos1_done = false;
+                flag_pos1_done = true;
                 
             }
             if (pos_error.norm() < 1e-4 && ori_error.norm() < 2e-3){

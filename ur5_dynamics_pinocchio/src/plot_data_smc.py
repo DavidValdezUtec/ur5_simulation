@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 plt.rcParams.update({'font.size': 14}) # Establece el tamaño de fuente global a 12
 
-data = np.loadtxt('/home/david/ur5_log.txt', skiprows=1)
+data = np.loadtxt('/tmp/ur5_log.txt', skiprows=1)
 
 t = data[:,0]
 # Comandos y actuales

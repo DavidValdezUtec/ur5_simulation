@@ -390,7 +390,7 @@ class UR5eJointController : public rclcpp::Node {
         std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos  
         pinocchio::FrameIndex tool_frame_id; 
         Eigen::MatrixXd J_anterior= Eigen::MatrixXd::Zero(7, 6); // Inicializar J_anterior como una matriz de ceros
-        std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5.urdf");
+        std::string urdf_path = get_file_path("ur5_simulation",   "include/ur5e.urdf");
         std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
         std::string geo_pos = get_file_path("ur5_simulation",     "launch/output_data_impedancia.txt");
         
@@ -400,7 +400,7 @@ class UR5eJointController : public rclcpp::Node {
         // POSICIONES ARTICULARES DEL UR5
         void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
             last_joint_state_ = msg;
-            bool implementacion = true; // Variable para determinar si se implementa la cinemática inversa
+            bool implementacion = false; // Variable para determinar si se implementa la cinemática inversa
             if (implementacion){
                 q_[0] = msg->position[5];           qd_[0] = msg->velocity[5];
                 q_[1] = msg->position[0];           qd_[1] = msg->velocity[0];
@@ -483,29 +483,67 @@ class UR5eJointController : public rclcpp::Node {
                 t_traj_ = 0.0;
             }
             double c0 = 0.1;
-            double wn = 1.0;  // frecuencia angular (rad/s)
-            double Ax = 0.10, Ay = 0.10, Az = 0.10;  // Amplitudes
+            
             double exp_c0 = std::exp(-c0 * t_traj_);
 
-            // Trayectoria deseada A*sin()
-            double x_d = x_init_[0] + Ax * exp_c0 * std::sin(wn * t_traj_);
-            double y_d = x_init_[1] + Ay * exp_c0 * std::cos(wn * t_traj_);
-            double z_d = x_init_[2] + Az * exp_c0 * std::sin(wn * t_traj_);
+            double x_d = x_init_.x(), y_d = x_init_.y(), z_d = x_init_.z();
+            double x_dot_d = 0.0, y_dot_d = 0.0, z_dot_d = 0.0;
+            double x_ddot_d = 0.0, y_ddot_d = 0.0, z_ddot_d = 0.0;
 
-            // Velocidad deseada
-            double x_dot_d = Ax * ( -c0 * exp_c0 * std::sin(wn * t_traj_) + exp_c0 * wn * std::cos(wn * t_traj_) );
-            double y_dot_d = Ay * ( -c0 * exp_c0 * std::cos(wn * t_traj_) - exp_c0 * wn * std::sin(wn * t_traj_) );
-            double z_dot_d = Az * ( -c0 * exp_c0 * std::sin(wn * t_traj_) + exp_c0 * wn * std::cos(wn * t_traj_) );
+            int trayectoria = 2;
+            if(trayectoria==1){
+                    // Trayectoria deseada
+                x_d = x_init_.x() - 0.3 + 0.3 * exp_c0;
+                y_d = x_init_.y() + 0.1 - 0.1* exp_c0;
+                z_d = x_init_.z() + 0.1 - 0.1 * exp_c0;
 
-            // Aceleración deseada
-            double x_ddot_d = Ax * exp_c0 * ( (c0*c0 - wn*wn) * std::sin(wn*t_traj_) - 2*c0*wn * std::cos(wn*t_traj_) );
-            double y_ddot_d = Ay * exp_c0 * ( (c0*c0 - wn*wn) * std::cos(wn*t_traj_) + 2*c0*wn * std::sin(wn*t_traj_) );
-            double z_ddot_d = Az * exp_c0 * ( (c0*c0 - wn*wn) * std::sin(wn*t_traj_) - 2*c0*wn * std::cos(wn*t_traj_) );
+                // Velocidad deseada
+                x_dot_d = 0.3 * ( -c0 * exp_c0 );
+                y_dot_d = -0.1 * ( -c0 * exp_c0 );
+                z_dot_d = -0.1 * ( -c0 * exp_c0 );
 
+                // Aceleración deseada
+                x_ddot_d = 0.3 * exp_c0 * (c0*c0 );
+                y_ddot_d = -0.1 * exp_c0 * (c0*c0 );
+                z_ddot_d = -0.1 * exp_c0 * (c0*c0 );
+
+            } else if (trayectoria==2) { 
+                double wn = 0.5;   // Frecuencia angular (rad/s)
+                double Ax = 0.05, Ay = 0.05, Az = 0.02; // Amplitudes máximas
+
+                // Términos comunes para eficiencia
+                double exp_neg_c0_t = std::exp(-c0 * t_traj_);
+                double sin_wn_t = std::sin(wn * t_traj_);
+                double cos_wn_t = std::cos(wn * t_traj_);
+
+                // Factor de amplitud que crece de 0 a 1
+                double amp_factor = 1.0 - exp_neg_c0_t;
+
+                // Trayectoria deseada (inicia en x_init_ y la amplitud crece)
+                x_d = x_init_.x() + Ax * amp_factor * sin_wn_t;
+                y_d = x_init_.y() + Ay * amp_factor * cos_wn_t;
+                z_d = x_init_.z() + Az * amp_factor * sin_wn_t;
+
+                // --- Derivadas para la nueva trayectoria ---
+
+                // Velocidad deseada
+                double d_amp_factor_dt = c0 * exp_neg_c0_t; // Derivada del factor de amplitud
+                x_dot_d = Ax * (d_amp_factor_dt * sin_wn_t + amp_factor * wn * cos_wn_t);
+                y_dot_d = Ay * (d_amp_factor_dt * cos_wn_t - amp_factor * wn * sin_wn_t);
+                z_dot_d = Az * (d_amp_factor_dt * sin_wn_t + amp_factor * wn * cos_wn_t);
+
+                // Aceleración deseada
+                double d2_amp_factor_dt2 = -c0 * c0 * exp_neg_c0_t; // Segunda derivada del factor de amplitud
+                double term1_sin = d2_amp_factor_dt2 - amp_factor * wn * wn;
+                double term2_cos = 2 * d_amp_factor_dt * wn;
+
+                x_ddot_d = Ax * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
+                y_ddot_d = Ay * (term1_sin * cos_wn_t - term2_cos * sin_wn_t);
+                z_ddot_d = Az * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
+            }
             Eigen::Vector3d vel_d(x_dot_d, y_dot_d, z_dot_d);
             Eigen::Vector3d acc_d(x_ddot_d, y_ddot_d, z_ddot_d);
             // 2. Calcular la trayectoria deseada
-            double A[3] = {0.1, 0.1, 0.1}; // Amplitud para cada eje (ajusta según tu necesidad)
             // for (int i = 0; i < 3; ++i) {
             //     x_des_[i] = x_init_[i] + 0.1;//A[i] * sin(0.05 * t_traj_) * exp(-0.05 * t_traj_);
             // }
