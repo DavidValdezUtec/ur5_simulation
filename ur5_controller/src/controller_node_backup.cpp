@@ -221,6 +221,7 @@ public:
     // Inicializar Pinocchio
     initializeUR5(pinocchio_, config_.urdf_path);
     kinematics_solver_ = std::make_unique<UR5Kinematics>(config_.urdf_path);
+    impedance_controller_ = std::make_unique<UR5Impedance>(config_.urdf_path);
     std::string c_topic = "/" + config_.nmspace + config_.control_topic;
     std::string joint_states_topic = config_.nmspace.empty() ? std::string("/joint_states")
                                                             : std::string("/") + config_.nmspace + std::string("/joint_states");
@@ -296,6 +297,8 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
 
     std::unique_ptr<UR5Kinematics> kinematics_solver_;
+    std::unique_ptr<UR5Impedance> impedance_controller_;
+   
 
     // ---- Mapeo robusto de joints por nombre ----
     std::vector<int> joint_index_map_{};          // índice en msg->name para cada joint esperado
@@ -331,6 +334,9 @@ private:
     // (Parámetros de trayectoria ahora en config_)
     bool trajectory_active_ {false};
     rclcpp::Time trajectory_start_time_ {};
+
+    Eigen::Matrix<double, 7, 1> Kp;
+    Eigen::Matrix<double, 7, 1> Kd;
 
     static std::string get_home_dir() {
         const char* home = std::getenv("HOME");
@@ -710,8 +716,11 @@ private:
         haptic_state_.velocity = (haptic_state_.position - haptic_state_.position_last) / (1e-3); //asumiendo 1ms entre callbacks
         haptic_state_.position_last = haptic_state_.position;
         Eigen::Quaterniond delta_orientation = haptic_state_.orientation * haptic_state_.orientation_last.inverse();
+        // Aproximación de velocidad angular a partir de delta quaternion usando eje-ángulo
         haptic_state_.angular_velocity << delta_orientation.x()/(1e-3), delta_orientation.y()/(1e-3), delta_orientation.z()/(1e-3), delta_orientation.w()/(1e-3); //asumiendo 1ms entre callbacks
         haptic_state_.orientation_last = haptic_state_.orientation;
+        haptic_state_.acceleration = (haptic_state_.velocity - haptic_state_.velocity_last) / (1e-3); //asumiendo 1ms entre callbacks
+        haptic_state_.velocity_last = haptic_state_.velocity;
         
 
 
@@ -759,6 +768,7 @@ private:
                 cartesian_state_.position_initial, haptic_state_.position_initial, haptic_state_.position, 2.5);
             cartesian_state_.velocity = haptic_state_.velocity * 2.5; // escala de velocidad
             cartesian_state_.angular_velocity = haptic_state_.angular_velocity; // escala de velocidad
+            cartesian_state_.acceleration = haptic_state_.acceleration * 2.5; // escala de aceleración
                 
             
         } else {
@@ -781,7 +791,10 @@ private:
             );
             cartesian_state_.position_desired = st.position;
             cartesian_state_.velocity = st.velocity;
-            cartesian_state_.angular_velocity = Eigen::Vector3d::Zero(); // sin rot
+            cartesian_state_.angular_velocity = Eigen::Vector4d::Zero(); // sin rot
+            cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
+            cartesian_state_.acceleration = st.acceleration;
+            cartesian_state_.angular_acceleration = Eigen::Vector3d::Zero();
 
             //x_des << -0.03, 0.7, 0.1;
             // Mantener orientación constante
@@ -819,15 +832,17 @@ private:
                 0.1
             );}
         else if (config_.controller == "IMP") {
-            robot_state_.q_solution = UR5Impedance::calculateControlCommand(
+            Kp << 1850,1850,1850,500,500,500,500;
+            Kd << 10,10,10,10,10,10,10;
+            robot_state_.q_solution = impedance_controller_->calculateControlCommand(
                 robot_state_.q,
-                robot_state_.dq,
+                robot_state_.qd,
                 cartesian_state_.position_desired,
                 cartesian_state_.orientation_desired,
                 cartesian_state_.velocity,
-                Eigen::Vector3d& zero, //acc_desired
-                Eigen::Matrix<double, 7, 1> 1850,1850,1850,500,500,500,500,
-                10,
+                cartesian_state_.acceleration,
+                Kp,
+                Kd,
                 0.01);
             return;
         } else if (config_.controller == "SLD") {
@@ -927,5 +942,7 @@ int main(int argc, char * argv[])
 }
 
 
-
 // ros2 run ur5_controller controller_backup --ros-args -p control_topic:="/scaled_joint_trajectory_controller/joint_trayectory" -p ur:="ur5e" -p nmspace:="ur5e" -p geomagic_topic:="/phantom2/pose" -p geomagic_button_topic:="/phantom2/button" -p csv_log_enable:="true" -p geomagic:="true"
+
+
+

@@ -35,6 +35,7 @@ struct CartesianState
   Eigen::Vector3d position_last = Eigen::Vector3d::Zero(); // Posición cartesiana en el último paso
   Eigen::Quaterniond orientation_last = Eigen::Quaterniond::Identity(); // Orientación en
   Eigen::Vector3d acceleration = Eigen::Vector3d::Zero();  // Aceleración cartesiana actual
+  Eigen::Vector3d angular_acceleration = Eigen::Vector3d::Zero(); // Aceleración angular actual
   
 };
 
@@ -49,6 +50,8 @@ struct HapticState
   Eigen::Vector4d angular_velocity = Eigen::Vector4d::Zero(); // Velocidad angular actual quaternionica
   Eigen::Vector3d position_last = Eigen::Vector3d::Zero(); // Posición cartesiana en el último paso
   Eigen::Quaterniond orientation_last = Eigen::Quaterniond::Identity(); // Orientación en
+  Eigen::Vector3d acceleration = Eigen::Vector3d::Zero();  // Aceleración cartesiana actual
+  Eigen::Vector3d velocity_last = Eigen::Vector3d::Zero(); // Velocidad en el último paso
   
 };
 
