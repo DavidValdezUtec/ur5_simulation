@@ -645,6 +645,13 @@ private:
             }
         }
 
+        // Actualizar medición cartesiana actual (posición y orientación) del efector
+        pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
+        pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
+        const auto& frame_placement_now = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
+        cartesian_state_.position = frame_placement_now.translation();
+        cartesian_state_.orientation = Eigen::Quaterniond(frame_placement_now.rotation());
+
         // Si estamos en modo ur5_pos y aún no hay baseline, capturarla cuando llegan los primeros joints
         if (config_.use_ur5_pos_init && !config_.use_geomagic && init_move_active_ && !init_baseline_set_) {
             for (int i = 0; i < 6; ++i) q_baseline_[i] = robot_state_.q[i];
@@ -664,6 +671,9 @@ private:
             const auto& frame_placement = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
             cartesian_state_.position_initial = frame_placement.translation();
             cartesian_state_.orientation_initial = Eigen::Quaterniond(frame_placement.rotation());
+            // Inicializar medición actual también
+            cartesian_state_.position = cartesian_state_.position_initial;
+            cartesian_state_.orientation = cartesian_state_.orientation_initial;
 
             pose_inicial_capturada_ = true;
             posicion_inicial_alcanzada_ = true;
@@ -696,6 +706,15 @@ private:
         haptic_state_.orientation.x() = msg->pose.orientation.x;
         haptic_state_.orientation.y() = msg->pose.orientation.y;
         haptic_state_.orientation.z() = msg->pose.orientation.z;
+        //guardamos velocidad cartesiana del haptico por derivada de euler
+        haptic_state_.velocity = (haptic_state_.position - haptic_state_.position_last) / (1e-3); //asumiendo 1ms entre callbacks
+        haptic_state_.position_last = haptic_state_.position;
+        Eigen::Quaterniond delta_orientation = haptic_state_.orientation * haptic_state_.orientation_last.inverse();
+        haptic_state_.angular_velocity << delta_orientation.x()/(1e-3), delta_orientation.y()/(1e-3), delta_orientation.z()/(1e-3), delta_orientation.w()/(1e-3); //asumiendo 1ms entre callbacks
+        haptic_state_.orientation_last = haptic_state_.orientation;
+        
+
+
 
     }
 
@@ -727,7 +746,6 @@ private:
             RCLCPP_WARN(this->get_logger(), "Esperando a que se capture la pose inicial del Geomagic. Presione el botón gris.");
             return;
         }
-        Eigen::Vector3d x_des = Eigen::Vector3d::Zero();
         // Rama geomagic: seguir referencia del háptico
         if (config_.use_geomagic) {
             Eigen::Quaterniond dif_orientacion_haptic = haptic_state_.orientation * haptic_state_.orientation_initial.inverse();
@@ -737,8 +755,12 @@ private:
             cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
             RCLCPP_INFO(this->get_logger(), "Dif orientación háptico (eje): [%.3f, %.3f, %.3f]",
                         dif_orientacion_haptic.vec().x(), dif_orientacion_haptic.vec().y(), dif_orientacion_haptic.vec().z());
-            x_des = trayectoria_geomagic(
+            cartesian_state_.position_desired = trayectoria_geomagic(
                 cartesian_state_.position_initial, haptic_state_.position_initial, haptic_state_.position, 2.5);
+            cartesian_state_.velocity = haptic_state_.velocity * 2.5; // escala de velocidad
+            cartesian_state_.angular_velocity = haptic_state_.angular_velocity; // escala de velocidad
+                
+            
         } else {
 
             
@@ -757,7 +779,9 @@ private:
                 t_elapsed,
                 config_.traj_mode
             );
-            x_des = st.position;
+            cartesian_state_.position_desired = st.position;
+            cartesian_state_.velocity = st.velocity;
+            cartesian_state_.angular_velocity = Eigen::Vector3d::Zero(); // sin rot
 
             //x_des << -0.03, 0.7, 0.1;
             // Mantener orientación constante
@@ -768,9 +792,10 @@ private:
         pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
         pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
         const auto& frame_meas = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
-        Eigen::Vector3d x_meas = frame_meas.translation();
-        std::cout<<x_meas.transpose()<<std::endl;
+        cartesian_state_.position = frame_meas.translation();
+        std::cout << cartesian_state_.position.transpose() << std::endl;
         Eigen::Matrix3d R_meas = frame_meas.rotation();
+        cartesian_state_.orientation = Eigen::Quaterniond(R_meas);
         Eigen::Matrix3d R_des = cartesian_state_.orientation_desired.toRotationMatrix();
         Eigen::Matrix3d R_err = R_meas.transpose() * R_des;
         double e_R_angle = Eigen::AngleAxisd(R_err).angle();
@@ -781,17 +806,29 @@ private:
         Eigen::Vector3d euler_meas = R_meas.eulerAngles(0, 1, 2); // RPY
 
         auto ik_t0 = std::chrono::steady_clock::now();
+        std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
+        std::cout<<"vel_des: "<<haptic_state_.velocity.transpose()<<std::endl;
 
         if (config_.controller == "QP") {
 
             robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP(
                 robot_state_.q,
-                x_des,
+                cartesian_state_.position_desired,
                 cartesian_state_.orientation_desired,
                 600,
                 0.1
             );}
         else if (config_.controller == "IMP") {
+            robot_state_.q_solution = UR5Impedance::calculateControlCommand(
+                robot_state_.q,
+                robot_state_.dq,
+                cartesian_state_.position_desired,
+                cartesian_state_.orientation_desired,
+                cartesian_state_.velocity,
+                Eigen::Vector3d& zero, //acc_desired
+                Eigen::Matrix<double, 7, 1> 1850,1850,1850,500,500,500,500,
+                10,
+                0.01);
             return;
         } else if (config_.controller == "SLD") {
             return;
@@ -799,7 +836,7 @@ private:
             config_.controller = "QP";
             robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP(
                 robot_state_.q,
-                x_des,
+                cartesian_state_.position_desired,
                 cartesian_state_.orientation_desired,
                 600,
                 0.1
@@ -865,14 +902,14 @@ private:
             double dt = (now_ros - last_log_time_).seconds();
             last_log_time_ = now_ros;
             // Calcular errores cartesianos
-            Eigen::Vector3d pos_err = x_des - x_meas; // error de posición
+            Eigen::Vector3d pos_err = cartesian_state_.position_desired - cartesian_state_.position; // error de posición
             std::cout<<"pos_err: "<<pos_err.transpose()<<std::endl;
             // Para orientación: quaternion de error (desired * meas^{-1})
-            Eigen::Quaterniond q_err = q_des * q_meas.inverse();
+            Eigen::Quaterniond q_err = q_des * cartesian_state_.orientation.inverse();
             Eigen::AngleAxisd aa(q_err);
             Eigen::Vector3d ori_axis = aa.axis();
             double ori_angle = aa.angle();
-            write_csv_row(t, dt, x_des, x_meas, q_des, q_meas, euler_des, euler_meas, e_R_angle,
+            write_csv_row(t, dt, cartesian_state_.position_desired, cartesian_state_.position, q_des, cartesian_state_.orientation, euler_des, euler_meas, e_R_angle,
                           pos_err, ori_axis, ori_angle,
                           last_ik_ms_, last_loop_ms_);
         }

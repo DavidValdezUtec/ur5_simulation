@@ -30,6 +30,12 @@ struct CartesianState
   Eigen::Quaterniond orientation_desired = Eigen::Quaterniond::Identity(); // Orientación cartesiana deseada
   Eigen::Vector3d position_initial = Eigen::Vector3d::Zero(); // Posición cartesiana inicial
   Eigen::Quaterniond orientation_initial = Eigen::Quaterniond::Identity(); // Orientación inicial
+  Eigen::Vector3d velocity = Eigen::Vector3d::Zero();      // Velocidad cartesiana actual
+  Eigen::Vector4d angular_velocity = Eigen::Vector4d::Zero(); // Velocidad angular actual quaternionica
+  Eigen::Vector3d position_last = Eigen::Vector3d::Zero(); // Posición cartesiana en el último paso
+  Eigen::Quaterniond orientation_last = Eigen::Quaterniond::Identity(); // Orientación en
+  Eigen::Vector3d acceleration = Eigen::Vector3d::Zero();  // Aceleración cartesiana actual
+  
 };
 
 // Estado del dispositivo háptico (Geomagic)
@@ -39,13 +45,21 @@ struct HapticState
   Eigen::Quaterniond orientation = Eigen::Quaterniond::Identity(); // Orientación actual
   Eigen::Vector3d position_initial = Eigen::Vector3d::Zero();      // Posición inicial capturada
   Eigen::Quaterniond orientation_initial = Eigen::Quaterniond::Identity(); // Orientación inicial capturada
+  Eigen::Vector3d velocity = Eigen::Vector3d::Zero();      // Velocidad cartesiana actual
+  Eigen::Vector4d angular_velocity = Eigen::Vector4d::Zero(); // Velocidad angular actual quaternionica
+  Eigen::Vector3d position_last = Eigen::Vector3d::Zero(); // Posición cartesiana en el último paso
+  Eigen::Quaterniond orientation_last = Eigen::Quaterniond::Identity(); // Orientación en
+  
 };
 
 // Configuración y parámetros del nodo
 struct NodeConfig
 {
-  // ------------------------------------------------------------------
-  // Identificación y namespaces
+  // Estados derivados para control teleoperado
+  Eigen::Vector3d position_last = Eigen::Vector3d::Zero();         // Última posición (para derivada)
+  Eigen::Quaterniond orientation_last = Eigen::Quaterniond::Identity(); // Última orientación
+  Eigen::Vector3d velocity = Eigen::Vector3d::Zero();              // Velocidad cartesiana estimada
+  Eigen::Vector3d angular_velocity = Eigen::Vector3d::Zero();      // Velocidad angular estimada (parte imaginaria del delta quaternion / dt)
   // ------------------------------------------------------------------
   std::string control_topic = "/joint_trajectory_controller/joint_trajectory"; // Tópico de control articular
   std::string operation_mode = "teleop";   // "teleop" o "trajectory"

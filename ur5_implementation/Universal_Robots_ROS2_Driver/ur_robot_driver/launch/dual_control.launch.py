@@ -44,6 +44,7 @@ def generate_launch_description():
                 launch_arguments={
                     "ur_type": r1_type,
                     "robot_ip": "192.168.10.113",
+                    "description_package": "ur5_description",
                     # Evitar f-strings con LaunchConfiguration: usar listas de sustituciones
                     "tf_prefix": [r1_type, "_"],
                     "controllers_file": ["ur_controllers_", r1_type, ".yaml"],
@@ -83,6 +84,7 @@ def generate_launch_description():
                 launch_arguments={
                     "ur_type": r2_type,
                     "robot_ip": "192.168.10.103",
+                    "description_package": "ur5_description",
                     # Evitar f-strings con LaunchConfiguration: usar listas de sustituciones
                     "tf_prefix": [r2_type, "_"],
                     "controllers_file": ["ur_controllers_", r2_type, ".yaml"],
