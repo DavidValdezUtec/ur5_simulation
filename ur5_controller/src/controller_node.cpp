@@ -293,7 +293,7 @@ class UR5eJointController : public rclcpp::Node {
     
             
             // Suscriptor para leer el estado articular actual
-            subscription_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&UR5eJointController::update_joint_positions, this, std::placeholders::_1));            
+            subscription_ = this->create_subscription<sensor_msgs::msg::JointState>("/ur5e/joint_states", 10, std::bind(&UR5eJointController::update_joint_positions, this, std::placeholders::_1));            
                 // Suscriptor para leer la posición cartesiana del haptic phantom
             
             
@@ -327,7 +327,7 @@ class UR5eJointController : public rclcpp::Node {
         double B[6];
         double control_loop_time[1]; 
         int ur5_time = 0.01;
-        string control_topic = "/joint_trajectory_controller/joint_trajectory";
+        string control_topic = "/ur5e/scaled_joint_trajectory_controller/joint_trajectory";
         sensor_msgs::msg::JointState::SharedPtr last_joint_state_;    
         rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr subscription_;
@@ -349,12 +349,12 @@ class UR5eJointController : public rclcpp::Node {
         // POSICIONES ARTICULARES DEL UR5
         void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
             last_joint_state_ = msg;
-            bool implementacion = false; // Variable para determinar si se implementa la cinemática inversa
+            bool implementacion = true; // Variable para determinar si se implementa la cinemática inversa
             if (implementacion){
-                q_[0] = msg->position[5];           qd_[0] = msg->velocity[5];
-                q_[1] = msg->position[0];           qd_[1] = msg->velocity[0];
-                q_[2] = msg->position[1];           qd_[2] = msg->velocity[1];
-                q_[3] = msg->position[2];           qd_[3] = msg->velocity[2];
+                q_[0] = msg->position[0];           qd_[0] = msg->velocity[0];
+                q_[1] = msg->position[1];           qd_[1] = msg->velocity[1];
+                q_[2] = msg->position[2];           qd_[2] = msg->velocity[2];
+                q_[3] = msg->position[5];           qd_[3] = msg->velocity[5];
                 q_[4] = msg->position[3];           qd_[4] = msg->velocity[3];
                 q_[5] = msg->position[4];           qd_[5] = msg->velocity[4];
             }
@@ -377,8 +377,8 @@ class UR5eJointController : public rclcpp::Node {
                 return;
             }
             auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
-            trajectory_msg.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
-                                        "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
+            trajectory_msg.joint_names = {"ur5e_shoulder_pan_joint", "ur5e_shoulder_lift_joint", "ur5e_elbow_joint",
+                                        "ur5e_wrist_1_joint", "ur5e_wrist_2_joint", "ur5e_wrist_3_joint"};
             auto point = trajectory_msgs::msg::JointTrajectoryPoint();
             RCLCPP_INFO(this->get_logger(), "Enviando posición inicial: %.2f %.2f %.2f %.2f %.2f %.2f",
                         q_init[0], q_init[1], q_init[2], q_init[3], q_init[4], q_init[5]);
@@ -564,8 +564,8 @@ class UR5eJointController : public rclcpp::Node {
             // ... (el resto del código para publicar la trayectoria con las nuevas q_)
             std::cout << "Tiempo total: " << std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() << " ns" << std::endl;
             auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
-            trajectory_msg.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
-                                        "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
+            trajectory_msg.joint_names = {"ur5e_shoulder_pan_joint", "ur5e_shoulder_lift_joint", "ur5e_elbow_joint",
+                                        "ur5e_wrist_1_joint", "ur5e_wrist_2_joint", "ur5e_wrist_3_joint"};
             auto point = trajectory_msgs::msg::JointTrajectoryPoint();
             RCLCPP_INFO(this->get_logger(), "Enviando posición: %.4f %.4f %.4f %.4f %.4f %.4f",
                         q_solution[0], q_solution[1], q_solution[2], q_solution[3], q_solution[4], q_solution[5]);
