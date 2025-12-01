@@ -334,6 +334,7 @@ private:
     // (Parámetros de trayectoria ahora en config_)
     bool trajectory_active_ {false};
     rclcpp::Time trajectory_start_time_ {};
+    double t_traj_ = 0.0; // Tiempo para la trayectoria, independiente de dt
 
     Eigen::Matrix<double, 7, 1> Kp;
     Eigen::Matrix<double, 7, 1> Kd;
@@ -745,7 +746,7 @@ private:
         }
     } 
 
-
+    
     void control_loop() {
         auto loop_t0 = std::chrono::steady_clock::now();
         if (!pose_inicial_capturada_ || !posicion_inicial_alcanzada_) {
@@ -786,9 +787,10 @@ private:
                 config_.traj_A,
                 config_.traj_wn,
                 config_.traj_c0,
-                t_elapsed,
+                t_traj_,
                 config_.traj_mode
             );
+            
             cartesian_state_.position_desired = st.position;
             cartesian_state_.velocity = st.velocity;
             cartesian_state_.angular_velocity = Eigen::Vector4d::Zero(); // sin rot
@@ -799,8 +801,10 @@ private:
             //x_des << -0.03, 0.7, 0.1;
             // Mantener orientación constante
             cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
+            std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
+            std::cout<<"vel_des: "<<cartesian_state_.velocity.transpose()<<std::endl;
         }
-
+        t_traj_ += 0.01;
         // Medición cartesiana actual (para logging y control si fuera necesario)
         pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
         pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
@@ -819,8 +823,8 @@ private:
         Eigen::Vector3d euler_meas = R_meas.eulerAngles(0, 1, 2); // RPY
 
         auto ik_t0 = std::chrono::steady_clock::now();
-        std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
-        std::cout<<"vel_des: "<<haptic_state_.velocity.transpose()<<std::endl;
+        //std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
+        //std::cout<<"vel_des: "<<haptic_state_.velocity.transpose()<<std::endl;
 
         if (config_.controller == "QP") {
 
@@ -844,7 +848,8 @@ private:
                 Kp,
                 Kd,
                 0.01);
-            return;
+            //std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
+
         } else if (config_.controller == "SLD") {
             return;
         } else {

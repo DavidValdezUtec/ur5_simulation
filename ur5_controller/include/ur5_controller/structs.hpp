@@ -69,7 +69,7 @@ struct NodeConfig
   std::string ur_model = "ur5";            // Modelo: ur5 / ur5e
   std::string nmspace = "";                // Namespace (prefijo de joints y tópicos)
   std::string urdf_path;                    // Ruta absoluta al URDF (se completa en runtime si queda vacío)
-  std::string controller="QP";
+  std::string controller="IMP";
   bool use_geomagic = false;                // Modo teleoperado háptico
 
   // ------------------------------------------------------------------
@@ -82,16 +82,16 @@ struct NodeConfig
   // Movimiento articular inicial (similar a nodo ur5_pos)
   // ------------------------------------------------------------------
   bool use_ur5_pos_init = true;             // Activar secuencia inicial hacia q_target
-  std::vector<double> q_target {1.57, -1.9, 1.7, -1.9, -1.7, 0.0}; // Objetivo articular inicial
+  std::vector<double> q_target {1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0}; // Objetivo articular inicial
   double q_target_time = 2.0;               // Tiempo para alcanzar objetivo inicial
 
   // ------------------------------------------------------------------
   // Trayectoria automática (cuando use_geomagic = false)
   // Parámetros leídos de ROS params: traj_A, traj_wn, traj_c0, traj_mode
   // ------------------------------------------------------------------
-  Eigen::Vector3d traj_A {0.05, 0.05, 0.05}; // Amplitudes en metros
-  double traj_wn = 3.14159;                  // Frecuencia natural
-  double traj_c0 = 1.0;                      // Factor de decaimiento
+  Eigen::Vector3d traj_A {0.05, 0.05, 0.02}; // Amplitudes en metros
+  double traj_wn = 0.5;                  // Frecuencia natural
+  double traj_c0 = 0.1;                      // Factor de decaimiento
   int traj_mode = 1;                         // Modo (1 sinusoidal, 2 exponencial, etc.)
   std::string trayectoria = "cicloide creciente"; // Descripción textual (legacy)
 

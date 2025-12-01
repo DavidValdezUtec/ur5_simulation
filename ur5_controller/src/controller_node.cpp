@@ -1,87 +1,54 @@
-#include <ur5_controller/structs.hpp>
-
-// ROS 2 Core
 #include <rclcpp/rclcpp.hpp>
-
-// Mensajes
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <trajectory_msgs/msg/joint_trajectory.hpp>
 #include <trajectory_msgs/msg/joint_trajectory_point.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
-#include <std_msgs/msg/bool.hpp>
 
-// Servicios
-#include <ur5_kinematics_server/srv/inverse_kinematics.hpp>
-
-// Eigen para matemáticas
+#include <pinocchio/parsers/urdf.hpp>
+#include <pinocchio/algorithm/kinematics.hpp>
+#include <pinocchio/algorithm/jacobian.hpp>
+#include <pinocchio/algorithm/frames.hpp>
+//dinamica
+#include <pinocchio/algorithm/crba.hpp>      // Para la matriz de inercia
+#include <pinocchio/algorithm/rnea.hpp>      // Para Coriolis y gravedad
+#include <pinocchio/algorithm/aba.hpp>       // Para la dinámica inversa
 #include <Eigen/Dense>
-#include <Eigen/Geometry>
+#include <pinocchio/algorithm/compute-all-terms.hpp> // Para computeAllTerms
+#include <pinocchio/algorithm/center-of-mass.hpp> // Para computeCentroidalMomentum (no directamente usado aquí pero útil)
 
-// Utilidades de ROS 2
-#include <ament_index_cpp/get_package_share_directory.hpp>
-
-// Standard C++
 #include <iostream>
-#include <fstream>
 #include <chrono>
-#include <memory>
-#include <string>
-#include <vector>
-#include <cmath>
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <ur5_impedance/impedance.hpp>
+using namespace std;
 
-// Usar el namespace para las structs
-using namespace ur5_controller;
+template<typename T>
+void dbg(const T& msg) {
+    std::cout << msg << std::endl;
+}
 
-class TrajectoryGenerator {
-public:
-    // Estructura para contener los resultados
-    struct State {
-        Eigen::Vector3d position;
-        Eigen::Vector3d velocity;
-        Eigen::Vector3d acceleration;
-    };
+void initializeUR5(std::unique_ptr<pinocchio::Model>& model,  std::unique_ptr<pinocchio::Data>& data,
+                   pinocchio::FrameIndex& tool_frame_id,      const std::string& urdf_path) {
+    model = std::make_unique<pinocchio::Model>();
 
-    // Calcula el estado completo de la trayectoria en un tiempo dado
-    static State calculate(
-        const Eigen::Vector3d& x_init, 
-        const Eigen::Vector3d& A, 
-        double wn, 
-        double c0, 
-        double time_elapsed) 
-    {
-        State state;
-        double t = time_elapsed;
+    auto logger = rclcpp::get_logger("UR5Kinematics");
+    RCLCPP_INFO(logger, "Intentando cargar URDF desde: %s", urdf_path.c_str());
 
-        // --- Términos comunes (se calculan una sola vez) ---
-        double exp_neg_c0_t = exp(-c0 * t);
-        double sin_wn_t = sin(wn * t);
-        double cos_wn_t = cos(wn * t);
-        
-        double amp_factor = 1.0 - exp_neg_c0_t;
-        double d_amp_factor_dt = c0 * exp_neg_c0_t;
-        double d2_amp_factor_dt2 = -c0 * c0 * exp_neg_c0_t;
-        // ----------------------------------------------------
-
-        // --- Cálculo de Posición ---
-        state.position.x() = x_init.x() + A.x() * amp_factor * sin_wn_t;
-        state.position.y() = x_init.y() + A.y() * amp_factor * cos_wn_t;
-        state.position.z() = x_init.z() + A.z() * amp_factor * sin_wn_t;
-
-        // --- Cálculo de Velocidad ---
-        state.velocity.x() = A.x() * (d_amp_factor_dt * sin_wn_t + amp_factor * wn * cos_wn_t);
-        state.velocity.y() = A.y() * (d_amp_factor_dt * cos_wn_t - amp_factor * wn * sin_wn_t);
-        state.velocity.z() = A.z() * (d_amp_factor_dt * sin_wn_t + amp_factor * wn * cos_wn_t);
-
-        // --- Cálculo de Aceleración ---
-        double term1_sin = d2_amp_factor_dt2 - amp_factor * wn * wn;
-        double term2_cos = 2 * d_amp_factor_dt * wn;
-        state.acceleration.x() = A.x() * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
-        state.acceleration.y() = A.y() * (term1_sin * cos_wn_t - term2_cos * sin_wn_t);
-        state.acceleration.z() = A.z() * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
-
-        return state;
+    try {
+        pinocchio::urdf::buildModel(urdf_path, *model);
+        RCLCPP_INFO(logger, "URDF cargado exitosamente!");
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(logger, "Error cargando URDF: %s", e.what());
+        throw;
     }
-};
+
+    data = std::make_unique<pinocchio::Data>(*model); // crea un puntero a los datos de pinocchio
+    tool_frame_id = model->getFrameId("tool0");
+
+    if (tool_frame_id == static_cast<pinocchio::FrameIndex>(model->nframes)) {
+        RCLCPP_ERROR(logger, "Error: Marco 'tool0' no encontrado en el URDF!");
+        throw std::runtime_error("Frame tool0 no encontrado");
+    }
+}
 
 std::string get_file_path(const std::string& package_name, const std::string& relative_path) {
     try {
@@ -92,340 +59,545 @@ std::string get_file_path(const std::string& package_name, const std::string& re
     }
 }
 
-class UR5ModularController : public rclcpp::Node
+Eigen::MatrixXd computeFullJacobianQuaternion(
+    const pinocchio::Model& model,
+    pinocchio::Data& data,
+    const pinocchio::FrameIndex& tool_frame_id,
+    const Eigen::VectorXd& q,
+    double delta = 1e-8)
 {
-public:
-    UR5ModularController() : Node("ur5_modular_controller")
-    {
-        // 1. Declarar parámetros
-        this->declare_parameter<std::string>("control_topic", "/joint_trajectory_controller/joint_trajectory");
-        this->declare_parameter<std::string>("operation_mode", "teleop"); // "teleop" o "trajectory"
-        this->declare_parameter<std::string>("ur_model", "ur5");
-        this->declare_parameter<std::vector<double>>("trajectory_waypoints", std::vector<double>{});
-        this->declare_parameter<double>("trajectory_duration", 5.0);
-        this->declare_parameter<double>("control_frequency", 100.0);
+    int nq = q.size();
+    Eigen::MatrixXd J_full(7, nq); // 3 pos + 4 quat
 
-        // 2. Obtener parámetros
-        this->get_parameter("control_topic", config_.control_topic);
-        this->get_parameter("operation_mode", config_.operation_mode);
-        this->get_parameter("ur_model", config_.ur_model);
-        this->get_parameter("trajectory_waypoints", config_.trajectory_waypoints);
-        this->get_parameter("trajectory_duration", config_.trajectory_duration);
-        this->get_parameter("control_frequency", config_.control_frequency);
+    // Estado nominal
+    pinocchio::forwardKinematics(model, data, q);
+    pinocchio::updateFramePlacement(model, data, tool_frame_id);
+    Eigen::Vector3d pos0 = data.oMf[tool_frame_id].translation();
+    Eigen::Quaterniond quat0(data.oMf[tool_frame_id].rotation());
 
-        // 3. Validar modo de operación
-        if (config_.operation_mode != "teleop" && config_.operation_mode != "trajectory") {
-            RCLCPP_ERROR(this->get_logger(), "Modo de operación no válido: %s. Use 'teleop' o 'trajectory'", config_.operation_mode.c_str());
-            throw std::invalid_argument("Modo de operación no válido");
-        }
+    for (int i = 0; i < nq; ++i) {
+        Eigen::VectorXd q_perturbed = q;
+        q_perturbed[i] += delta;
 
-        RCLCPP_INFO(this->get_logger(), "=== CONFIGURACIÓN DEL CONTROLADOR ===");
-        RCLCPP_INFO(this->get_logger(), "Modo de operación: %s", config_.operation_mode.c_str());
-        RCLCPP_INFO(this->get_logger(), "Tópico de control: %s", config_.control_topic.c_str());
-        RCLCPP_INFO(this->get_logger(), "Frecuencia de control: %.1f Hz", config_.control_frequency);
+        pinocchio::forwardKinematics(model, data, q_perturbed);
+        pinocchio::updateFramePlacement(model, data, tool_frame_id);
+        Eigen::Vector3d pos1 = data.oMf[tool_frame_id].translation();
+        Eigen::Quaterniond quat1(data.oMf[tool_frame_id].rotation());
 
-        // 4. Inicializar publicadores y suscriptores
-        joint_trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(config_.control_topic, 10);
-        joint_states_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, 
-            std::bind(&UR5ModularController::update_joint_positions, this, std::placeholders::_1));
+        // Diferencia numérica para posición
+        Eigen::Vector3d dpos = (pos1 - pos0) / delta;
+        // Diferencia numérica para cuaternión (Eigen almacena como x, y, z, w)
+        Eigen::Vector4d dquat = (quat1.coeffs() - quat0.coeffs()) / delta;
 
-        // 5. Inicializar cliente de cinemática inversa
-        kinematics_client_ = this->create_client<ur5_kinematics_server::srv::InverseKinematics>("/ur5_kinematics_server/inverse_kinematics");
+        // Guardar en la columna i
+        J_full.block<3,1>(0, i) = dpos;
+        J_full.block<4,1>(3, i) = dquat;
+    }
+    return J_full;
+}
 
-        // 6. Configurar según el modo de operación
-        if (config_.operation_mode == "teleop") {
-            setup_teleoperation();
-        } else if (config_.operation_mode == "trajectory") {
-            setup_trajectory_mode();
-        }
 
-        // 7. Timer de control principal
-        auto control_period = std::chrono::duration<double>(1.0 / config_.control_frequency);
-        timer_ = this->create_wall_timer(control_period, std::bind(&UR5ModularController::control_loop, this));
-
-        RCLCPP_INFO(this->get_logger(), "=== CONTROLADOR MODULAR UR5 INICIADO ===");
+void load_values_from_file(const std::string &file_path, double values[], int size, int line_number) {
+    std::ifstream file(file_path);
+    if (!file.is_open()) {
+        throw std::runtime_error("No se pudo abrir el archivo: " + file_path);
     }
 
-private:
-    // ROS 2 objects
-    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
-    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr geomagic_pose_sub_;
-    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr calibration_status_sub_;
-    rclcpp::Client<ur5_kinematics_server::srv::InverseKinematics>::SharedPtr kinematics_client_;
-    rclcpp::TimerBase::SharedPtr timer_;
-
-    // --- Variables agrupadas en structs ---
-    RobotState robot_state_;
-    CartesianState cartesian_state_;
-    HapticState haptic_state_;
-    NodeConfig config_;
-    // ------------------------------------
-
-    // Estado del sistema
-    bool system_initialized_ = false;
-    bool geomagic_calibrated_ = false;
-    
-    // Variables para modo trayectoria
-    std::chrono::steady_clock::time_point trajectory_start_time_;
-    bool trajectory_started_ = false;
-
-    void setup_teleoperation() {
-        RCLCPP_INFO(this->get_logger(), "Configurando modo teleoperation...");
-        
-        // Suscribirse a la pose procesada del Geomagic
-        geomagic_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/geomagic/processed_pose", 10,
-            std::bind(&UR5ModularController::geomagic_pose_callback, this, std::placeholders::_1));
-
-        // Suscribirse al estado de calibración
-        calibration_status_sub_ = this->create_subscription<std_msgs::msg::Bool>(
-            "/geomagic/calibration_status", 10,
-            std::bind(&UR5ModularController::calibration_status_callback, this, std::placeholders::_1));
-
-        RCLCPP_INFO(this->get_logger(), "Teleoperation configurada. Esperando datos del Geomagic...");
-    }
-
-    void setup_trajectory_mode() {
-        RCLCPP_INFO(this->get_logger(), "Configurando modo trajectory...");
-        
-        if (config_.trajectory_waypoints.empty()) {
-            // Trayectoria por defecto - movimiento circular
-            RCLCPP_INFO(this->get_logger(), "Usando trayectoria circular por defecto");
-        } else {
-            RCLCPP_INFO(this->get_logger(), "Usando trayectoria personalizada con %zu waypoints", 
-                        config_.trajectory_waypoints.size() / 6);
-        }
-    }
-
-    void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
-        // Mapeo de articulaciones según el controlador
-        if (config_.control_topic == "/scaled_joint_trajectory_controller/joint_trajectory") {
-            robot_state_.q << msg->position[5], msg->position[0], msg->position[1], 
-                             msg->position[2], msg->position[3], msg->position[4];
-            robot_state_.qd << msg->velocity[5], msg->velocity[0], msg->velocity[1], 
-                              msg->velocity[2], msg->velocity[3], msg->velocity[4];
-        } else {
-            for (int i = 0; i < 6; ++i) {
-                robot_state_.q[i] = msg->position[i];
-                robot_state_.qd[i] = msg->velocity[i];
+    std::string line;
+    int current_line = 0;
+    while (std::getline(file, line)) {
+        current_line++;
+        if (current_line == line_number) {
+            std::istringstream iss(line);
+            for (int i = 0; i < size; ++i) {
+                if (!(iss >> values[i])) {
+                    throw std::runtime_error("Error al leer los valores desde la línea " + std::to_string(line_number));
+                }
+                if (iss.peek() == ',' || iss.peek() == ' ') {
+                    iss.ignore(); // Ignorar comas o espacios
+                }
             }
-        }
-
-        // Inicialización del sistema en la primera recepción
-        if (!system_initialized_) {
-            initialize_system();
+            break;
         }
     }
 
-    void initialize_system() {
-        RCLCPP_INFO(this->get_logger(), "Inicializando sistema...");
-        
-        robot_state_.q_init = robot_state_.q;
-        
-        // Obtener pose inicial usando el servicio de cinemática
-        auto request = std::make_shared<ur5_kinematics_server::srv::InverseKinematics::Request>();
-        // Para la pose inicial, solo necesitamos calcular la cinemática directa
-        // Pero como el servicio es para IK, usaremos una posición temporal
-        request->target_position.x = 0.0;
-        request->target_position.y = 0.0;
-        request->target_position.z = 0.0;
-        request->target_orientation.w = 1.0;
-        request->current_joint_positions.assign(robot_state_.q.data(), robot_state_.q.data() + 6);
-        request->max_iterations = 100;
-        request->tolerance = 0.1;
-
-        // Por ahora, asumimos una pose inicial estándar
-        cartesian_state_.position_initial << 0.4, 0.0, 0.4;
-        cartesian_state_.orientation_initial = Eigen::Quaterniond::Identity();
-        
-        system_initialized_ = true;
-        
-        if (config_.operation_mode == "trajectory") {
-            trajectory_start_time_ = std::chrono::steady_clock::now();
-            trajectory_started_ = true;
-        }
-        
-        RCLCPP_INFO(this->get_logger(), "Sistema inicializado. Control activo.");
-        RCLCPP_INFO(this->get_logger(), "q_init: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]", 
-                    robot_state_.q_init[0], robot_state_.q_init[1], robot_state_.q_init[2], 
-                    robot_state_.q_init[3], robot_state_.q_init[4], robot_state_.q_init[5]);
+    if (current_line < line_number) {
+        throw std::runtime_error("El archivo no contiene suficientes líneas.");
     }
 
-    void geomagic_pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
-        if (!geomagic_calibrated_) {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                                 "Esperando calibración del Geomagic...");
-            return;
-        }
+    file.close();
+}
 
-        // Los datos ya vienen procesados del geomagic_interface
-        haptic_state_.position << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
-        haptic_state_.orientation.w() = msg->pose.orientation.w;
-        haptic_state_.orientation.x() = msg->pose.orientation.x;
-        haptic_state_.orientation.y() = msg->pose.orientation.y;
-        haptic_state_.orientation.z() = msg->pose.orientation.z;
 
-        // Calcular pose deseada para el robot
-        cartesian_state_.position_desired = cartesian_state_.position_initial + haptic_state_.position;
-        cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * haptic_state_.orientation;
+Eigen::VectorXd impedanceControlPythonStyle(
+    const pinocchio::Model& model,
+    pinocchio::Data& data,
+    const pinocchio::FrameIndex& tool_frame_id,
+    const Eigen::VectorXd& q,
+    const Eigen::VectorXd& dq,
+    string config_path,
+    double qt_[4], // Cuaternión deseado (w, x, y, z)
+    double x_des[3], // Para xdes
+    Eigen::MatrixXd& J_anterior,
+    double dt=0.01,
+    const Eigen::Vector3d& v_des = Eigen::Vector3d::Zero(), // <-- valor por defecto
+    const Eigen::Vector3d& a_des = Eigen::Vector3d::Zero() 
+) {
+    // 1. Cinemática directa y Jacobiano actual
+    pinocchio::forwardKinematics(model, data, q, dq);
+    pinocchio::updateFramePlacement(model, data, tool_frame_id);
+
+    // BUG ORIGINAL: La línea anterior usaba el operador coma (model, data, tool_frame_id, q)
+    // devolviendo solo 'q' (vector 6x1) y luego intentaba restarlo con J_anterior (7x6) => assert Eigen.
+    // Corrección: usar el Jacobiano completo (posición + cuaternión) de 7x6.
+    Eigen::MatrixXd J = computeFullJacobianQuaternion(model, data, tool_frame_id, q); // 7x6
+    if (J_anterior.rows() != J.rows() || J_anterior.cols() != J.cols()) {
+        // Reajustar J_anterior si alguien lo modificó externamente
+        J_anterior = Eigen::MatrixXd::Zero(J.rows(), J.cols());
+    }
+    Eigen::MatrixXd dJ = (J - J_anterior) / dt; // 7x6 diferencia temporal
+    Eigen::VectorXd dx_current_cartesian = J * dq; // (7x6)*(6x1)=7x1 velocidad cartesiana estimada
+
+    Eigen::Vector4d vel_ori_d = Eigen::Vector4d::Zero();
+    Eigen::Vector4d acc_ori_d = Eigen::Vector4d::Zero();
+    Eigen::VectorXd vel_des(7), dvel_des(7);
+    vel_des << v_des, vel_ori_d;
+    dvel_des << a_des, acc_ori_d;
+    
+    // Cargar valores de K y B desde el archivo de configuración
+    double K[7]; load_values_from_file(config_path, K, 7, 23);       // 7 valores de K
+    double B[7]; load_values_from_file(config_path, B, 7, 25);       // 7 valores de B
+
+    Eigen::Matrix<double,7,7> Kp_task = Eigen::Matrix<double,7,7>::Identity();
+    Eigen::Matrix<double,7,7> Kd_task = Eigen::Matrix<double,7,7>::Identity();
+    Kp_task .diagonal() << K[0], K[1], K[2], K[3], K[4], K[5], K[6]; // Asigna los valores de K
+    Kd_task.diagonal() << B[0], B[1], B[2], B[3], B[4], B[5], B[6]; // Asigna los valores de B
+ 
+    Eigen::Quaterniond desired_orientation_quat(qt_[0], qt_[1], qt_[2], qt_[3]); // w, x, y, z
+    desired_orientation_quat.normalize();
+    
+    // Error de posición
+    Eigen::Vector3d position_error(x_des[0],x_des[1],x_des[2]);
+    position_error-=data.oMf[tool_frame_id].translation();
+
+    // Error de orientación usando cuaterniones
+    Eigen::Quaterniond current_orientation(data.oMf[tool_frame_id].rotation());
+
+    // Error de velocidad (vel_des - dx_current_cartesian)
+    Eigen::VectorXd error_velocity = vel_des - dx_current_cartesian; // (7x1)
+    Eigen::VectorXd error_pose(7);
+    error_pose << -position_error, (current_orientation.coeffs() - desired_orientation_quat.coeffs());
+
+
+
+    // 5. Cálculos de dinámica (M, c, g)
+    // Necesitamos recalcular estas para cada paso de tiempo
+    pinocchio::computeJointJacobians(model, data, q); // Necesario para crba y otros
+    pinocchio::crba(model, data, q); // Calcula la matriz de inercia M
+    pinocchio::computeCoriolisMatrix(model, data, q, dq); // Calcula el término de Coriolis
+    pinocchio::computeGeneralizedGravity(model, data, q); // Calcula el vector de gravedad g
+
+    Eigen::MatrixXd M = data.M; // Matriz de inercia
+    // data.nle ya es (Coriolis + Gravity) en Pinocchio
+    Eigen::VectorXd c_term = data.nle - data.g; // Solo el término de Coriolis (c en Python)
+    Eigen::VectorXd g_term = data.g; // Solo el término de gravedad (g en Python)  6*1
+    // cout<<submatrix<<endl;
+    // if (submatrix.determinant()==0){
+    //     cout<<"Jacobiano de orientación indeterminado3"<<endl;
+    // }
+    // 6. Calcular Md (Matriz de inercia deseada en el espacio de tarea)
+    // Asegurarse de usar pseudo-inversa como en Python
+    Eigen::MatrixXd J_pinv = J.completeOrthogonalDecomposition().pseudoInverse(); // (N x 7)	
+
+    
+    //MJ-¹[xdd_d-J] 
+
+    // Torque final: TermA * TermB + TermC 
+    Eigen::VectorXd tau = M*J_pinv * ((dvel_des-Kp_task*(error_pose)-Kd_task*(error_velocity))-J*dq)+data.nle;
+
+    std::string geo_pos = get_file_path("ur5_simulation",     "launch/output_data_esfuerzo.txt");
+    std::ofstream output_file_;
+    output_file_.open(geo_pos, std::ios::out | std::ios::app);
+    //guardar torques en aoutput_data_esfuerz.txt
+    if (output_file_.is_open()) {
+                output_file_ << tau[0] << " " << tau[1] << " " << tau[2] << " " << tau[3] << " " << tau[4] << " " << tau[5] <<endl;
+            }
+
+    std::string doc_vel = get_file_path("ur5_simulation",     "launch/output_data_velocidad.txt");
+    std::ofstream output_file_vel_;
+    output_file_vel_.open(doc_vel, std::ios::out | std::ios::app);
+    Eigen::VectorXd vel_cartesiana = J * dq; // (7x1) velocidad cartesiana (3 pos + 4 quat dif coef)
+    //guardar torques en aoutput_data_esfuerz.txt
+    if (output_file_vel_.is_open()) {
+                output_file_vel_ << vel_cartesiana[0] << " " << vel_cartesiana[1] << " " << vel_cartesiana[2] << " " << vel_cartesiana[3] << " " << vel_cartesiana[4] << " " << vel_cartesiana[5] <<endl;
+            }
+    // Actualizar J_anterior para la próxima iteración
+    J_anterior = J;
+    dbg("Torque calculado: " + std::to_string(tau.norm()));
+    pinocchio::crba(model, data, q); // Asegura que la matriz M de Pinocchio esté actualizada
+    Eigen::MatrixXd M_current = (data).M;
+    Eigen::MatrixXd M_inv_current;
+    if (M_current.determinant() == 0) {
+        M_inv_current = M_current.completeOrthogonalDecomposition().pseudoInverse();
+    } else {
+        M_inv_current = M_current.inverse();
     }
 
-    void calibration_status_callback(const std_msgs::msg::Bool::SharedPtr msg) {
-        geomagic_calibrated_ = msg->data;
-        if (geomagic_calibrated_) {
-            RCLCPP_INFO(this->get_logger(), "Geomagic calibrado. Teleoperation activa.");
+    // Calcula los términos no lineales C y G para el cálculo de qdd
+    // Necesarios para qdd = M_inv * (tau - (C+G))
+    pinocchio::computeCoriolisMatrix(model, data, q, dq);
+    pinocchio::computeGeneralizedGravity(model, data, q);
+    Eigen::VectorXd C_plus_G = (data).nle; // nle = Coriolis + Gravity
+
+    // Calcula la aceleración articular deseada
+    Eigen::VectorXd qdd_calculated = M_inv_current * (tau - C_plus_G);
+    Eigen::VectorXd q_solution;
+    Eigen::VectorXd qd_solution;
+    // Integrar para obtener nuevas velocidades y posiciones articulares
+
+
+    qd_solution =dq + qdd_calculated * 0.01;
+    q_solution = q + qd_solution * 0.01;
+    return q_solution;
+}
+
+
+
+
+class UR5eJointController : public rclcpp::Node {
+    public:
+        UR5eJointController() : Node("ur5e_joint_controller"), time_elapsed_(0.0) {
+             // Inicializa con 6 elementos, todos a cero
+            output_file_.open(geo_pos, std::ios::out | std::ios::app);
+            load_values_from_file(config_path, q_init, 6, 7); 
+            impedance_solver_ = std::make_unique<UR5Impedance>(urdf_path);
+            q_des = Eigen::VectorXd::Zero(6); // Inicializa con 6 elementos, todos a cero
+            q_des<< 1.0,-1.57,1.57,0,0,0; // Asigna los valores deseados
+
+            qd_ = Eigen::VectorXd::Zero(6); // Inicializa con 6 elementos, todos a cero
+            qdd_ = Eigen::VectorXd::Zero(6); // Inicializa con 6 elementos, todos a cero
+
+            // q_init = Eigen::VectorXd::Zero(6); // Inicializa con 6 elementos, todos a cero
+            // q_init << 0,-1.57,1.57,0,0,0; // Asigna los valores deseados
+
+
+            try {
+                load_values_from_file(config_path, control_loop_time, 1, 21);       // Leer la 7ma línea para q_init del UR5
+            } catch (const std::exception &e) {
+                cerr << "Error al cargar el archivo de configuración: " << e.what() << endl;                
+            }
+            //convierte el valor de control_loop_time a int
+            ur5_time = static_cast<int>(control_loop_time[0]); // Convertir a milisegundos
+            initializeUR5(model, data, tool_frame_id, urdf_path);            // Publicador para enviar trayectorias
+            joint_trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(control_topic, 10);
+    
+            
+            // Suscriptor para leer el estado articular actual
+            subscription_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&UR5eJointController::update_joint_positions, this, std::placeholders::_1));            
+                // Suscriptor para leer la posición cartesiana del haptic phantom
+            
+            
+            timer_ = this->create_wall_timer( std::chrono::milliseconds(1000), std::bind(&UR5eJointController::posicion_inicial, this));
+            timer2_ = this->create_wall_timer(std::chrono::milliseconds(ur5_time),std::bind(&UR5eJointController::control_loop, this));
+
         }
-    }
+    
+    private:
+        bool posicion_inicial_alcanzada_ = false; // Bandera para sincronización
+        double time_elapsed_=0.0; // Variable
 
-    void control_loop() {
-        if (!system_initialized_) {
-            return;
+        double qt_[4]; // Orientacion del haptic phantom  
+        double x_des_[3];
+        Eigen::Vector3d x_init_; // Para guardar la posición inicial
+        Eigen::Vector4d qt_init_; // Para guardar la posición inicial
+        bool x_init_set_ = false;
+        double t_traj_ = 0.0; // Tiempo para la trayectoria, independiente de dt
+
+        std::ofstream output_file_;
+        std::ofstream output_file_2;
+        std::ofstream output_file_3;        
+        
+        Eigen::VectorXd q_ = Eigen::VectorXd::Zero(6);
+        Eigen::VectorXd q_des;
+        Eigen::VectorXd qd_;
+        Eigen::VectorXd qdd_;
+
+        double q_init[6]; // Inicialización de las posiciones articulares del UR50
+        double K[6];
+        double B[6];
+        double control_loop_time[1]; 
+        int ur5_time = 0.01;
+        string control_topic = "/joint_trajectory_controller/joint_trajectory";
+        sensor_msgs::msg::JointState::SharedPtr last_joint_state_;    
+        rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
+        rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr subscription_;
+
+        rclcpp::TimerBase::SharedPtr timer_;
+        rclcpp::TimerBase::SharedPtr timer2_;
+        std::unique_ptr<pinocchio::Model> model; // declarar puntero único para el modelo
+        std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos  
+        pinocchio::FrameIndex tool_frame_id; 
+        Eigen::MatrixXd J_anterior= Eigen::MatrixXd::Zero(7, 6); // Inicializar J_anterior como una matriz de ceros
+        std::string urdf_path = get_file_path("ur5_kinematics",   "include/ur5e.urdf");
+        std::string config_path = get_file_path("ur5_simulation", "include/config.txt");
+        std::string geo_pos = get_file_path("ur5_simulation",     "launch/output_data_impedancia.txt");
+        std::unique_ptr<UR5Impedance> impedance_solver_;
+
+        
+        
+
+        // POSICIONES ARTICULARES DEL UR5
+        void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
+            last_joint_state_ = msg;
+            bool implementacion = false; // Variable para determinar si se implementa la cinemática inversa
+            if (implementacion){
+                q_[0] = msg->position[5];           qd_[0] = msg->velocity[5];
+                q_[1] = msg->position[0];           qd_[1] = msg->velocity[0];
+                q_[2] = msg->position[1];           qd_[2] = msg->velocity[1];
+                q_[3] = msg->position[2];           qd_[3] = msg->velocity[2];
+                q_[4] = msg->position[3];           qd_[4] = msg->velocity[3];
+                q_[5] = msg->position[4];           qd_[5] = msg->velocity[4];
+            }
+            else{
+                for (int i = 0; i < 6; ++i) {
+                    q_[i] = msg->position[i];
+                    qd_[i] = msg->velocity[i];
+
+                }
+            }
+            // Imprimir las posiciones articulares
+            //RCLCPP_INFO(this->get_logger(), "Posiciones articulares: %.4f %.4f %.4f %.4f %.4f %.4f",   q_[0], q_[1], q_[2], q_[3], q_[4], q_[5]);
+            // Imprimir las velocidades articulares
+            //RCLCPP_INFO(this->get_logger(), "Velocidades articulares: %.4f %.4f %.4f %.4f %.4f %.4f",  qd_[0], qd_[1], qd_[2], qd_[3], qd_[4], qd_[5]);
         }
-
-        Eigen::Vector3d target_position;
-        Eigen::Quaterniond target_orientation;
-
-        // Determinar posición objetivo según el modo
-        if (config_.operation_mode == "teleop") {
-            if (!geomagic_calibrated_) {
+        void posicion_inicial() {
+            
+            if (posicion_inicial_alcanzada_) {
+                // Si ya se alcanzó la posición inicial, no hacer nada
                 return;
             }
-            target_position = cartesian_state_.position_desired;
-            target_orientation = cartesian_state_.orientation_desired;
-        } else if (config_.operation_mode == "trajectory") {
-            calculate_trajectory_target(target_position, target_orientation);
-        }
+            auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
+            trajectory_msg.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+                                        "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
+            auto point = trajectory_msgs::msg::JointTrajectoryPoint();
+            RCLCPP_INFO(this->get_logger(), "Enviando posición inicial: %.2f %.2f %.2f %.2f %.2f %.2f",
+                        q_init[0], q_init[1], q_init[2], q_init[3], q_init[4], q_init[5]);
+            point.positions = {q_init[0], q_init[1], q_init[2], q_init[3], q_init[4], q_init[5]};
 
-        // Llamar al servicio de cinemática inversa
-        call_inverse_kinematics_service(target_position, target_orientation);
-    }
+            point.time_from_start = rclcpp::Duration::from_seconds(4); // El tiempo de control
+            trajectory_msg.points.push_back(point);
+            joint_trajectory_pub_->publish(trajectory_msg);
 
-    void calculate_trajectory_target(Eigen::Vector3d& position, Eigen::Quaterniond& orientation) {
-        if (!trajectory_started_) {
-            position = cartesian_state_.position_initial;
-            orientation = cartesian_state_.orientation_initial;
-            return;
-        }
-
-        auto current_time = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(current_time - trajectory_start_time_);
-        double t = elapsed.count();
-
-        if (config_.trajectory_waypoints.empty()) {
-            // Trayectoria circular por defecto
-            double radius = 0.1;
-            double frequency = 0.2; // Hz
-            double omega = 2.0 * M_PI * frequency;
-            
-            position = cartesian_state_.position_initial;
-            position.x() += radius * cos(omega * t);
-            position.y() += radius * sin(omega * t);
-            
-            orientation = cartesian_state_.orientation_initial;
-        } else {
-            // Trayectoria personalizada (implementar interpolación entre waypoints)
-            // Por simplicidad, mantener posición inicial por ahora
-            position = cartesian_state_.position_initial;
-            orientation = cartesian_state_.orientation_initial;
-        }
-    }
-
-    void call_inverse_kinematics_service(const Eigen::Vector3d& target_position, const Eigen::Quaterniond& target_orientation) {
-        if (!kinematics_client_->service_is_ready()) {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                                 "Servicio de cinemática no disponible");
-            return;
-        }
-
-        auto request = std::make_shared<ur5_kinematics_server::srv::InverseKinematics::Request>();
-        
-        // Llenar la solicitud
-        request->target_position.x = target_position.x();
-        request->target_position.y = target_position.y();
-        request->target_position.z = target_position.z();
-        
-        request->target_orientation.w = target_orientation.w();
-        request->target_orientation.x = target_orientation.x();
-        request->target_orientation.y = target_orientation.y();
-        request->target_orientation.z = target_orientation.z();
-        
-        request->current_joint_positions.assign(robot_state_.q.data(), robot_state_.q.data() + 6);
-        request->max_iterations = 600;
-        request->tolerance = 0.1;
-
-        // Llamada síncrona simplificada
-        try {
-            auto future_result = kinematics_client_->async_send_request(request);
-            
-            // Esperar la respuesta con timeout muy corto para no bloquear
-            auto status = future_result.future.wait_for(std::chrono::milliseconds(10));
-            
-            if (status == std::future_status::ready) {
-                auto response = future_result.future.get();
-                handle_kinematics_response(response);
-            } else {
-                // Si no está listo, usar la solución anterior para continuar
-                robot_state_.q_solution = robot_state_.q;
-                publish_joint_trajectory();
-            }
-        } catch (const std::exception& e) {
-            RCLCPP_ERROR(this->get_logger(), "Error en llamada IK: %s", e.what());
-            // Usar posición actual en caso de error
-            robot_state_.q_solution = robot_state_.q;
-            publish_joint_trajectory();
-        }
-    }
-
-    void handle_kinematics_response(const std::shared_ptr<ur5_kinematics_server::srv::InverseKinematics::Response> response) {        
-        if (response->success) {
-            // Actualizar solución de articulaciones
+            // Verificar si la posición actual coincide con la posición inicial
+            bool posicion_correcta = true;
             for (int i = 0; i < 6; ++i) {
-                robot_state_.q_solution[i] = response->joint_solution[i];
+                cout<<"posicion del ur5"<<q_<<endl;
+                cout<<"diferencia articular: "<<q_[i] - q_init[i]<<endl;
+                if (std::abs(q_[i] - q_init[i]) > 0.01) { // Tolerancia de 0.01 radianes
+                    posicion_correcta = false;
+                    break;
+                }
             }
-            
-            // Publicar trayectoria
-            publish_joint_trajectory();
-            
-            RCLCPP_DEBUG(this->get_logger(), "IK exitoso: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]", 
-                        robot_state_.q_solution[0], robot_state_.q_solution[1], robot_state_.q_solution[2], 
-                        robot_state_.q_solution[3], robot_state_.q_solution[4], robot_state_.q_solution[5]);
-        } else {
-            RCLCPP_WARN(this->get_logger(), "IK falló: %s", response->message.c_str());
+            // imprimir la pos cartesiana del UR5
+            pinocchio::forwardKinematics(*model, *data, q_); //Eigen::Map<Eigen::VectorXd>(q_, 6) -> converite duble[] a eigen::vector
+            pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
+            cout<< "x: "<< data->oMf[tool_frame_id].translation()[0]<<" y: "<< data->oMf[tool_frame_id].translation()[1]<<" z: "<< data->oMf[tool_frame_id].translation()[2]<<endl; 
+            //cout<< "quat: "<< data->oMf[tool_frame_id].rotation().w()<<" "<< data->oMf[tool_frame_id].rotation().x()<<" "<< data->oMf[tool_frame_id].rotation().y()<<" "<< data->oMf[tool_frame_id].rotation().z()<<endl;
+
+            if (posicion_correcta) {
+                RCLCPP_INFO(this->get_logger(), "Posición inicial alcanzada.");
+                posicion_inicial_alcanzada_ = true;
+            }
         }
-    }
+        
+        
+        void control_loop() {
+            if (!posicion_inicial_alcanzada_) {
+                // Si no se ha alcanzado la posición inicial, no ejecutar el bucle de control
+                return;
+            }
 
-    void publish_joint_trajectory() {
-        auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
-        trajectory_msg.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
-                                     "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
-        
-        auto point = trajectory_msgs::msg::JointTrajectoryPoint();
-        point.positions.assign(robot_state_.q_solution.data(), robot_state_.q_solution.data() + 6);
-        
-        // Tiempo adaptativo basado en la distancia al objetivo
-        double distance_to_target = (robot_state_.q - robot_state_.q_solution).norm();
-        double adaptive_time = std::max(0.1, std::min(1.0, distance_to_target * 2.0));
-        
-        point.time_from_start = rclcpp::Duration::from_seconds(adaptive_time);
-        trajectory_msg.points.push_back(point);
-        
-        joint_trajectory_pub_->publish(trajectory_msg);
-    }
-};
+            if (!x_init_set_) {
+                pinocchio::forwardKinematics(*model, *data, q_, qd_);
+                pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
+                cout<<"obteniendo primeros valores"<<endl;
+                x_init_ = data->oMf[tool_frame_id].translation();
+                qt_init_= Eigen::Quaterniond(data->oMf[tool_frame_id].rotation()).coeffs(); // w, x, y, z
+                qt_[0]=qt_init_[3];
+                qt_[1]=qt_init_[0];
+                qt_[2]=qt_init_[1];
+                qt_[3]=qt_init_[2];
+                // Asegurarse de que qt_ esté en el orden correcto
+                x_init_set_ = true;
+                t_traj_ = 0.0;
+            }
+            cout<<"qt: "<<qt_[0]<<" "<<qt_[1]<<" "<<qt_[2]<<" "<<qt_[3]<<endl;
+            cout<<"x_init: "<<x_init_[0]<<" "<<x_init_[1]<<" "<<x_init_[2]<<endl;
+            // 1. Calcular la trayectoria deseada
+            double c0 = 0.1;
+            
+            double exp_c0 = std::exp(-c0 * t_traj_);
 
-int main(int argc, char * argv[])
-{
+            double x_d = x_init_.x(), y_d = x_init_.y(), z_d = x_init_.z();
+            double x_dot_d = 0.0, y_dot_d = 0.0, z_dot_d = 0.0;
+            double x_ddot_d = 0.0, y_ddot_d = 0.0, z_ddot_d = 0.0;
+
+            int trayectoria = 2;
+            if(trayectoria==1){
+                    // Trayectoria deseada
+                x_d = x_init_.x() - 0.3 + 0.3 * exp_c0;
+                y_d = x_init_.y() + 0.1 - 0.1* exp_c0;
+                z_d = x_init_.z() + 0.1 - 0.1 * exp_c0;
+
+                // Velocidad deseada
+                x_dot_d = 0.3 * ( -c0 * exp_c0 );
+                y_dot_d = -0.1 * ( -c0 * exp_c0 );  
+                z_dot_d = -0.1 * ( -c0 * exp_c0 );
+
+                // Aceleración deseada
+                x_ddot_d = 0.3 * exp_c0 * (c0*c0 );
+                y_ddot_d = -0.1 * exp_c0 * (c0*c0 );
+                z_ddot_d = -0.1 * exp_c0 * (c0*c0 );
+
+            } else if (trayectoria==2) { 
+                double wn = 0.5;   // Frecuencia angular (rad/s)
+                double Ax = 0.05, Ay = 0.05, Az = 0.02; // Amplitudes máximas
+
+                // Términos comunes para eficiencia
+                double exp_neg_c0_t = std::exp(-c0 * t_traj_);
+                double sin_wn_t = std::sin(wn * t_traj_);
+                double cos_wn_t = std::cos(wn * t_traj_);
+
+                // Factor de amplitud que crece de 0 a 1
+                double amp_factor = 1.0 - exp_neg_c0_t;
+
+                // Trayectoria deseada (inicia en x_init_ y la amplitud crece)
+                x_d = x_init_.x() + Ax * amp_factor * sin_wn_t;
+                y_d = x_init_.y() + Ay * amp_factor * cos_wn_t;
+                z_d = x_init_.z() + Az * amp_factor * sin_wn_t;
+
+                // --- Derivadas para la nueva trayectoria ---
+
+                // Velocidad deseada
+                double d_amp_factor_dt = c0 * exp_neg_c0_t; // Derivada del factor de amplitud
+                x_dot_d = Ax * (d_amp_factor_dt * sin_wn_t + amp_factor * wn * cos_wn_t);
+                y_dot_d = Ay * (d_amp_factor_dt * cos_wn_t - amp_factor * wn * sin_wn_t);
+                z_dot_d = Az * (d_amp_factor_dt * sin_wn_t + amp_factor * wn * cos_wn_t);
+
+                // Aceleración deseada
+                double d2_amp_factor_dt2 = -c0 * c0 * exp_neg_c0_t; // Segunda derivada del factor de amplitud
+                double term1_sin = d2_amp_factor_dt2 - amp_factor * wn * wn;
+                double term2_cos = 2 * d_amp_factor_dt * wn;
+
+                x_ddot_d = Ax * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
+                y_ddot_d = Ay * (term1_sin * cos_wn_t - term2_cos * sin_wn_t);
+                z_ddot_d = Az * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
+            }
+            Eigen::Vector3d vel_d(x_dot_d, y_dot_d, z_dot_d);
+            Eigen::Vector3d acc_d(x_ddot_d, y_ddot_d, z_ddot_d);
+            // 2. Calcular la trayectoria deseada
+            // for (int i = 0; i < 3; ++i) {
+            //     x_des_[i] = x_init_[i] + 0.1;//A[i] * sin(0.05 * t_traj_) * exp(-0.05 * t_traj_);
+            // }
+            x_des_[0] = x_d; // Asigna la posición deseada en x
+            x_des_[1] = y_d; // Asigna la posición deseada en y
+            x_des_[2] = z_d; // Asigna la posición deseada en z
+
+            // 3. Incrementar t_traj_ (por ejemplo, en 0.01 por ciclo)
+            t_traj_ += 0.01;
+
+            
+            //capturar la posición actual del UR5
+            
+            auto start = std::chrono::high_resolution_clock::now();
+
+            // 3. Llama a la nueva función
+            // El dt de tu python es 0.01, que coincide con tu tiempo de control
+            double control_dt = 0.01;
+
+            // Asegúrate de que q_ y qd_ están actualizados desde el suscriptor antes de llamar a esto.
+            // Si `last_joint_state_` no se ha recibido todavía, q_ y qd_ estarán en sus valores iniciales.
+            if (!last_joint_state_) {
+                RCLCPP_WARN(this->get_logger(), "No se han recibido joint_states. Usando posiciones/velocidades iniciales.");
+                // Podrías añadir un 'return' o esperar hasta tener datos.
+                // Para este ejemplo, asumiremos que se reciben rápidamente.
+            }
+            double K[7]; load_values_from_file(config_path, K, 7, 23);       // 7 valores de K
+            double B[7]; load_values_from_file(config_path, B, 7, 25);       // 7 valores de B
+
+            Eigen::Matrix<double,7,1> Kp_task = Eigen::Matrix<double,7,1>::Identity();
+            Eigen::Matrix<double,7,1> Kd_task = Eigen::Matrix<double,7,1>::Identity();
+            Kp_task << K[0], K[1], K[2], K[3], K[4], K[5], K[6]; // Asigna los valores de K
+            Kd_task << B[0], B[1], B[2], B[3], B[4], B[5], B[6]; // Asigna los valores de B
+
+            // Eigen::VectorXd q_solution = impedance_solver_->calculateControlCommand(
+            //     q_, 
+            //     qd_,                
+            //     Eigen::Vector3d(x_des_[0], x_des_[1], x_des_[2]), // Para xdes
+            //     Eigen::Quaterniond(qt_[0], qt_[1], qt_[2], qt_[3]),
+            //     vel_d,
+            //     acc_d,
+            //     Kp_task,
+            //     Kd_task,
+            //     control_dt
+            // );
+
+            Eigen::VectorXd q_solution = impedanceControlPythonStyle(
+                *model, *data, tool_frame_id, q_, qd_,
+                  config_path,// Kd (Bd en Python)
+                qt_, // Cuaternión deseado (w, x, y, z)
+                x_des_, // Para xdes
+                J_anterior, control_dt,
+                vel_d, acc_d);         // Se pasará por referencia para actualizar J_anterior dentro de la función
+                                        // y usarlo en el siguiente ciclo.
+
+
+
+            for (int i = 0; i < 6; ++i) {
+                if (q_solution[i] > M_PI) {
+                    q_solution[i] = M_PI; // Normaliza a [-pi, pi]
+                } else if (q_solution[i] < -M_PI) {
+                    q_solution[i] = -M_PI; // Normaliza a [-pi, pi]
+                }
+            }
+            auto end = std::chrono::high_resolution_clock::now();
+            // ... (el resto del código para publicar la trayectoria con las nuevas q_)
+            std::cout << "Tiempo total: " << std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() << " ns" << std::endl;
+            auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
+            trajectory_msg.joint_names = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+                                        "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
+            auto point = trajectory_msgs::msg::JointTrajectoryPoint();
+            RCLCPP_INFO(this->get_logger(), "Enviando posición: %.4f %.4f %.4f %.4f %.4f %.4f",
+                        q_solution[0], q_solution[1], q_solution[2], q_solution[3], q_solution[4], q_solution[5]);
+            point.positions = {q_solution[0], q_solution[1], q_solution[2], q_solution[3], q_solution[4], q_solution[5]};
+            point.time_from_start = rclcpp::Duration::from_seconds(0.01); // El tiempo de control
+            trajectory_msg.points.push_back(point);
+            joint_trajectory_pub_->publish(trajectory_msg);
+            //comparando x_des con la posición actual del UR5
+            pinocchio::forwardKinematics(*model, *data, q_, qd_);
+            pinocchio::updateFramePlacement(*model, *data, tool_frame_id);
+            pinocchio::SE3 current_pose = (*data).oMf[tool_frame_id];
+            Eigen::Vector3d current_position = current_pose.translation();
+            Eigen::Quaterniond current_orientation(current_pose.rotation());
+            cout << "Posición deseada del UR5: " << x_des_[0] << ", " << x_des_[1] << ", " << x_des_[2] << std::endl;
+            cout << "Posición actual del UR5: " << current_position.transpose() << std::endl;
+            if (output_file_.is_open()) {
+                output_file_ << x_d << " " << y_d << " " << z_d << " " << current_position[0] << " " << current_position[1] << " " << current_position[2] << " "
+                <<qt_[0]<<" "<<qt_[1]<<" "<<qt_[2]<<" "<<qt_[3]<<" "<< current_orientation.w()<<" "<<current_orientation.x()<<" "<<current_orientation.y()<<" "<<current_orientation.z()<<endl;
+            }
+            // J_anterior se actualiza dentro de impedanceControlPythonStyle, no aquí
+            time_elapsed_ += control_dt; // Incrementa el tiempo transcurrido
+        }
+
+    };
+
+
+int main(int argc, char **argv) {  
+    cout<<"Control con Geomagic"<<endl;
     rclcpp::init(argc, argv);
-    
-    try {
-        auto node = std::make_shared<UR5ModularController>();
-        rclcpp::spin(node);
-    } catch (const std::exception& e) {
-        RCLCPP_ERROR(rclcpp::get_logger("main"), "Error en el controlador: %s", e.what());
-        return 1;
-    }
-    
+    auto node = std::make_shared<UR5eJointController>();
+    rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;
-}
+  
+ }

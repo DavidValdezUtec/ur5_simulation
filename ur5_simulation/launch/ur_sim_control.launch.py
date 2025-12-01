@@ -36,10 +36,7 @@ def launch_setup(context, *args, **kwargs):
     launch_rviz = LaunchConfiguration("launch_rviz")
     gazebo_gui = LaunchConfiguration("gazebo_gui")
     world_file = LaunchConfiguration("world_file")
-    # Nuevos argumentos de posición
-    pos_x = LaunchConfiguration("pos_x")
-    pos_y = LaunchConfiguration("pos_y")
-    pos_z = LaunchConfiguration("pos_z")
+
 
     initial_joint_controllers = PathJoinSubstitution(
         [FindPackageShare(runtime_config_package), "config", controllers_file]
@@ -141,14 +138,7 @@ def launch_setup(context, *args, **kwargs):
             "-name",
             "ur",
             "-allow_renaming",
-            "true",
-            # Añadir argumentos de posición
-            "-x",
-            pos_x,
-            "-y",
-            pos_y,
-            "-z",
-            pos_z,
+            "true"           
         ],
     )
     gz_launch_description_with_gui = IncludeLaunchDescription(

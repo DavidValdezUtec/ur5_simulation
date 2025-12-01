@@ -8,6 +8,9 @@
 #include <stdexcept>
 #include <iostream>
 
+#define M_PI 3.14159265358979323846
+
+
 UR5Impedance::UR5Impedance(const std::string& urdf_path) {
     model_ = std::make_unique<pinocchio::Model>();
     pinocchio::urdf::buildModel(urdf_path, *model_);
@@ -96,9 +99,9 @@ Eigen::VectorXd UR5Impedance::calculateControlCommand(
     pinocchio::updateFramePlacement(*model_, *data_, tool_frame_id_);
     
     
-    Eigen::MatrixXd J = computeFullJacobianQuaternion(q, 1e-8);
+    Eigen::MatrixXd J = computeFullJacobianQuaternion(q, 1e-8);  //7x6
     Eigen::MatrixXd dJ = (J - J_previous_) / dt; //7x6
-    J_previous_ = J; // Actualizar para la siguiente iteración
+    
     Eigen::VectorXd dx_current_cartesian = J * dq; // (7x6) * (6x1) = 7x1
 
     Eigen::Vector4d vel_ori_d = Eigen::Vector4d::Zero();
@@ -128,7 +131,6 @@ Eigen::VectorXd UR5Impedance::calculateControlCommand(
 
     // Error de velocidad
     
-    Eigen::VectorXd current_vel_6D = J * dq;
     Eigen::VectorXd desired_vel_7D(7);
     desired_vel_7D << desired_vel, vel_ori_d;
     
@@ -155,22 +157,27 @@ Eigen::VectorXd UR5Impedance::calculateControlCommand(
     desired_acc_7D << desired_acc, acc_ori_d;
 
     // Fuerza cartesiana deseada (simplificada para 7D)
-    Eigen::Matrix<double, 7, 1> F_cartesian = desired_acc_7D - Kp_task_diag.asDiagonal() * error_pose - Kd_task_diag.asDiagonal() * error_vel;
+    Eigen::MatrixXd J_pinv = J.completeOrthogonalDecomposition().pseudoInverse(); // (N x 7)
+    Eigen::VectorXd tau  = M*J_pinv * (desired_acc_7D - Kp_task * error_pose - Kd_task * error_vel - dJ * dq)+ nle;
+    Eigen::VectorXd qdd  = J_pinv * (desired_acc_7D - Kp_task * error_pose - Kd_task * error_vel - dJ * dq);
+    J_previous_ = J; // Actualizar para la siguiente iteración
 
-    // Mapeo de fuerza a torque articular (usando el Jacobiano de 6D)
-    Eigen::VectorXd tau = J.transpose() * F_cartesian.head(6) + nle;
 
     // 5. Integración para obtener la siguiente posición (esto debería hacerlo el controlador del robot, no la ley de control)
     // La ley de control debe devolver un TORQUE (tau) o una ACELERACIÓN (qdd).
     // Devolver la siguiente posición (q_solution) mezcla la ley de control con la simulación.
     // Es mejor devolver el torque y dejar que el nodo principal lo maneje.
     // Sin embargo, para replicar tu código, calcularemos q_solution.
-
-    Eigen::MatrixXd M_inv = M.inverse();
-    Eigen::VectorXd qdd = M_inv * (tau - nle); // Aceleración resultante
+    
     
     Eigen::VectorXd qd_next = dq + qdd * dt;
     Eigen::VectorXd q_next = q + qd_next * dt;
-
+    for (int i = 0; i < 6; ++i) {
+        if (q_next[i] > M_PI) {
+            q_next[i] = M_PI; // Normaliza a [-pi, pi]
+        } else if (q_next[i] < -M_PI) {
+            q_next[i] = -M_PI; // Normaliza a [-pi, pi]
+        }
+    }
     return q_next;
 }

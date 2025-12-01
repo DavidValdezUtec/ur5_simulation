@@ -25,10 +25,47 @@ find_package(geomagic_interface REQUIRED)
 # find_package(<dependency> REQUIRED)
 
 # Agregar ejecutable para el controller_backup (controlador original)
+
+add_executable(controller_node 
+  src/controller_node.cpp
+)
+
+target_include_directories(controller_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIR}
+)
+
+ament_target_dependencies(controller_node
+  rclcpp
+  sensor_msgs
+  trajectory_msgs
+  geometry_msgs
+  omni_msgs
+  std_msgs
+  pinocchio
+  Eigen3
+  ament_index_cpp
+  ur5_kinematics
+  ur5_impedance
+  ur5_sliding
+)
+
+target_link_libraries(controller_node
+  ur5_kinematics::ur5_kinematics
+  ur5_impedance::ur5_impedance
+  ur5_sliding::ur5_sliding
+)
+
+install(TARGETS controller_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+
 add_executable(controller_backup 
   src/controller_node_backup.cpp
 )
-
+ 
 target_include_directories(controller_backup PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
