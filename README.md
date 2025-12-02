@@ -132,3 +132,22 @@ source ~/tesis_ws/install/setup.bash
 ros2 launch ur5_simulation ur5_simulation.launch.py
 ```
 
+Para teleoperar los robots con los Geomagic Touch se debe renombrar los dispositivos como "phantom2" para el brazo izquierdo y "phantom3" para el derecho, luego calibrarlos por separado, desconectarlos y conectarlos de la forma, primero izquierdo y luego derecho. Finalmente, lanzar el nodo de teleoperación:
+
+```bash
+ros2 launch omni_common dual_omni_state.launch.py 
+```
+Para lanzar el driver de los 2 robots conectar ambos a un mismo router, en ambos configurar la IP de urcaps: 192.168.10.101 y en el equipo mantener IP estatica IPV4 con el mismo valor y la mascara 255.255.255.0, las IPs de cada robot son: 192.168.10.103 y 192.168.10.104 luego lanzar el siguiente archivo de launch: 
+```bash
+ros2 launch ur_robot_driver dual_control.launch.py r1_type:=ur5e r2_type:=ur5e
+```
+Una vez los robots esten posicionados correctamente se lanza los controladores de la forma:
+```bash
+ros2 run ur5_controller controller_backup --ros-args -p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory" -p ur:="ur5e" -p nmspace:="r1" -p geomagic_topic:="/phantom3/pose" -p geomagic_button_topic:="/phantom3/button" -p csv_log_enable:="true" -p geomagic:="true"
+```
+
+```bash
+ros2 run ur5_controller controller_backup --ros-args -p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory" -p ur:="ur5e" -p nmspace:="r2" -p geomagic_topic:="/phantom2/pose" -p geomagic_button_topic:="/phantom2/button" -p csv_log_enable:="true" -p geomagic:="true"
+```
+
+
