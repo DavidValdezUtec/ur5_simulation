@@ -185,5 +185,5 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "r2_rot_z", default_value="3.14", description="Robot 2 Z Rotation"
         )
-        ] + launch + nodes + [laptop_camera_node, usb_camera_node]
+        ] + launch + nodes #+ [laptop_camera_node, usb_camera_node]
     )

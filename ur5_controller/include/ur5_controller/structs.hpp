@@ -69,7 +69,7 @@ struct NodeConfig
   std::string ur_model = "ur5";            // Modelo: ur5 / ur5e
   std::string nmspace = "";                // Namespace (prefijo de joints y tópicos)
   std::string urdf_path;                    // Ruta absoluta al URDF (se completa en runtime si queda vacío)
-  std::string controller="IMP";
+  std::string controller="QP";
   bool use_geomagic = false;                // Modo teleoperado háptico
 
   // ------------------------------------------------------------------

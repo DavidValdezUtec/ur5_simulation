@@ -29,10 +29,10 @@ def generate_launch_description():
     r2_rot_z = LaunchConfiguration("r2_rot_z")
 
     # --- Configuración del UR5 ---
-    ur5_launch = GroupAction(
+    r1_launch = GroupAction(
         actions=[
-            # Empuja todos los nodos de este grupo al namespace 'ur5'
-            PushRosNamespace(r1_type),
+            # Empuja todos los nodos de este grupo al namespace 'r1'
+            PushRosNamespace("r1"),
 
             # Incluye el launch file de control original del driver
             IncludeLaunchDescription(
@@ -46,8 +46,8 @@ def generate_launch_description():
                     "robot_ip": "192.168.10.113",
                     "description_package": "ur5_description",
                     # Evitar f-strings con LaunchConfiguration: usar listas de sustituciones
-                    "tf_prefix": [r1_type, "_"],
-                    "controllers_file": ["ur_controllers_", r1_type, ".yaml"],
+                    "tf_prefix": ["r1", "_"],
+                    "controllers_file": ["ur_controllers_", "r1", ".yaml"],
                     "kinematics_params_file": ["/home/david/my_robot_calibration_", r1_type, ".yaml"],
                     "use_fake_hardware": use_fake_hardware_r1,
                     "launch_dashboard_client": launch_dashboard_client,
@@ -69,10 +69,10 @@ def generate_launch_description():
     )
 
     # --- Configuración del robot 2: UR5e ---
-    ur5e_launch = GroupAction(
+    r2_launch = GroupAction(
         actions=[
             # Empuja todos los nodos de este grupo al namespace configurado para r2
-            PushRosNamespace(r2_type),
+            PushRosNamespace("r2"),
 
             # Incluye el launch file de control original del driver
             IncludeLaunchDescription(
@@ -86,8 +86,8 @@ def generate_launch_description():
                     "robot_ip": "192.168.10.103",
                     "description_package": "ur5_description",
                     # Evitar f-strings con LaunchConfiguration: usar listas de sustituciones
-                    "tf_prefix": [r2_type, "_"],
-                    "controllers_file": ["ur_controllers_", r2_type, ".yaml"],
+                    "tf_prefix": ["r2", "_"],
+                    "controllers_file": ["ur_controllers_", "r2", ".yaml"],
                     "kinematics_params_file": ["/home/david/my_robot_calibration_", r2_type, ".yaml"],
                     "use_fake_hardware": use_fake_hardware_r2,
                     "launch_dashboard_client": "false", # Solo lanzamos un dashboard client
@@ -176,7 +176,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "r2_rot_z", default_value="3.14", description="Robot 2 Z Rotation"
         ),  
-        ur5_launch,
-        ur5e_launch,
+        r1_launch,
+        r2_launch,
         rviz_node,
     ])

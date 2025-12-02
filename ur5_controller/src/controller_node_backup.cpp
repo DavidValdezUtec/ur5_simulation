@@ -713,6 +713,10 @@ private:
         haptic_state_.orientation.x() = msg->pose.orientation.x;
         haptic_state_.orientation.y() = msg->pose.orientation.y;
         haptic_state_.orientation.z() = msg->pose.orientation.z;
+
+
+
+        
         //guardamos velocidad cartesiana del haptico por derivada de euler
         haptic_state_.velocity = (haptic_state_.position - haptic_state_.position_last) / (1e-3); //asumiendo 1ms entre callbacks
         haptic_state_.position_last = haptic_state_.position;
