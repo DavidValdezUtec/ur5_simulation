@@ -94,7 +94,7 @@ Eigen::VectorXd UR5Kinematics::solveQPIK(const Eigen::MatrixXd& J, const Eigen::
     const Eigen::VectorXd e_p = error.head(3);
     const Eigen::VectorXd e_o = error.tail(3);
 
-    // Formular el problema como min ||W_p * (J_p * dq - e_p)||^2 + ||W_o * (J_o * dq - e_o)||^2
+    // Formular el problema como min ||W_p * (J_p * dq - e_p)||^2 + ||W_o * (J_o * dq - e_o)||^2 + 
     // Equivalente a: min 0.5 dq^T H dq + g^T dq
     Eigen::MatrixXd A = (W_p * J_p).transpose() * (W_p * J_p) + (W_o * J_o).transpose() * (W_o * J_o);
     Eigen::VectorXd b = (W_p * J_p).transpose() * (W_p * e_p) + (W_o * J_o).transpose() * (W_o * e_o);
@@ -103,7 +103,6 @@ Eigen::VectorXd UR5Kinematics::solveQPIK(const Eigen::MatrixXd& J, const Eigen::
     const double lambda = 1e-6;
     A.noalias() += lambda * Eigen::MatrixXd::Identity(n, n);
 
-    Eigen::SparseMatrix<double> H_qp = A.sparseView();
     Eigen::VectorXd g_qp = -b;
 
     if (!initialized || last_n != n) {

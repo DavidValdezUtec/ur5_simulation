@@ -177,6 +177,19 @@ public:
     this->declare_parameter<double>("traj_wn", config_.traj_wn);
     this->declare_parameter<double>("traj_c0", config_.traj_c0);
     this->declare_parameter<int>("traj_mode", config_.traj_mode);
+    map_pos_ = {static_cast<int>(this->declare_parameter<int>("map_x", 2)),
+                static_cast<int>(this->declare_parameter<int>("map_y", 0)),
+                static_cast<int>(this->declare_parameter<int>("map_z", 1))};
+    sign_pos_ = {this->declare_parameter<double>("sign_x", -1.0),
+                    this->declare_parameter<double>("sign_y", -1.0),
+                    this->declare_parameter<double>("sign_z", 1.0)};
+
+    map_rot_ = {static_cast<int>(this->declare_parameter<int>("map_roll", 2)),
+                static_cast<int>(this->declare_parameter<int>("map_pitch", 0)),
+                static_cast<int>(this->declare_parameter<int>("map_yaw", 1))};
+    sign_rot_ = {this->declare_parameter<double>("sign_roll", 1.0),
+                    this->declare_parameter<double>("sign_pitch", 1.0),
+                    this->declare_parameter<double>("sign_yaw", 1.0)};
 
     // 2. Obtener parámetros y guardarlos en la struct de configuración
     this->get_parameter("control_topic", config_.control_topic);
@@ -316,6 +329,9 @@ private:
     // Métricas de tiempo por ciclo
     double last_ik_ms_ {0.0};
     double last_loop_ms_ {0.0};
+
+    Eigen::Vector3d sign_pos_, sign_rot_;
+    Eigen::Vector3i map_pos_, map_rot_;
 
     // ---- Movimiento inicial tipo ur5_pos ----
     // (Variables trasladadas a config_)
@@ -762,10 +778,12 @@ private:
         }
         // Rama geomagic: seguir referencia del háptico
         if (config_.use_geomagic) {
+
             Eigen::Quaterniond dif_orientacion_haptic = haptic_state_.orientation * haptic_state_.orientation_initial.inverse();
             Eigen::AngleAxisd angle_axis(dif_orientacion_haptic);
             double escala = 0.5; // factor de orientación
             dif_orientacion_haptic = Eigen::Quaterniond(Eigen::AngleAxisd(escala * angle_axis.angle(), angle_axis.axis()));
+            
             cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
             RCLCPP_INFO(this->get_logger(), "Dif orientación háptico (eje): [%.3f, %.3f, %.3f]",
                         dif_orientacion_haptic.vec().x(), dif_orientacion_haptic.vec().y(), dif_orientacion_haptic.vec().z());
