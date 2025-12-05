@@ -1,0 +1,304 @@
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
+#include <trajectory_msgs/msg/joint_trajectory.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <Eigen/Dense>
+#include <pinocchio/parsers/urdf.hpp>
+#include <pinocchio/algorithm/kinematics.hpp>
+#include <pinocchio/algorithm/frames.hpp>
+#include <pinocchio/algorithm/jacobian.hpp>
+#include <fstream>
+#include <iomanip>
+
+using namespace std::chrono_literals;
+
+class OptTeleop : public rclcpp::Node {
+    pinocchio::Model model_;
+    pinocchio::Data data_;
+    pinocchio::FrameIndex ee_id_;
+    int nq_;
+    
+    Eigen::VectorXd q_current_, q_cmd_, dq_current_;
+    Eigen::Matrix3d R_start_;
+    Eigen::Vector3d p_start_;
+    bool robot_initialized_ = false;
+    bool haptic_initialized_ = false;
+    
+    Eigen::Vector3d phantom_pos_initial_, phantom_pos_current_;
+    Eigen::Quaterniond phantom_quat_initial_, phantom_quat_current_;
+    
+    // Filter variables
+    Eigen::Vector3d phantom_pos_filtered_;
+    Eigen::Quaterniond phantom_quat_filtered_;
+    bool filter_initialized_ = false;
+
+    std::ofstream csv_file_;
+    double t0_;
+
+    // Parameters
+    std::string nmspace_;
+    double scale_pos_, scale_rot_;
+    double filter_gain_, max_joint_vel_;
+    Eigen::Vector3d sign_pos_, sign_rot_;
+    Eigen::Vector3i map_pos_, map_rot_;
+    
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr sub_js_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_phantom_;
+    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr pub_cmd_;
+    rclcpp::TimerBase::SharedPtr timer_;
+    
+    const std::vector<std::string> joint_names_ = {
+        "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+        "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"
+    };
+    
+    Eigen::VectorXd q_min_, q_max_;
+    double ctrl_hz_;
+
+public:
+    OptTeleop() : Node("opt_teleop_haptic"), data_(model_) {
+        // Usa una ruta absoluta o relativa segura. Si falla, no crashea.
+        csv_file_.open("/home/utec/try_opt/teleop_data.csv"); 
+        if(csv_file_.is_open()) {
+             csv_file_ << "time,qc0,qc1,qc2,qc3,qc4,qc5,qa0,qa1,qa2,qa3,qa4,qa5,pd0,pd1,pd2,time_from_start,";
+             csv_file_ << "vel_req0,vel_req1,vel_req2,vel_req3,vel_req4,vel_req5,";
+             csv_file_ << "vel_max_req,error_norm,saturated\n";
+        }
+        t0_ = this->now().seconds();
+
+        // 1. Parameters
+        nmspace_ = this->declare_parameter<std::string>("nmspace", "");
+        auto urdf_path = this->declare_parameter<std::string>("urdf_path", "/home/utec/try_opt/urdf/ur5.urdf");
+        ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 125.0); // 125Hz para estabilidad
+        
+        scale_pos_ = this->declare_parameter<double>("haptic_scale_pos", 1.0);
+        scale_rot_ = this->declare_parameter<double>("haptic_scale_rot", 1.0);
+        filter_gain_ = this->declare_parameter<double>("filter_gain", 0.6); 
+        max_joint_vel_ = this->declare_parameter<double>("max_joint_vel", 2.5);
+        
+        // Mapping: Casting estático para evitar warnings de int64_t -> int
+        map_pos_ = {static_cast<int>(this->declare_parameter<int>("map_x", 2)),
+                    static_cast<int>(this->declare_parameter<int>("map_y", 0)),
+                    static_cast<int>(this->declare_parameter<int>("map_z", 1))};
+        sign_pos_ = {this->declare_parameter<double>("sign_x", -1.0),
+                     this->declare_parameter<double>("sign_y", -1.0),
+                     this->declare_parameter<double>("sign_z", 1.0)};
+
+        map_rot_ = {static_cast<int>(this->declare_parameter<int>("map_roll", 2)),
+                    static_cast<int>(this->declare_parameter<int>("map_pitch", 0)),
+                    static_cast<int>(this->declare_parameter<int>("map_yaw", 1))};
+        sign_rot_ = {this->declare_parameter<double>("sign_roll", 1.0),
+                     this->declare_parameter<double>("sign_pitch", 1.0),
+                     this->declare_parameter<double>("sign_yaw", 1.0)};
+        
+        // 2. Setup Pinocchio
+        try {
+            pinocchio::urdf::buildModel(urdf_path, model_);
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(this->get_logger(), "Error loading URDF: %s", e.what());
+        }
+
+        data_ = pinocchio::Data(model_);
+        ee_id_ = model_.getFrameId("tool0");
+        nq_ = model_.nv;
+        
+        q_current_ = Eigen::VectorXd::Zero(nq_);
+        q_cmd_ = Eigen::VectorXd::Zero(nq_);
+        dq_current_ = Eigen::VectorXd::Zero(nq_);
+        
+        // Limits
+        q_min_ = Eigen::VectorXd::Constant(nq_, -2*M_PI); q_min_[2] = -M_PI;
+        q_max_ = Eigen::VectorXd::Constant(nq_,  2*M_PI); q_max_[2] =  M_PI;
+        
+        // 3. Subscribers
+        sub_js_ = this->create_subscription<sensor_msgs::msg::JointState>(
+            "/joint_states", 10, [this](sensor_msgs::msg::JointState::SharedPtr msg) {
+                for(size_t i=0; i<joint_names_.size(); ++i) {
+                    auto it = std::find(msg->name.begin(), msg->name.end(), joint_names_[i]);
+                    if(it != msg->name.end()) {
+                        size_t idx = std::distance(msg->name.begin(), it);
+                        q_current_(i) = msg->position[idx];
+                        if(msg->velocity.size() > idx) dq_current_(i) = msg->velocity[idx];
+                    }
+                }
+                
+                if(!robot_initialized_ && q_current_.norm() > 0.001) {
+                    q_cmd_ = q_current_;
+                    pinocchio::forwardKinematics(model_, data_, q_current_);
+                    pinocchio::framesForwardKinematics(model_, data_, q_current_); // Usa framesFK para actualizar tool0
+                    // IMPORTANTE: Asegúrate de usar updateFramePlacement o framesForwardKinematics
+                    pinocchio::updateFramePlacement(model_, data_, ee_id_);
+                    
+                    p_start_ = data_.oMf[ee_id_].translation();
+                    R_start_ = data_.oMf[ee_id_].rotation();
+                    robot_initialized_ = true;
+                    RCLCPP_INFO(this->get_logger(), "Robot Initialized.");
+                }
+            });
+        
+        sub_phantom_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+            "/phantom/pose", 10, [this](geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+                phantom_pos_current_ << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
+                phantom_quat_current_ = Eigen::Quaterniond(msg->pose.orientation.w, msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z);
+                
+                // Apply Low-Pass Filter
+                if (!filter_initialized_) {
+                    phantom_pos_filtered_ = phantom_pos_current_;
+                    phantom_quat_filtered_ = phantom_quat_current_;
+                    filter_initialized_ = true;
+                } else {
+                    phantom_pos_filtered_ = phantom_pos_filtered_ * (1.0 - filter_gain_) + phantom_pos_current_ * filter_gain_;
+                    phantom_quat_filtered_ = phantom_quat_filtered_.slerp(filter_gain_, phantom_quat_current_);
+                }
+
+                if(robot_initialized_ && !haptic_initialized_) {
+                    phantom_pos_initial_ = phantom_pos_filtered_;
+                    phantom_quat_initial_ = phantom_quat_filtered_;
+                    haptic_initialized_ = true;
+                    RCLCPP_INFO(this->get_logger(), "Haptic Initialized.");
+                }
+            });
+        
+        pub_cmd_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(
+            "/scaled_joint_trajectory_controller/joint_trajectory", 10);
+        
+        timer_ = this->create_wall_timer(std::chrono::duration<double>(1.0/ctrl_hz_), 
+                                       std::bind(&OptTeleop::control_loop, this));
+    }
+
+    ~OptTeleop() { if(csv_file_.is_open()) csv_file_.close(); }
+
+private:
+    void control_loop() {
+        if(!haptic_initialized_) return;
+        
+        // --- 1. Calculate Desired Pose ---
+        Eigen::Vector3d p_des = p_start_;
+        Eigen::Matrix3d R_des = R_start_;
+        
+        // Position Mapping (Global Mapping para que derecha sea derecha)
+        Eigen::Vector3d d_pos_raw = phantom_pos_filtered_ - phantom_pos_initial_;
+        Eigen::Vector3d d_pos_map;
+        for(int i=0; i<3; i++) d_pos_map(i) = d_pos_raw(map_pos_(i)) * sign_pos_(i) * scale_pos_;
+        
+        // OPCIÓN: Movimiento Global (Sumar directamente a la posición inicial, sin rotar por R_start_)
+        p_des += d_pos_map; 
+        
+        // Orientation Mapping
+        // CORRECCIÓN DEL ERROR DE COMPILACIÓN AQUÍ:
+        Eigen::Quaterniond d_quat = phantom_quat_initial_.inverse() * phantom_quat_filtered_;
+        Eigen::AngleAxisd aa(d_quat);
+        Eigen::Vector3d axis_raw = aa.axis() * aa.angle();
+        
+        Eigen::Vector3d axis_map;
+        for(int i=0; i<3; i++) axis_map(i) = axis_raw(map_rot_(i)) * sign_rot_(i) * scale_rot_;
+        
+        if (axis_map.norm() > 1e-6) {
+            // Rotación local: aplicar delta respecto al frame actual del robot
+            Eigen::Matrix3d R_delta = Eigen::AngleAxisd(axis_map.norm(), axis_map.normalized()).toRotationMatrix();
+            R_des = R_start_ * R_delta; 
+        }
+
+        // --- 2. Inverse Kinematics ---
+        for(int iter=0; iter<5; ++iter) {
+            pinocchio::forwardKinematics(model_, data_, q_cmd_);
+            pinocchio::framesForwardKinematics(model_, data_, q_cmd_);
+            pinocchio::updateFramePlacement(model_, data_, ee_id_);
+            
+            Eigen::MatrixXd J(6, nq_);
+            pinocchio::computeFrameJacobian(model_, data_, q_cmd_, ee_id_, pinocchio::LOCAL_WORLD_ALIGNED, J);
+            
+            Eigen::Vector3d ep = p_des - data_.oMf[ee_id_].translation();
+            Eigen::Matrix3d Re = R_des * data_.oMf[ee_id_].rotation().transpose();
+            Eigen::Vector3d er;
+            er << Re(2,1)-Re(1,2), Re(0,2)-Re(2,0), Re(1,0)-Re(0,1);
+            er *= 0.5;
+            
+            Eigen::VectorXd e(6); e << ep, er;
+            if(e.norm() < 1e-4) break;
+            
+            Eigen::MatrixXd H = J.transpose() * J + 1e-3 * Eigen::MatrixXd::Identity(nq_, nq_);
+            Eigen::VectorXd dq = H.ldlt().solve(J.transpose() * e);
+            
+            // Limitador de velocidad
+            double dt = 1.0 / ctrl_hz_;
+            double max_step = max_joint_vel_ * dt;
+            
+            double max_dq = dq.cwiseAbs().maxCoeff();
+            if (max_dq > max_step) {
+                dq *= (max_step / max_dq);
+            }
+            
+            q_cmd_ += dq;
+        }
+        
+        // --- 3. Publish ---
+        for(int i=0; i<nq_; ++i) q_cmd_(i) = std::clamp(q_cmd_(i), q_min_(i), q_max_(i));
+        
+        // Construir nombres de joints con namespace si existe
+        std::string prefix = nmspace_.empty() ? "" : (nmspace_ + "_");
+        std::vector<std::string> joint_names_ns = {
+            prefix + "shoulder_pan_joint", prefix + "shoulder_lift_joint", prefix + "elbow_joint",
+            prefix + "wrist_1_joint", prefix + "wrist_2_joint", prefix + "wrist_3_joint"
+        };
+        
+        trajectory_msgs::msg::JointTrajectory cmd;
+        cmd.header.stamp = this->now();
+        cmd.joint_names = joint_names_ns;
+        
+        trajectory_msgs::msg::JointTrajectoryPoint point;
+        point.positions.assign(q_cmd_.data(), q_cmd_.data() + nq_);
+        
+        // CLAVE: Usar tiempo fijo para permitir interpolación suave del controlador
+        // El controlador scaled_joint_trajectory_controller interpola entre comandos
+        // Si el tiempo es muy corto, cada comando interrumpe al anterior
+        double fixed_time = 0.1; // 100ms permite movimiento fluido
+        point.time_from_start = rclcpp::Duration::from_seconds(fixed_time); 
+        
+        cmd.points.push_back(point);
+        pub_cmd_->publish(cmd);
+
+        if(csv_file_.is_open()) {
+            // Calcular velocidades requeridas usando el tiempo fijo del comando
+            double cmd_time = fixed_time;
+            Eigen::VectorXd vel_required(nq_);
+            for(int i=0; i<nq_; ++i) {
+                vel_required(i) = (q_cmd_(i) - q_current_(i)) / cmd_time;
+            }
+            double vel_max_req = vel_required.cwiseAbs().maxCoeff();
+            double error_norm = (q_cmd_ - q_current_).norm();
+            
+            // Detectar si está saturado (velocidad requerida > límite configurado)
+            bool saturated = vel_max_req > max_joint_vel_;
+            
+            // WARNING: Si la velocidad requerida es peligrosamente alta
+            if(vel_max_req > 3.5) {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                    "VELOCIDAD PELIGROSA: %.2f rad/s (max_joint_vel=%.2f, time_from_start=%.3fs)", 
+                    vel_max_req, max_joint_vel_, cmd_time);
+            }
+            
+            csv_file_ << std::fixed << std::setprecision(4) << (this->now().seconds() - t0_);
+            // q_cmd (comando)
+            for(int i=0; i<nq_; ++i) csv_file_ << "," << q_cmd_(i);
+            // q_actual (medido)
+            for(int i=0; i<nq_; ++i) csv_file_ << "," << q_current_(i);
+            // p_des (posición cartesiana deseada)
+            csv_file_ << "," << p_des(0) << "," << p_des(1) << "," << p_des(2);
+            // time_from_start (ahora fijo)
+            csv_file_ << "," << cmd_time;
+            // velocidades requeridas por articulación
+            for(int i=0; i<nq_; ++i) csv_file_ << "," << vel_required(i);
+            // velocidad máxima requerida, error, y flag de saturación
+            csv_file_ << "," << vel_max_req << "," << error_norm << "," << (saturated ? 1 : 0);
+            csv_file_ << "\n";
+        }
+    }
+};
+
+int main(int argc, char** argv) {
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<OptTeleop>());
+    rclcpp::shutdown();
+    return 0;
+}
