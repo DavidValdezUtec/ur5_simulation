@@ -177,6 +177,7 @@ public:
     this->declare_parameter<double>("traj_wn", config_.traj_wn);
     this->declare_parameter<double>("traj_c0", config_.traj_c0);
     this->declare_parameter<int>("traj_mode", config_.traj_mode);
+    this->declare_parameter<std::string>("controller_type", config_.controller);
     map_pos_ = {static_cast<int>(this->declare_parameter<int>("map_x", 2)),
                 static_cast<int>(this->declare_parameter<int>("map_y", 0)),
                 static_cast<int>(this->declare_parameter<int>("map_z", 1))};
@@ -202,6 +203,7 @@ public:
     this->get_parameter("csv_log_enable", config_.csv_enabled);
     this->get_parameter("csv_log_dir", config_.csv_path);
     this->get_parameter("csv_log_prefix", config_.csv_prefix);
+    this->get_parameter("controller_type", config_.controller);
     // Obtener parámetros de trayectoria
     std::vector<double> A_param;
     this->get_parameter("traj_A", A_param);
@@ -783,7 +785,7 @@ private:
             Eigen::AngleAxisd angle_axis(dif_orientacion_haptic);
             double escala = 0.5; // factor de orientación
             dif_orientacion_haptic = Eigen::Quaterniond(Eigen::AngleAxisd(escala * angle_axis.angle(), angle_axis.axis()));
-            
+
             cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
             RCLCPP_INFO(this->get_logger(), "Dif orientación háptico (eje): [%.3f, %.3f, %.3f]",
                         dif_orientacion_haptic.vec().x(), dif_orientacion_haptic.vec().y(), dif_orientacion_haptic.vec().z());
@@ -830,6 +832,7 @@ private:
         // Medición cartesiana actual (para logging y control si fuera necesario)
         pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
         pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
+
         const auto& frame_meas = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
         cartesian_state_.position = frame_meas.translation();
         std::cout << cartesian_state_.position.transpose() << std::endl;

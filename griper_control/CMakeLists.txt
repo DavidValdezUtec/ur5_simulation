@@ -39,6 +39,13 @@ ament_target_dependencies(button_to_gripper_node
         omni_msgs
     )
 
+# Nodo de logging de Geomagic Touch
+add_executable(guardar_geo ${SRC_DIR}/guardar_geo.cpp)
+ament_target_dependencies(guardar_geo 
+    rclcpp 
+    geometry_msgs
+  )
+
 # Vincular las interfaces generadas con los ejecutables que las usan
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_link_libraries(gripper_controller_node "${cpp_typesupport_target}")
@@ -53,6 +60,7 @@ install(DIRECTORY
 install(TARGETS
     gripper_controller_node
     button_to_gripper_node
+  guardar_geo
     DESTINATION lib/${PROJECT_NAME}
 )
 
