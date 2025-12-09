@@ -40,6 +40,15 @@ public:
         double weight_pos = 1.0,
         double weight_orient = 0.9
     );
+    Eigen::VectorXd inverseKinematicsQP2(
+        const Eigen::VectorXd& q_initial,
+        const Eigen::Vector3d& desired_pos,
+        const Eigen::Matrix3d& desired_orient,
+        int max_iterations,
+        double alpha,
+        double weight_pos = 1.0,
+        double weight_orient = 0.9
+    );
 
     // Control de Impedancia
     // Cinemática Directa (útil para obtener la pose actual)
@@ -52,7 +61,10 @@ private:
 
     // NUEVO: Métodos privados para el solver QP
     Eigen::Matrix<double, 6, 1> computePoseError(const pinocchio::SE3& desired_pose);
+    Eigen::Matrix<double, 6, 1> computePoseError2(const pinocchio::SE3& desired_pose);
+
     Eigen::VectorXd solveQPIK(const Eigen::MatrixXd& J, const Eigen::Matrix<double, 6, 1>& error, const Eigen::MatrixXd& W_p, const Eigen::MatrixXd& W_o);
+    
 };
 
 #endif // UR5_KINEMATICS_HPP

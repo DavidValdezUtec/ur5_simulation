@@ -778,6 +778,7 @@ private:
         }
         // Rama geomagic: seguir referencia del háptico
         if (config_.use_geomagic) {
+            cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial;
 
             Eigen::Quaterniond dif_orientacion_haptic = haptic_state_.orientation_initial.inverse() * haptic_state_.orientation;
             Eigen::AngleAxisd angle_axis(dif_orientacion_haptic);
@@ -787,8 +788,9 @@ private:
             for(int i=0; i<3; i++) axis_map(i) = axis_raw(map_rot_(i)) * sign_rot_(i) * escala;
             if (axis_map.norm() > 1e-6){
                 Eigen::Matrix3d R_delta = Eigen::AngleAxisd(axis_map.norm(), axis_map.normalized()).toRotationMatrix();
+                cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial * R_delta;
             }
-
+            
             // dif_orientacion_haptic = Eigen::Quaterniond(Eigen::AngleAxisd(escala * angle_axis.angle(), angle_axis.axis()));
             // cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
 
@@ -803,8 +805,6 @@ private:
                 
             
         } else {
-
-            
 
             // Rama automática: generar trayectoria paramétrica
             if (!trajectory_active_) {
@@ -825,6 +825,7 @@ private:
             cartesian_state_.velocity = st.velocity;
             cartesian_state_.angular_velocity = Eigen::Vector4d::Zero(); // sin rot
             cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
+            cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial;
             cartesian_state_.acceleration = st.acceleration;
             cartesian_state_.angular_acceleration = Eigen::Vector3d::Zero();
 
@@ -844,6 +845,7 @@ private:
         std::cout << cartesian_state_.position.transpose() << std::endl;
         Eigen::Matrix3d R_meas = frame_meas.rotation();
         cartesian_state_.orientation = Eigen::Quaterniond(R_meas);
+
         Eigen::Matrix3d R_des = cartesian_state_.orientation_desired.toRotationMatrix();
         Eigen::Matrix3d R_err = R_meas.transpose() * R_des;
         double e_R_angle = Eigen::AngleAxisd(R_err).angle();

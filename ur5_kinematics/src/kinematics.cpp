@@ -82,6 +82,25 @@ Eigen::Matrix<double, 6, 1> UR5Kinematics::computePoseError(const pinocchio::SE3
     return error;
 }
 
+Eigen::Matrix<double, 6, 1> UR5Kinematics::computePoseError2(const pinocchio::SE3& desired_pose) {
+    const pinocchio::SE3 current_pose = data_->oMf[tool_frame_id_];
+
+    // Error de posición
+    Eigen::Vector3d position_error = desired_pose.translation() - current_pose.translation();
+
+    // Error de orientación usando transpuesta de matrices y antisimetricas
+    Eigen::Matrix3d R_err = desired_pose.rotation() * current_pose.rotation().transpose();
+    Eigen::Vector3d angular_error;
+    angular_error << R_err(2,1) - R_err(1,2),
+                     R_err(0,2) - R_err(2,0),
+                     R_err(1,0) - R_err(0,1);
+    angular_error *= 0.5; // Pequeña aproximación para ángulos pequeños
+
+    Eigen::VectorXd error(6);
+    error << position_error, angular_error;
+    return error;
+}
+
 Eigen::VectorXd UR5Kinematics::solveQPIK(const Eigen::MatrixXd& J, const Eigen::Matrix<double, 6, 1>& error, const Eigen::MatrixXd& W_p, const Eigen::MatrixXd& W_o) {
     // Reutilizar una instancia estática de OSQP para minimizar overhead por llamada
     static OsqpEigen::Solver solver;
@@ -103,6 +122,7 @@ Eigen::VectorXd UR5Kinematics::solveQPIK(const Eigen::MatrixXd& J, const Eigen::
     const double lambda = 1e-6;
     A.noalias() += lambda * Eigen::MatrixXd::Identity(n, n);
 
+    Eigen::SparseMatrix<double> H_qp = A.sparseView();
     Eigen::VectorXd g_qp = -b;
 
     if (!initialized || last_n != n) {
@@ -179,4 +199,54 @@ Eigen::VectorXd UR5Kinematics::inverseKinematicsQP(
     }
     return q;
 }
+
+
+Eigen::VectorXd UR5Kinematics::inverseKinematicsQP2(
+    const Eigen::VectorXd& q_initial,
+    const Eigen::Vector3d& desired_pos,
+    const Eigen::Matrix3d& desired_orient,
+    int max_iterations,
+    double alpha,
+    double weight_pos,
+    double weight_orient)
+{
+    // Versión simplificada: única tarea cartesiana con OSQP, sin nivel secundario
+    Eigen::VectorXd q = q_initial;
+    const double joint_limit = PI;
+    const double dq_max_norm = 0.5; // límite de paso por iteración
+    pinocchio::SE3 desired_pose(desired_orient, desired_pos);
+    const int iter_cap = std::min(max_iterations, 15);
+    const double alpha_eff = std::max(0.1, std::min(alpha, 1.0));
+
+    for (int i = 0; i < iter_cap; ++i) {
+        pinocchio::forwardKinematics(*model_, *data_, q);
+        pinocchio::updateFramePlacement(*model_, *data_, tool_frame_id_);
+
+        const Eigen::Matrix<double, 6, 1> error = computePoseError2(desired_pose);
+        if (error.norm() < 1e-4) {
+            return q;
+        }
+
+        pinocchio::Data::Matrix6x J(6, model_->nv);
+        J.setZero();
+        pinocchio::computeFrameJacobian(*model_, *data_, q, tool_frame_id_, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, J);
+
+        const Eigen::Matrix3d W_p = Eigen::Matrix3d::Identity() * weight_pos;
+        const Eigen::Matrix3d W_o = Eigen::Matrix3d::Identity() * weight_orient;
+
+        Eigen::VectorXd dq = solveQPIK(J, error, W_p, W_o);
+        const double nrm = dq.norm();
+        if (nrm > dq_max_norm) {
+            dq *= (dq_max_norm / nrm);
+        }
+        q.noalias() += alpha_eff * dq;
+        for (int j = 0; j < q.size(); ++j) {
+            if (q[j] > joint_limit) q[j] = joint_limit;
+            else if (q[j] < -joint_limit) q[j] = -joint_limit;
+        }
+    }
+    return q;
+}
+
+
 
