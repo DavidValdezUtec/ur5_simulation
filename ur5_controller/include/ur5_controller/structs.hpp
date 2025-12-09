@@ -24,12 +24,21 @@ struct RobotState
 // Estado Cartesiano del efector final
 struct CartesianState
 {
+  // estado actual
   Eigen::Vector3d position = Eigen::Vector3d::Zero();      // Posición cartesiana actual
   Eigen::Quaterniond orientation = Eigen::Quaterniond::Identity(); // Orientación cartesiana actual
+  Eigen::Matrix3d rotation_matrix = Eigen::Matrix3d::Identity(); // Matriz de rotación actual
+  
+  // estado deseado
   Eigen::Vector3d position_desired = Eigen::Vector3d::Zero(); // Posición cartesiana deseada
   Eigen::Quaterniond orientation_desired = Eigen::Quaterniond::Identity(); // Orientación cartesiana deseada
+  Eigen::Matrix3d rotation_matrix_desired = Eigen::Matrix3d::Identity(); // Matriz de rotación deseada
+  
+  //Estado Inicial
   Eigen::Vector3d position_initial = Eigen::Vector3d::Zero(); // Posición cartesiana inicial
   Eigen::Quaterniond orientation_initial = Eigen::Quaterniond::Identity(); // Orientación inicial
+  Eigen::Matrix3d rotation_matrix_initial = Eigen::Matrix3d::Identity(); // Matriz de rotación inicial
+
   Eigen::Vector3d velocity = Eigen::Vector3d::Zero();      // Velocidad cartesiana actual
   Eigen::Vector4d angular_velocity = Eigen::Vector4d::Zero(); // Velocidad angular actual quaternionica
   Eigen::Vector3d position_last = Eigen::Vector3d::Zero(); // Posición cartesiana en el último paso

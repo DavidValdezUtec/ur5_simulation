@@ -533,8 +533,11 @@ private:
                 pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
                 pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
                 const auto& frame_now = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
+
                 cartesian_state_.position_initial = frame_now.translation();
+                cartesian_state_.rotation_matrix_initial = frame_now.rotation();
                 cartesian_state_.orientation_initial = Eigen::Quaterniond(frame_now.rotation());
+                
                 RCLCPP_INFO(this->get_logger(), "x_init y R_init reconfigurados a la pose actual antes de iniciar trayectoria.");
                 trajectory_start_time_ = this->now();
                 trajectory_active_ = true;
@@ -674,7 +677,9 @@ private:
         pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
         pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
         const auto& frame_placement_now = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
+
         cartesian_state_.position = frame_placement_now.translation();
+        cartesian_state_.rotation_matrix = frame_placement_now.rotation();
         cartesian_state_.orientation = Eigen::Quaterniond(frame_placement_now.rotation());
 
         // Si estamos en modo ur5_pos y aún no hay baseline, capturarla cuando llegan los primeros joints
@@ -689,16 +694,11 @@ private:
             RCLCPP_INFO(this->get_logger(), "Capturando la pose inicial actual del robot...");
             
             robot_state_.q_init = robot_state_.q;
-            
-            pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q_init);
-            pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
-
-            const auto& frame_placement = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
-            cartesian_state_.position_initial = frame_placement.translation();
-            cartesian_state_.orientation_initial = Eigen::Quaterniond(frame_placement.rotation());
-            // Inicializar medición actual también
-            cartesian_state_.position = cartesian_state_.position_initial;
-            cartesian_state_.orientation = cartesian_state_.orientation_initial;
+            // Ya tenemos medición cartesiana actual en cartesian_state_ (actualizada más arriba
+            // mediante forwardKinematics con q), por lo que podemos reutilizarla para inicial.
+            cartesian_state_.position_initial = cartesian_state_.position;
+            cartesian_state_.rotation_matrix_initial = cartesian_state_.rotation_matrix;
+            cartesian_state_.orientation_initial = cartesian_state_.orientation;
 
             pose_inicial_capturada_ = true;
             posicion_inicial_alcanzada_ = true;
@@ -746,8 +746,6 @@ private:
         haptic_state_.velocity_last = haptic_state_.velocity;
         
 
-
-
     }
 
     void button_callback(const omni_msgs::msg::OmniButtonEvent::SharedPtr msg){
@@ -787,15 +785,18 @@ private:
             double escala = 0.5; // factor de orientación
             Eigen::Vector3d axis_map;
             for(int i=0; i<3; i++) axis_map(i) = axis_raw(map_rot_(i)) * sign_rot_(i) * escala;
+            if (axis_map.norm() > 1e-6){
+                Eigen::Matrix3d R_delta = Eigen::AngleAxisd(axis_map.norm(), axis_map.normalized()).toRotationMatrix();
+            }
 
+            // dif_orientacion_haptic = Eigen::Quaterniond(Eigen::AngleAxisd(escala * angle_axis.angle(), angle_axis.axis()));
+            // cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
 
-            dif_orientacion_haptic = Eigen::Quaterniond(Eigen::AngleAxisd(escala * angle_axis.angle(), angle_axis.axis()));
-
-            cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
             RCLCPP_INFO(this->get_logger(), "Dif orientación háptico (eje): [%.3f, %.3f, %.3f]",
                         dif_orientacion_haptic.vec().x(), dif_orientacion_haptic.vec().y(), dif_orientacion_haptic.vec().z());
             cartesian_state_.position_desired = trayectoria_geomagic(
             cartesian_state_.position_initial, haptic_state_.position_initial, haptic_state_.position, 2.5);
+
             cartesian_state_.velocity = haptic_state_.velocity * 2.5; // escala de velocidad
             cartesian_state_.angular_velocity = haptic_state_.angular_velocity; // escala de velocidad
             cartesian_state_.acceleration = haptic_state_.acceleration * 2.5; // escala de aceleración
