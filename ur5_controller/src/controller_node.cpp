@@ -284,7 +284,7 @@ public:
         init_csv_logger();
     }
 
-    timer_ = this->create_wall_timer(std::chrono::milliseconds(20), std::bind(&UR5IKNode::control_loop, this));
+    timer_ = this->create_wall_timer(std::chrono::milliseconds(1), std::bind(&UR5IKNode::control_loop, this));
   }
 
 private:
@@ -861,10 +861,10 @@ private:
 
         if (config_.controller == "QP") {
 
-            robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP(
+            robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP2(
                 robot_state_.q,
                 cartesian_state_.position_desired,
-                cartesian_state_.orientation_desired,
+                cartesian_state_.rotation_matrix_desired,
                 600,
                 0.1
             );}

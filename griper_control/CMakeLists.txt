@@ -46,6 +46,14 @@ ament_target_dependencies(guardar_geo
     geometry_msgs
   )
 
+# Nodo de simulación de Geomagic (publica desde archivo y teclas z/x)
+add_executable(geo_simulation ${SRC_DIR}/geo_simulation.cpp)
+ament_target_dependencies(geo_simulation 
+    rclcpp 
+    geometry_msgs 
+    omni_msgs
+  )
+
 # Vincular las interfaces generadas con los ejecutables que las usan
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_link_libraries(gripper_controller_node "${cpp_typesupport_target}")
@@ -61,6 +69,7 @@ install(TARGETS
     gripper_controller_node
     button_to_gripper_node
   guardar_geo
+  geo_simulation
     DESTINATION lib/${PROJECT_NAME}
 )
 

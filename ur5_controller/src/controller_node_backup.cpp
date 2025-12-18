@@ -284,7 +284,7 @@ public:
         init_csv_logger();
     }
 
-    timer_ = this->create_wall_timer(std::chrono::milliseconds(20), std::bind(&UR5IKNode::control_loop, this));
+    timer_ = this->create_wall_timer(std::chrono::milliseconds(1), std::bind(&UR5IKNode::control_loop, this));
   }
 
 private:

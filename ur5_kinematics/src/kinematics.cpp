@@ -167,7 +167,7 @@ Eigen::VectorXd UR5Kinematics::inverseKinematicsQP(
     const double joint_limit = PI;
     const double dq_max_norm = 0.5; // límite de paso por iteración
     pinocchio::SE3 desired_pose(desired_orient.toRotationMatrix(), desired_pos);
-    const int iter_cap = std::min(max_iterations, 15);
+    const int iter_cap = std::min(max_iterations, 25);
     const double alpha_eff = std::max(0.1, std::min(alpha, 1.0));
 
     for (int i = 0; i < iter_cap; ++i) {
@@ -175,7 +175,7 @@ Eigen::VectorXd UR5Kinematics::inverseKinematicsQP(
         pinocchio::updateFramePlacement(*model_, *data_, tool_frame_id_);
 
         const Eigen::Matrix<double, 6, 1> error = computePoseError(desired_pose);
-        if (error.norm() < 1e-4) {
+        if (error.norm() < 1e-5) {
             return q;
         }
 
