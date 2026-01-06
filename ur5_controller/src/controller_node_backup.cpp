@@ -154,11 +154,12 @@ std::string get_file_path(const std::string& package_name, const std::string& re
 class UR5IKNode : public rclcpp::Node
 {
 public:
-  UR5IKNode() : Node("ur5_ik_node")
-  {
+    UR5IKNode() : Node("ur5_ik_node", rclcpp::NodeOptions()
+                                                                    .allow_undeclared_parameters(true)
+                                                                    .automatically_declare_parameters_from_overrides(true))
+    {
     // 1. Declarar parámetros
     this->declare_parameter<std::string>("control_topic", config_.control_topic);
-    this->declare_parameter<bool>("geomagic", config_.use_geomagic);
     this->declare_parameter<std::string>("ur", config_.ur_model);
     this->declare_parameter<std::string>("nmspace", config_.nmspace);
     this->declare_parameter<std::string>("urdf_path", "");
@@ -194,7 +195,6 @@ public:
 
     // 2. Obtener parámetros y guardarlos en la struct de configuración
     this->get_parameter("control_topic", config_.control_topic);
-    this->get_parameter("geomagic", config_.use_geomagic);
     this->get_parameter("ur", config_.ur_model);
     this->get_parameter("nmspace", config_.nmspace);
     this->get_parameter("use_ur5_pos_init", config_.use_ur5_pos_init);
@@ -223,6 +223,30 @@ public:
     std::string urdf_param;
     std::string geomagic_topic;
     std::string geomagic_button_topic;
+    // Leer 'geomagic' como bool o string de manera robusta
+    bool geomagic_flag = false;
+    {
+        auto plist = this->get_node_parameters_interface()->get_parameters(std::vector<std::string>{"geomagic"});
+        if (!plist.empty()) {
+            const auto &p = plist.front();
+            switch (p.get_type()) {
+                case rclcpp::ParameterType::PARAMETER_BOOL:
+                    geomagic_flag = p.as_bool();
+                    break;
+                case rclcpp::ParameterType::PARAMETER_STRING: {
+                    auto s = p.as_string();
+                    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+                    geomagic_flag = (s == std::string("true") || s == std::string("1") || s == std::string("yes") || s == std::string("on"));
+                    break;
+                }
+                default:
+                    RCLCPP_WARN(this->get_logger(), "Parametro 'geomagic' con tipo no soportado, usando false.");
+                    geomagic_flag = false;
+                    break;
+            }
+        }
+    }
+    config_.use_geomagic = geomagic_flag;
 
     this->get_parameter("geomagic_button_topic", geomagic_button_topic);
     this->get_parameter("geomagic_topic", geomagic_topic);
