@@ -88,6 +88,7 @@ def generate_launch_description():
                     "description_package": "ur5_description",
                     # Evitar f-strings con LaunchConfiguration: usar listas de sustituciones
                     "tf_prefix": ["r2", "_"],
+                    "runtime_config_package": "ur5_bringup",
                     "controllers_file": ["ur_controllers_", "r2", ".yaml"],
                     "kinematics_params_file": ["/home/david/my_robot_calibration_", r2_type, ".yaml"],
                     "use_fake_hardware": use_fake_hardware_r2,
