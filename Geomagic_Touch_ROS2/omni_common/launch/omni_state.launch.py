@@ -6,14 +6,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     #Launch required components
-    chmod_acm0 = ExecuteProcess(
-        cmd=['sudo', 'chmod', '777', '/dev/ttyACM0'],
-        shell=False
-    )
-    chmod_acm1 = ExecuteProcess(
-        cmd=['sudo', 'chmod', '777', '/dev/ttyACM1'],
-        shell=False
-    )
+    
     nodes = []
 
     nodes.append(
@@ -32,8 +25,7 @@ def generate_launch_description():
     )
 
 
-    return LaunchDescription(
-        [chmod_acm0, chmod_acm1]+nodes
+    return LaunchDescription(nodes
         
     )
     
