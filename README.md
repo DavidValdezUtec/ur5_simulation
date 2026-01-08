@@ -53,11 +53,6 @@ sudo apt install \
   ros-humble-joint-state-publisher \
   ros-humble-joint-state-publisher-gui \
   ros-humble-xacro \
-  ros-humble-ros-gz \
-  ros-humble-gazebo-ros-pkgs \
-  ros-humble-gazebo-msgs \
-  ros-humble-gazebo-plugins \
-  ros-humble-ros-ign-bridge \
   ros-humble-teleop-twist-keyboard \
   ros-humble-ros2-control \
   ros-humble-controller-manager \
