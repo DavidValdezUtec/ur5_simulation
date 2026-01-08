@@ -1,3 +1,5 @@
+/*
+
 #include "ur5_interfaz_panel/mainWindow.hpp"
 
 #include <QGridLayout>
@@ -246,6 +248,7 @@ void MainWindow::setupMapSubscriber() {
     });
     timer->start(2000);  // Check every 2 seconds
     */
+/*
 }
 
 void MainWindow::updateMapReceivedIndicator(bool received) {
@@ -269,4 +272,88 @@ void MainWindow::setupLaserScanDisplay() {
     } else {
         qDebug() << "Failed to configure LaserScan display.";
     }
+}
+*/
+
+#include "ur5_interfaz_panel/mainWindow.hpp"
+#include <QGridLayout>
+#include <rviz_common/view_manager.hpp>
+#include <rviz_common/display_context.hpp>
+#include <rviz_rendering/render_window.hpp>
+#include <rviz_common/tool_manager.hpp>
+
+MainWindow::MainWindow(QApplication *app, rviz_common::ros_integration::RosNodeAbstractionIface::WeakPtr rviz_ros_node, QWidget *parent)
+    : QMainWindow(parent), app_(app), rviz_ros_node_(rviz_ros_node) {
+
+    centralWidget_ = new QWidget();
+    mainLayout_ = new QVBoxLayout(centralWidget_);
+
+    initializeRViz();
+    
+    // 1. Configurar Frame Global (Asegúrate que tu URDF use 'world' o cámbialo)
+    manager_->setFixedFrame("world");
+
+    // 2. Configurar Displays básicos
+    setupGridDisplay();
+    setupTFDisplay();
+
+    // 3. Configurar los dos UR5 (especificando sus tópicos de descripción)
+    // Asumiendo que usas namespaces o tópicos distintos para cada uno
+    setupRobotModelDisplay("UR5_Alpha", "/robot_description_alpha");
+    setupRobotModelDisplay("UR5_Beta", "/robot_description_beta");
+
+    // 4. Configurar Cámara (Nube de puntos 3D)
+    setupPointCloudDisplay("/camera/depth/color/points");
+
+    setCentralWidget(centralWidget_);
+}
+
+void MainWindow::initializeRViz() {
+    renderPanel_ = new rviz_common::RenderPanel(centralWidget_);
+    renderPanel_->getRenderWindow()->initialize();
+
+    auto clock = rviz_ros_node_.lock()->get_raw_node()->get_clock();
+    manager_ = new rviz_common::VisualizationManager(renderPanel_, rviz_ros_node_, this, clock);
+    renderPanel_->initialize(manager_);
+
+    manager_->initialize();
+    manager_->startUpdate();
+
+    // Herramienta de interacción por defecto
+    auto tool_manager = manager_->getToolManager();
+    tool_manager->setCurrentTool(tool_manager->addTool("rviz_default_plugins/Interact"));
+}
+
+void MainWindow::setupRobotModelDisplay(const QString& name, const QString& topic) {
+    auto robot_model = manager_->createDisplay("rviz_default_plugins/RobotModel", name, true);
+    if (robot_model) {
+        robot_model->subProp("Description Topic")->setValue(topic);
+        // Si usas MoveIt, a veces el tópico es /robot_description directamente
+        qDebug() << "Cargado:" << name << "en tópico:" << topic;
+    }
+}
+
+void MainWindow::setupPointCloudDisplay(const QString& topic) {
+    auto cloud = manager_->createDisplay("rviz_default_plugins/PointCloud2", "Camera_Points", true);
+    if (cloud) {
+        cloud->subProp("Topic")->setValue(topic);
+        cloud->subProp("Style")->setValue("Points");
+        cloud->subProp("Size (m)")->setValue(0.01);
+    }
+}
+
+void MainWindow::setupGridDisplay() {
+    grid_ = manager_->createDisplay("rviz_default_plugins/Grid", "Grid", true);
+    if (grid_) {
+        grid_->subProp("Reference Frame")->setValue("world");
+        grid_->subProp("Color")->setValue(QColor(Qt::lightGray));
+    }
+}
+
+void MainWindow::setupTFDisplay() {
+    manager_->createDisplay("rviz_default_plugins/TF", "Transforms", true);
+}
+
+MainWindow::~MainWindow() {
+    rclcpp::shutdown();
 }
