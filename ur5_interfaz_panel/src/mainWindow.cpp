@@ -1,359 +1,103 @@
-/*
-
 #include "ur5_interfaz_panel/mainWindow.hpp"
-
-#include <QGridLayout>
-#include <geometry_msgs/msg/point.hpp>
-#include <rviz_common/view_manager.hpp>
-#include <rviz_common/display_context.hpp>
-#include <rviz_rendering/render_window.hpp>
-#include <QVector3D>
+#include <QLabel>
+#include <QFile>
 #include <QDebug>
-#include <rviz_common/tool_manager.hpp>
-#include <rviz_common/view_manager.hpp>
-
-MainWindow::MainWindow(QApplication *app, rviz_common::ros_integration::RosNodeAbstractionIface::WeakPtr rviz_ros_node, QWidget *parent)
-    : QMainWindow(parent), app_(app), rviz_ros_node_(rviz_ros_node), mapReceived_(false) {
-
-    mainLayout_ = new QVBoxLayout;
-    centralWidget_ = new QWidget();
-
-    initializeRViz();
-    
-    mainLayout_->addWidget(renderPanel_);  // Add the render panel here
-
-    centralWidget_->setLayout(mainLayout_);
-    setCentralWidget(centralWidget_);
-    
-    // Configurar frame por defecto "world"
-    manager_->setFixedFrame("world");
-
-    setupGridDisplay();
-    setupTFDisplay();
-}
-
-MainWindow::~MainWindow() {
-    rclcpp::shutdown();
-}
-
-QWidget *MainWindow::getParentWindow() {
-    return this;
-}
-
-rviz_common::PanelDockWidget *MainWindow::addPane(const QString &name, QWidget *pane, Qt::DockWidgetArea area, bool floating) {
-    return nullptr;
-}
-
-void MainWindow::setStatus(const QString &message) {
-    // Optional: handle setting a status message here
-}
-
-void MainWindow::initializeRViz() {
-    app_->processEvents();
-    renderPanel_ = new rviz_common::RenderPanel(centralWidget_);
-    app_->processEvents();
-    renderPanel_->getRenderWindow()->initialize();
-
-    auto clock = rviz_ros_node_.lock()->get_raw_node()->get_clock();
-    manager_ = new rviz_common::VisualizationManager(renderPanel_, rviz_ros_node_, this, clock);
-    renderPanel_->initialize(manager_);
-
-    // Enable mouse tracking and focus policy to ensure it receives events
-    renderPanel_->setMouseTracking(true);
-    renderPanel_->setFocusPolicy(Qt::StrongFocus);
-
-    app_->processEvents();
-    manager_->initialize();
-    manager_->startUpdate();
-
-    // Set the view controller to Orbit to allow for mouse interactions
-    manager_->getViewManager()->setCurrentViewControllerType("rviz_default_plugins/Orbit");
-
-    // Retrieve the active view controller to set properties and confirm it's set up correctly
-    auto orbit_view_controller = manager_->getViewManager()->getCurrent();
-    if (!orbit_view_controller) {
-        qDebug() << "Orbit view controller could not be set.";
-        return;
-    }
-
-    qDebug() << "Orbit view controller initialized successfully.";
-
-    // Set default distance and focal point for the camera
-    orbit_view_controller->subProp("Distance")->setValue(10.0);
-    orbit_view_controller->subProp("Focal Point")->setValue(QVariant::fromValue(QVector3D(0.0, 0.0, 0.0)));
-
-    // Set initial orientation of the camera
-    orbit_view_controller->subProp("Pitch")->setValue(1.5708);  // Example angle in radians
-    orbit_view_controller->subProp("Yaw")->setValue(3.14);     // Example angle in radians
-
-    // Set Interact tool as the active tool to enable mouse interactions
-    auto tool_manager = manager_->getToolManager();
-    tool_manager->setCurrentTool(tool_manager->addTool("rviz_default_plugins/Interact"));
-}
-
-void MainWindow::setupGridDisplay() {
-    // Initialize the grid display
-    grid_ = manager_->createDisplay("rviz_default_plugins/Grid", "Grid", true);
-    if (grid_) {
-        grid_->subProp("Line Style")->setValue("Lines");
-        grid_->subProp("Color")->setValue(QColor(Qt::white));
-        qDebug() << "Grid display configured";
-    } else {
-        qDebug() << "Failed to create Grid display.";
-    }
-}
-
-void MainWindow::setupTFDisplay() {
-    // Set up the TF display to show frames with a fixed frame
-    tf_display_ = manager_->createDisplay("rviz_default_plugins/TF", "TF Display", true);
-    if (tf_display_) {
-        tf_display_->subProp("Show Axes")->setValue(true);
-        qDebug() << "TF display configured with axes and names shown.";
-    } else {
-        qDebug() << "Failed to create TF display.";
-    }
-}
-
-void MainWindow::setupMapDisplay() {
-    QString frame_id = frameLineEdit_->text();
-
-    // Set up the Map display for the /map topic
-    map_display_ = manager_->createDisplay("rviz_default_plugins/Map", "Map Display", true);
-    if (map_display_) {
-        map_display_->subProp("Topic")->setValue("/map");
-        map_display_->subProp("Alpha")->setValue(1.0);
-        map_display_->subProp("Draw Behind")->setValue(false);
-        map_display_->subProp("Color Scheme")->setValue("map");
-        map_display_->subProp("Topic")->subProp("Durability Policy")->setValue("Transient Local");
-        
-        
-        
-        //map_display_->setEnabled(true);
-
-        qDebug() << "Map display configured for /map topic with fixed frame:" << frame_id;
-    } else {
-        qDebug() << "Failed to create Map display.";
-    }
-}
-
-
-
-void MainWindow::setupRobotModelDisplay() {
-    // Set up the RobotModel display for the /robot_description topic
-    robot_model_display_ = manager_->createDisplay("rviz_default_plugins/RobotModel", "RobotModel Display", true);
-    if (robot_model_display_) {
-        robot_model_display_->subProp("Description Topic")->setValue("/r1/robot_description");  // Set the topic to /robot_description
-        robot_model_display_->subProp("TF Prefix")->setValue("");  // Set TF prefix to empty if needed /tb3_0/robot_description
-        qDebug() << "RobotModel display configured for /robot_description topic.";
-    } else {
-        qDebug() << "Failed to create RobotModel display.";
-    }
-}
-
-void MainWindow::setupJoystickControls() {
-    QGridLayout *joystickLayout = new QGridLayout;
-
-    forwardButton_ = new QPushButton("Forward");
-    backwardButton_ = new QPushButton("Backward");
-    leftButton_ = new QPushButton("Left");
-    rightButton_ = new QPushButton("Right");
-    stopButton_ = new QPushButton("Stop");
-
-    joystickLayout->addWidget(forwardButton_, 0, 1);
-    joystickLayout->addWidget(backwardButton_, 2, 1);
-    joystickLayout->addWidget(leftButton_, 1, 0);
-    joystickLayout->addWidget(rightButton_, 1, 2);
-    joystickLayout->addWidget(stopButton_, 1, 1);
-
-    mainLayout_->addLayout(joystickLayout);
-
-    // Connect buttons to send appropriate cmd_vel messages
-    connect(forwardButton_, &QPushButton::pressed, this, [this]() {
-        currentTwist_.linear.x = 1.0; currentTwist_.angular.z = 0.0;
-        sendJoystickCommand();
-    });
-    connect(backwardButton_, &QPushButton::pressed, this, [this]() {
-        currentTwist_.linear.x = -1.0; currentTwist_.angular.z = 0.0;
-        sendJoystickCommand();
-    });
-    connect(leftButton_, &QPushButton::pressed, this, [this]() {
-        currentTwist_.linear.x = 0.0; currentTwist_.angular.z = 1.0;
-        sendJoystickCommand();
-    });
-    connect(rightButton_, &QPushButton::pressed, this, [this]() {
-        currentTwist_.linear.x = 0.0; currentTwist_.angular.z = -1.0;
-        sendJoystickCommand();
-    });
-    connect(stopButton_, &QPushButton::pressed, this, [this]() {
-        currentTwist_.linear.x = 0.0; currentTwist_.angular.z = 0.0;
-        sendJoystickCommand();
-    });
-}
-
-void MainWindow::sendJoystickCommand() {
-    cmdVelPublisher_->publish(currentTwist_);
-}
-
-void MainWindow::updateFrame() {
-    QString frame_id = frameLineEdit_->text();
-
-    // Update the grid display's reference frame
-    if (grid_) {
-        grid_->subProp("Reference Frame")->setValue(frame_id);
-    }
-
-    // Set the fixed frame in the FrameManager directly
-    if (manager_ && manager_->getFrameManager()) {
-        manager_->setFixedFrame(frame_id); // Set for frame manager
-        manager_->getRootDisplayGroup()->setFixedFrame(frame_id); // Set for root display group
-        qDebug() << "FrameManager fixed frame updated to:" << frame_id;
-    }
-}
-
-void MainWindow::closeEvent(QCloseEvent *event) {
-    // Ensure clean shutdown of ROS 2 and close the application
-    rclcpp::shutdown();
-    event->accept();
-    qDebug() << "Application closed, ROS shutdown complete.";
-}
-
-void MainWindow::setupMapSubscriber() {
-    auto node = rviz_ros_node_.lock()->get_raw_node();
-    mapSubscriber_ = node->create_subscription<nav_msgs::msg::OccupancyGrid>(
-        "/map", 10,
-        [this](const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
-            Q_UNUSED(msg);
-            mapReceived_ = true;
-            qDebug() << "Map Received";
-            updateMapReceivedIndicator(true);
-
-            // Enable map display if map data is received
-            /*if (map_display_) {
-                map_display_->setEnabled(true);
-            }*/
-        }
-    );
-
-    // Set a timer to reset the indicator if no map data is received for a while
-    /*auto timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, this, [this]() {
-        if (!mapReceived_) {
-            updateMapReceivedIndicator(false);
-            // Toggle map display to refresh connection if needed
-            if (map_display_) {
-                map_display_->setEnabled(false);
-                map_display_->setEnabled(true);
-            }
-        }
-    });
-    timer->start(2000);  // Check every 2 seconds
-    */
-/*
-}
-
-void MainWindow::updateMapReceivedIndicator(bool received) {
-    if (received) {
-        mapReceivedIndicator_->setText("Map Received: Yes");
-        mapReceivedIndicator_->setStyleSheet("color: green;");
-    } else {
-        mapReceivedIndicator_->setText("Map Received: No");
-        mapReceivedIndicator_->setStyleSheet("color: red;");
-    }
-}
-
-// Set up LaserScan Display
-void MainWindow::setupLaserScanDisplay() {
-    auto laser_scan_display = manager_->createDisplay("rviz_default_plugins/LaserScan", "LaserScan Display", true);
-    if (laser_scan_display) {
-        laser_scan_display->subProp("Topic")->setValue("/scan");       // Set to the topic where laser data is published
-        laser_scan_display->subProp("Size (m)")->setValue(0.1);        // Adjust point size as needed
-        laser_scan_display->subProp("Color")->setValue(QColor(Qt::green));  // Set color of laser points
-        qDebug() << "LaserScan display configured successfully for /scan.";
-    } else {
-        qDebug() << "Failed to configure LaserScan display.";
-    }
-}
-*/
-
-#include "ur5_interfaz_panel/mainWindow.hpp"
+#include <QPushButton>
+#include <QLineEdit>
+#include <QHBoxLayout>
 #include <QGridLayout>
-#include <rviz_common/view_manager.hpp>
-#include <rviz_common/display_context.hpp>
-#include <rviz_rendering/render_window.hpp>
-#include <rviz_common/tool_manager.hpp>
 
-MainWindow::MainWindow(QApplication *app, rviz_common::ros_integration::RosNodeAbstractionIface::WeakPtr rviz_ros_node, QWidget *parent)
-    : QMainWindow(parent), app_(app), rviz_ros_node_(rviz_ros_node) {
+
+
+MainWindow::MainWindow(QApplication *app, QWidget *parent)
+    : QMainWindow(parent), app_(app) {
+    
+    // Crear widget central, contenedor de los elementos
+    //DEclaraciones que luego se moveran a hpp
+    QWidget *menuWidget_;
+    QWidget *rvizWidget_;
+    QHBoxLayout *mainLayout_;
+
+    
 
     centralWidget_ = new QWidget();
-    mainLayout_ = new QVBoxLayout(centralWidget_);
+    menuWidget_ = new QWidget();
+    menuWidget_->setObjectName("menuWidget");
+    menuWidget_->setFixedWidth(300);
 
-    initializeRViz();
+    // Inicializar rvizWidget antes de usarlo
+    rvizWidget_ = new QWidget();
+    rvizWidget_->setObjectName("rvizWidget"); 
+
+    mainLayout_ = new QHBoxLayout(centralWidget_);
+    mainLayout_->addWidget(menuWidget_);
+    mainLayout_->addWidget(rvizWidget_);
+
+    Layout_menu_ = new QVBoxLayout(menuWidget_); //Layout_menu_ estará dentro de menuWidget_
     
-    // 1. Configurar Frame Global (Asegúrate que tu URDF use 'world' o cámbialo)
-    manager_->setFixedFrame("world");
+    // Crear título
+    QLabel *titleLabel = new QLabel("Interfaz UR5");
+    titleLabel->setStyleSheet("font-size: 20px; font-weight: bold;");
+    titleLabel->setAlignment(Qt::AlignCenter);
+    Layout_menu_->addWidget(titleLabel);
+    
+    // Agregar espacio
+    Layout_menu_->addStretch();
+    
+    // Crear botón de salir
+    exitButton_ = new QPushButton("Salir");
+    exitButton_->setObjectName("exitButton");
+    exitButton_->setFixedSize(150, 40);
+    Layout_menu_->addWidget(exitButton_, 0, Qt::AlignCenter);
+    
+    // Conectar señal del botón
+    connect(exitButton_, &QPushButton::clicked, this, &MainWindow::onExitClicked);
+    
+    // Crear widget contenedor
+    QWidget *containerWidget = new QWidget();
+    containerWidget->setObjectName("buttonContainer");
 
-    // 2. Configurar Displays básicos
-    setupGridDisplay();
-    setupTFDisplay();
+    // Crear layout y asignarlo al widget
+    QHBoxLayout *buttonLayout = new QHBoxLayout(containerWidget);
+    buttonLayout->addWidget(new QPushButton("Botón 1"));
+    buttonLayout->addWidget(new QPushButton("Botón 2"));
 
-    // 3. Configurar los dos UR5 (especificando sus tópicos de descripción)
-    // Asumiendo que usas namespaces o tópicos distintos para cada uno
-    setupRobotModelDisplay("UR5_Alpha", "/robot_description_alpha");
-    setupRobotModelDisplay("UR5_Beta", "/robot_description_beta");
+    // Agregar el widget (no el layout) al layout principal
+    Layout_menu_->addWidget(containerWidget);
 
-    // 4. Configurar Cámara (Nube de puntos 3D)
-    setupPointCloudDisplay("/camera/depth/color/points");
-
+    // Crear grid para controles
+    QGridLayout *controlGrid = new QGridLayout();
+    controlGrid->addWidget(new QLabel("X:"), 0, 0);
+    controlGrid->addWidget(new QLineEdit(), 0, 1);
+    Layout_menu_->addLayout(controlGrid);
+    
+    // Configurar widget central
     setCentralWidget(centralWidget_);
+    
+    // Configurar ventana
+    setWindowTitle("Panel de Control UR5");
+    resize(400, 300);
+    
+    // Cargar estilos QSS
+    loadStyleSheet();
+
 }
 
-void MainWindow::initializeRViz() {
-    renderPanel_ = new rviz_common::RenderPanel(centralWidget_);
-    renderPanel_->getRenderWindow()->initialize();
-
-    auto clock = rviz_ros_node_.lock()->get_raw_node()->get_clock();
-    manager_ = new rviz_common::VisualizationManager(renderPanel_, rviz_ros_node_, this, clock);
-    renderPanel_->initialize(manager_);
-
-    manager_->initialize();
-    manager_->startUpdate();
-
-    // Herramienta de interacción por defecto
-    auto tool_manager = manager_->getToolManager();
-    tool_manager->setCurrentTool(tool_manager->addTool("rviz_default_plugins/Interact"));
-}
-
-void MainWindow::setupRobotModelDisplay(const QString& name, const QString& topic) {
-    auto robot_model = manager_->createDisplay("rviz_default_plugins/RobotModel", name, true);
-    if (robot_model) {
-        robot_model->subProp("Description Topic")->setValue(topic);
-        // Si usas MoveIt, a veces el tópico es /robot_description directamente
-        qDebug() << "Cargado:" << name << "en tópico:" << topic;
+void MainWindow::loadStyleSheet() {
+    QFile styleFile(":/style/style.qss");
+    if (styleFile.open(QFile::ReadOnly | QFile::Text)) {
+        QString styleSheet = QLatin1String(styleFile.readAll());
+        app_->setStyleSheet(styleSheet);
+        qDebug() << "Estilos QSS cargados correctamente";
+        styleFile.close();
+    } else {
+        qDebug() << "Error: No se pudo cargar el archivo style.qss";
     }
 }
 
-void MainWindow::setupPointCloudDisplay(const QString& topic) {
-    auto cloud = manager_->createDisplay("rviz_default_plugins/PointCloud2", "Camera_Points", true);
-    if (cloud) {
-        cloud->subProp("Topic")->setValue(topic);
-        cloud->subProp("Style")->setValue("Points");
-        cloud->subProp("Size (m)")->setValue(0.01);
-    }
-}
-
-void MainWindow::setupGridDisplay() {
-    grid_ = manager_->createDisplay("rviz_default_plugins/Grid", "Grid", true);
-    if (grid_) {
-        grid_->subProp("Reference Frame")->setValue("world");
-        grid_->subProp("Color")->setValue(QColor(Qt::lightGray));
-    }
-}
-
-void MainWindow::setupTFDisplay() {
-    manager_->createDisplay("rviz_default_plugins/TF", "Transforms", true);
+void MainWindow::onExitClicked() {
+    app_->quit();
 }
 
 MainWindow::~MainWindow() {
-    rclcpp::shutdown();
 }

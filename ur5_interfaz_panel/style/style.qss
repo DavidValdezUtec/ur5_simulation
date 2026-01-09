@@ -1,0 +1,36 @@
+QPushButton#exitButton {
+    background-color: #ff4d4d;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 10px 20px;
+}
+
+QPushButton#exitButton:hover {
+    background-color: #a34a4a;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 10px 20px;
+}
+
+QWidget{
+    background-color: #5e87ad;
+}
+QVBoxLayout{
+    background-color: #3a5166;
+    padding: 10px;
+}
+
+#buttonContainer {
+    border: 2px solid #3498db;
+    border-radius: 5px;
+    padding: 10px;
+    background-color: #ecf0f1;
+}
+#menuWidget {
+    background-color: #719ecc;
+}
+#rvizWidget {
+    background-color: #2c3e50;
+}

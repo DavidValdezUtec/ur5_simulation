@@ -42,10 +42,14 @@ foreach(header "${headers_to_moc}")
   qt5_wrap_cpp(moc_files "${header}")
 endforeach()
 
+# Agregar archivo de recursos Qt
+qt5_add_resources(qrc_files resources.qrc)
+
 set(SRC_FILES
   src/mainWindow.cpp
   src/main.cpp
   ${moc_files}
+  ${qrc_files}
 )
 
 add_executable(${PROJECT_NAME} ${SRC_FILES})
@@ -62,5 +66,9 @@ target_link_libraries(${PROJECT_NAME}
 
 ## Install
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION lib/${PROJECT_NAME})
+install(
+  FILES style/style.qss
+  DESTINATION share/${PROJECT_NAME}/style
+)
 
 ament_package()
