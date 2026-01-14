@@ -180,5 +180,5 @@ def generate_launch_description():
         ),  
         r1_launch,
         r2_launch,
-        #rviz_node,
+        rviz_node,
     ])
