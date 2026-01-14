@@ -127,7 +127,7 @@ def generate_launch_description():
             "launch_dashboard_client", default_value="true", description="Launch Dashboard Client?"
         ),
         DeclareLaunchArgument(
-            "r1_type", default_value="ur5", description="Robot 1 type"
+            "r1_type", default_value="ur5e", description="Robot 1 type"
         ),
         DeclareLaunchArgument(
             "r2_type", default_value="ur5e", description="Robot 2 type"
@@ -180,5 +180,5 @@ def generate_launch_description():
         ),  
         r1_launch,
         r2_launch,
-        rviz_node,
+        #rviz_node,
     ])
