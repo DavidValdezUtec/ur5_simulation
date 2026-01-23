@@ -11,7 +11,7 @@ def generate_launch_description():
     # --- Nodos (definidos al principio para claridad) ---
     touch_driver_path = os.path.expanduser('~/Documentos/TouchDriver_2024_09_19/bin/Touch_HeadlessSetup')
     calibrate = ExecuteProcess(
-        cmd=[touch_driver_path, 'auto=phantom2,phantom3'],
+        cmd=[touch_driver_path, 'auto=phantom1,phantom2'],
         shell=False,
         output='screen'
     )
@@ -21,7 +21,7 @@ def generate_launch_description():
         package="omni_common",
         executable="omni_state",
         output="screen",
-        parameters=[{"omni_name": "phantom3"}, {"device_name": "phantom3"}]
+        parameters=[{"omni_name": "phantom1"}, {"device_name": "phantom1"}]
     )
 
     # Nodo para el dispositivo IZQUIERDO (phantom2)

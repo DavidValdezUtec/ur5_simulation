@@ -15,8 +15,8 @@ def generate_launch_description():
             executable="omni_state",
             output="screen",
             parameters=[                
-                {"omni_name": "phantom3"},
-                {"device_name": "phantom3"},
+                {"omni_name": "phantom1"},
+                {"device_name": "phantom1"},
                 {"publish_rate": 1000},
                 {"reference_frame": "/map"},
                 {"units": "mm"}
