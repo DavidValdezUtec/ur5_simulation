@@ -7,3 +7,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import PushRosNamespace
 from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    return

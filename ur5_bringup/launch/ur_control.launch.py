@@ -1,34 +1,3 @@
-# Copyright (c) 2021 PickNik, Inc.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-#    * Redistributions of source code must retain the above copyright
-#      notice, this list of conditions and the following disclaimer.
-#
-#    * Redistributions in binary form must reproduce the above copyright
-#      notice, this list of conditions and the following disclaimer in the
-#      documentation and/or other materials provided with the distribution.
-#
-#    * Neither the name of the {copyright_holder} nor the names of its
-#      contributors may be used to endorse or promote products derived from
-#      this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
-# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-# POSSIBILITY OF SUCH DAMAGE.
-
-#
-# Author: Denis Stogl
-
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -82,6 +51,12 @@ def launch_setup(context, *args, **kwargs):
     reverse_port = LaunchConfiguration("reverse_port")
     script_sender_port = LaunchConfiguration("script_sender_port")
     trajectory_port = LaunchConfiguration("trajectory_port")
+    pos_x = LaunchConfiguration("pos_x")
+    pos_y = LaunchConfiguration("pos_y")
+    pos_z = LaunchConfiguration("pos_z")
+    rot_x = LaunchConfiguration("rot_x")
+    rot_y = LaunchConfiguration("rot_y")
+    rot_z = LaunchConfiguration("rot_z")
 
     joint_limit_params = PathJoinSubstitution(
         [FindPackageShare(description_package), "config", ur_type, "joint_limits.yaml"]
@@ -198,6 +173,23 @@ def launch_setup(context, *args, **kwargs):
             "trajectory_port:=",
             trajectory_port,
             " ",
+            "pos_x:=",
+            pos_x,
+            " ",
+            "pos_y:=",
+            pos_y,
+            " ",
+            "pos_z:=",
+            pos_z,
+            " ",
+            "rot_x:=",
+            rot_x,
+            " ",
+            "rot_y:=",
+            rot_y,
+            " ",
+            "rot_z:=",
+            rot_z,
         ]
     )
     robot_description = {
@@ -307,7 +299,7 @@ def launch_setup(context, *args, **kwargs):
                     "force_torque_sensor_broadcaster",
                     "joint_state_broadcaster",
                     "speed_scaling_state_broadcaster",
-                    "tcp_pose_broadcaster",
+                    #"tcp_pose_broadcaster",
                     "ur_configuration_controller",
                 ]
             },
@@ -330,19 +322,6 @@ def launch_setup(context, *args, **kwargs):
         arguments=["-d", rviz_config_file],
     )
 
-    # trajectory_until_node = Node(
-    #     package="ur_robot_driver",
-    #     executable="trajectory_until_node",
-    #     name="trajectory_until_node",
-    #     output="screen",
-    #     parameters=[
-    #         {
-    #             "motion_controller_uri": f"/{initial_joint_controller.perform(context)}/follow_joint_trajectory",
-    #             "until_action_uri": "tool_contact_controller/detect_tool_contact",
-    #         },
-    #     ],
-    # )
-
     # Spawn controllers
     def controller_spawner(controllers, active=True):
         inactive_flags = ["--inactive"] if not active else []
@@ -351,7 +330,7 @@ def launch_setup(context, *args, **kwargs):
             executable="spawner",
             arguments=[
                 "--controller-manager",
-                "/controller_manager",
+                "controller_manager",
                 "--controller-manager-timeout",
                 controller_spawner_timeout,
             ]
@@ -364,7 +343,7 @@ def launch_setup(context, *args, **kwargs):
         "io_and_status_controller",
         "speed_scaling_state_broadcaster",
         "force_torque_sensor_broadcaster",
-        "tcp_pose_broadcaster",
+        #"tcp_pose_broadcaster",
         "ur_configuration_controller",
     ]
     controllers_inactive = [
@@ -372,7 +351,6 @@ def launch_setup(context, *args, **kwargs):
         "joint_trajectory_controller",
         "forward_velocity_controller",
         "forward_position_controller",
-        "forward_effort_controller",
         "force_mode_controller",
         "passthrough_trajectory_controller",
         "freedrive_mode_controller",
@@ -382,8 +360,8 @@ def launch_setup(context, *args, **kwargs):
         controllers_active.append(initial_joint_controller.perform(context))
         controllers_inactive.remove(initial_joint_controller.perform(context))
 
-    if use_fake_hardware.perform(context) == "true":
-        controllers_active.remove("tcp_pose_broadcaster")
+    # if use_fake_hardware.perform(context) == "true":
+    #     controllers_active.remove("tcp_pose_broadcaster")
 
     controller_spawners = [
         controller_spawner(controllers_active),
@@ -400,7 +378,6 @@ def launch_setup(context, *args, **kwargs):
         urscript_interface,
         robot_state_publisher_node,
         rviz_node,
-        # trajectory_until_node,  # Commented out: executable not available
     ] + controller_spawners
 
     return nodes_to_start
@@ -425,7 +402,6 @@ def generate_launch_description():
                 "ur16e",
                 "ur8long",
                 "ur15",
-                "ur18",
                 "ur20",
                 "ur30",
             ],
@@ -673,7 +649,38 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "trajectory_port",
             default_value="50003",
-            description="Port that will be opened for trajectory control.",
+            description="Port on which the robot controller is listening for trajectory messages.",
         )
     )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "pos_x", default_value="0.0", description="Position of the robot in the world (X)."
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "pos_y", default_value="0.0", description="Position of the robot in the world (Y)."
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "pos_z", default_value="0.0", description="Position of the robot in the world (Z)."
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "rot_x", default_value="0.0", description="Rotation of the robot in the world (X)."
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "rot_y", default_value="0.0", description="Rotation of the robot in the world (Y)."
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "rot_z", default_value="0.0", description="Rotation of the robot in the world (Z)."
+        )
+    )
+
     return LaunchDescription(declared_arguments + [OpaqueFunction(function=launch_setup)])

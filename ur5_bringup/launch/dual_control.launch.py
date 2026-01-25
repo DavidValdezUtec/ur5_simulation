@@ -38,7 +38,7 @@ def generate_launch_description():
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     PathJoinSubstitution([
-                        FindPackageShare("ur_robot_driver"), "launch", "ur_control.launch.py"
+                        FindPackageShare("ur5_bringup"), "launch", "ur_control.launch.py"
                     ])
                 ),
                 launch_arguments={
@@ -81,7 +81,7 @@ def generate_launch_description():
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     PathJoinSubstitution([
-                        FindPackageShare("ur_robot_driver"), "launch", "ur_control.launch.py"
+                        FindPackageShare("ur5_bringup"), "launch", "ur_control.launch.py"
                     ])
                 ),
                 launch_arguments={
