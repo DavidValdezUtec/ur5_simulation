@@ -3,7 +3,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import PushRosNamespace
 from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
@@ -59,10 +59,10 @@ def generate_launch_description():
                     "launch_dashboard_client": launch_dashboard_client,
                     "launch_rviz": "false", # Lanzaremos un RViz común si es necesario
                     # Asignación explícita de puertos para el hardware real
-                    "reverse_port": r1_TCP_port-1,
+                    "reverse_port": PythonExpression(["str(int('", r1_TCP_port, "') - 1)"]),
                     "script_sender_port": r1_TCP_port,
-                    "trajectory_port": r1_TCP_port+1,
-                    "script_command_port": r1_TCP_port+2,
+                    "trajectory_port": PythonExpression(["str(int('", r1_TCP_port, "') + 1)"]),
+                    "script_command_port": PythonExpression(["str(int('", r1_TCP_port, "') + 2)"]),
                     "pos_x": r1_x_pos,
                     "pos_y": r1_y_pos,
                     "pos_z": r1_z_pos,
@@ -102,10 +102,10 @@ def generate_launch_description():
                     "launch_dashboard_client": "false", # Solo lanzamos un dashboard client
                     "launch_rviz": "false",
                     # Asignación explícita de puertos DIFERENTES para el hardware real
-                    "reverse_port": r2_TCP_port-1,
+                    "reverse_port": PythonExpression(["str(int('", r2_TCP_port, "') - 1)"]),
                     "script_sender_port": r2_TCP_port,
-                    "trajectory_port": r2_TCP_port+1,
-                    "script_command_port": r2_TCP_port+2,
+                    "trajectory_port": PythonExpression(["str(int('", r2_TCP_port, "') + 1)"]),
+                    "script_command_port": PythonExpression(["str(int('", r2_TCP_port, "') + 2)"]),
                     "pos_x": r2_x_pos,
                     "pos_y": r2_y_pos,
                     "pos_z": r2_z_pos,
