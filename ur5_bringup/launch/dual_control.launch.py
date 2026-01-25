@@ -27,7 +27,10 @@ def generate_launch_description():
     r2_rot_x = LaunchConfiguration("r2_rot_x")
     r2_rot_y = LaunchConfiguration("r2_rot_y")
     r2_rot_z = LaunchConfiguration("r2_rot_z")
-
+    r1_IP = LaunchConfiguration("r1_IP")
+    r2_IP = LaunchConfiguration("r2_IP")
+    r1_TCP_port = LaunchConfiguration("r1_TCP_port")
+    r2_TCP_port = LaunchConfiguration("r2_TCP_port")
     # --- Configuración del UR5 ---
     r1_launch = GroupAction(
         actions=[
@@ -43,7 +46,7 @@ def generate_launch_description():
                 ),
                 launch_arguments={
                     "ur_type": r1_type,
-                    "robot_ip": "192.168.10.104",
+                    "robot_ip": r1_IP,
                     "description_package": "ur5_description",
                     # Evitar f-strings con LaunchConfiguration: usar listas de sustituciones
                     "tf_prefix": ["r1", "_"],
@@ -56,10 +59,10 @@ def generate_launch_description():
                     "launch_dashboard_client": launch_dashboard_client,
                     "launch_rviz": "false", # Lanzaremos un RViz común si es necesario
                     # Asignación explícita de puertos para el hardware real
-                    "reverse_port": "50001",
-                    "script_sender_port": "50002",
-                    "trajectory_port": "50003",
-                    "script_command_port": "50004",
+                    "reverse_port": r1_TCP_port-1,
+                    "script_sender_port": r1_TCP_port,
+                    "trajectory_port": r1_TCP_port+1,
+                    "script_command_port": r1_TCP_port+2,
                     "pos_x": r1_x_pos,
                     "pos_y": r1_y_pos,
                     "pos_z": r1_z_pos,
@@ -86,7 +89,7 @@ def generate_launch_description():
                 ),
                 launch_arguments={
                     "ur_type": r2_type,
-                    "robot_ip": "192.168.10.103",
+                    "robot_ip": r2_IP,
                     "description_package": "ur5_description",
                     # Evitar f-strings con LaunchConfiguration: usar listas de sustituciones
                     "tf_prefix": ["r2", "_"],
@@ -99,10 +102,10 @@ def generate_launch_description():
                     "launch_dashboard_client": "false", # Solo lanzamos un dashboard client
                     "launch_rviz": "false",
                     # Asignación explícita de puertos DIFERENTES para el hardware real
-                    "reverse_port": "50011",
-                    "script_sender_port": "50012",
-                    "trajectory_port": "50013",
-                    "script_command_port": "50014",
+                    "reverse_port": r2_TCP_port-1,
+                    "script_sender_port": r2_TCP_port,
+                    "trajectory_port": r2_TCP_port+1,
+                    "script_command_port": r2_TCP_port+2,
                     "pos_x": r2_x_pos,
                     "pos_y": r2_y_pos,
                     "pos_z": r2_z_pos,
@@ -145,6 +148,18 @@ def generate_launch_description():
             "use_fake_hardware_r2",
             default_value="true",
             description="Use fake hardware for UR5e.",
+        ),
+        DeclareLaunchArgument(
+            "r1_IP", default_value="192.168.10.104", description="Robot 1 IP Address"
+        ),
+        DeclareLaunchArgument(
+            "r2_IP", default_value="192.168.10.103", description="Robot 2 IP Address"
+        ),
+        DeclareLaunchArgument(
+            "r1_TCP_port", default_value="50002", description="Robot 1 TCP Port"
+        ),
+        DeclareLaunchArgument(
+            "r2_TCP_port", default_value="50012", description="Robot 2 TCP Port"
         ),
         DeclareLaunchArgument(
             "r1_x_pos", default_value="0.0", description="Robot 1 X Position"

@@ -14,7 +14,8 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, 
                              QVBoxLayout, QGridLayout, QSizePolicy, 
-                             QPushButton, QLabel, QTabWidget)
+                             QPushButton, QLabel, QTabWidget, QLineEdit,
+                             QComboBox, QHBoxLayout, QMessageBox, QCheckBox, QDockWidget)
 
 # Import funciones from the same package
 from ur5_panel.funciones import *
@@ -116,19 +117,25 @@ class InterfazRviz(QMainWindow):
         self.setup_menu()
         self.set_devices_menu()
         self.set_robot_menu()
+        self.set_controller_menu()
+        
+        # Configurar widget de cámara
+        self.set_camara_widget()
 
+        # Añadir dock widget a la ventana principal
+        self.addDockWidget(Qt.RightDockWidgetArea, self.video_widget)
+        
         # Añadir widgets al layout principal
         self.main_layout.addWidget(self.menu_widget, 0, 0)
-        self.main_layout.addWidget(self.video_widget, 0, 1)
-        self.main_layout.addWidget(self.rviz_widget, 0, 2)
+        self.main_layout.addWidget(self.rviz_widget, 0, 1)
 
-        # Configurar stretch
+        '''# Configurar stretch
         # Columna 0 (menú): tamaño mínimo
-        # Columna 1 (video): tamaño fijo/medio
-        # Columna 2 (RViz): se expande
+        # Columna 1 (RViz): se expande
+        # Video: dock widget flotante/acoplable
+        '''
         self.main_layout.setColumnStretch(0, 0)
         self.main_layout.setColumnStretch(1, 1)
-        self.main_layout.setColumnStretch(2, 2)
         self.main_layout.setRowStretch(0, 1)
 
     def setup_menu(self):
@@ -172,27 +179,6 @@ class InterfazRviz(QMainWindow):
         self.label_menu = QLabel("Menu")
         self.boton_salir = QPushButton("Salir")
         self.boton_salir.clicked.connect(self.close)
-        
-        # Configurar widget de video
-        self.video_widget = QWidget()
-        self.video_layout = QVBoxLayout()
-        self.video_widget.setLayout(self.video_layout)
-        
-        self.video_label = QLabel("Esperando video de cámara...")
-        self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setStyleSheet("background-color: black; color: white; font-size: 14px;")
-        self.video_label.setMinimumSize(640, 480)
-        self.video_layout.addWidget(self.video_label)
-        
-        # Crear nodo suscriptor de cámara
-        self.camera_node = CameraSubscriber(self.update_video)
-        
-        # Timer para procesar callbacks de ROS2
-        self.ros_timer = QTimer()
-        self.ros_timer.timeout.connect(lambda: rclpy.spin_once(self.camera_node, timeout_sec=0.01))
-        self.ros_timer.start(30)  # 30ms (~33 fps)
-
-
 
         # Placeholders
         self.device_widget = QWidget()
@@ -264,16 +250,72 @@ class InterfazRviz(QMainWindow):
             print(f"Error updating video: {e}")
     
     def set_camara_widget(self):
-        pass
+        """Configura el widget de cámara como QDockWidget"""
+        # Crear widget interno para el contenido
+        video_content_widget = QWidget()
+        self.video_layout = QVBoxLayout()
+        video_content_widget.setLayout(self.video_layout)
+        
+        # Label para mostrar el video
+        self.video_label = QLabel("Esperando video de cámara...")
+        self.video_label.setAlignment(Qt.AlignCenter)
+        self.video_label.setStyleSheet("background-color: black; color: white; font-size: 14px;")
+        self.video_label.setMinimumSize(640, 480)
+        self.video_layout.addWidget(self.video_label)
+        
+        # Crear QDockWidget y asignarle el widget interno
+        self.video_widget = QDockWidget("Cámara", self)
+        self.video_widget.setWidget(video_content_widget)
+        self.video_widget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.TopDockWidgetArea | Qt.BottomDockWidgetArea)
+        self.video_widget.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
+        
+        # Configurar tamaño del dock widget (cuando está flotando)
+        self.video_widget.resize(800, 600)  # Ancho x Alto cuando está flotante
+        # También puedes establecer tamaño mínimo/máximo:
+        # self.video_widget.setMinimumSize(400, 300)
+        # self.video_widget.setMaximumSize(1200, 900)
+        
+        # Crear nodo suscriptor de cámara
+        self.camera_node = CameraSubscriber(self.update_video)
+        
+        # Timer para procesar callbacks de ROS2
+        self.ros_timer = QTimer()
+        self.ros_timer.timeout.connect(lambda: rclpy.spin_once(self.camera_node, timeout_sec=0.01))
+        self.ros_timer.start(30)  # 30ms (~33 fps)
     
     
     
     def set_r1_menu(self):        
         
         self.r1_layout.addTab(self.r1_widget, "Robot 1")
-        r1_buttons_layout = QVBoxLayout()
-        r1_buttons_layout.addWidget(QLabel("Type:"))
+        r1_buttons_layout = QGridLayout()
+        self.r1_type_input = QComboBox()
+        self.r1_type_input.addItems(["ur5e", "ur5"])
+        self.r1_mode_input = QComboBox()
+        self.r1_mode_input.addItems(["Simulation","Real"])
+        self.r1_x_input = QLineEdit(); self.r1_x_input.setText("0.0"); self.r1_x_input.setFixedWidth(80)
+        self.r1_y_input = QLineEdit(); self.r1_y_input.setText("0.0"); self.r1_y_input.setFixedWidth(80)
+        self.r1_z_input = QLineEdit(); self.r1_z_input.setText("0.0"); self.r1_z_input.setFixedWidth(80)
+        self.r1_rx_input = QLineEdit(); self.r1_rx_input.setText("0.0"); self.r1_rx_input.setFixedWidth(80)
+        self.r1_ry_input = QLineEdit(); self.r1_ry_input.setText("0.0"); self.r1_ry_input.setFixedWidth(80)
+        self.r1_rz_input = QLineEdit(); self.r1_rz_input.setText("0.0"); self.r1_rz_input.setFixedWidth(80)
         
+        r1_buttons_layout.addWidget(QLabel("Type:"), 0, 0)
+        r1_buttons_layout.addWidget(self.r1_type_input, 0, 1)
+        r1_buttons_layout.addWidget(QLabel("Mode:"), 0, 2)
+        r1_buttons_layout.addWidget(self.r1_mode_input, 0, 3)
+        r1_buttons_layout.addWidget(QLabel("X"), 1, 0)
+        r1_buttons_layout.addWidget(self.r1_x_input, 1, 1)
+        r1_buttons_layout.addWidget(QLabel("RX"), 1, 2)
+        r1_buttons_layout.addWidget(self.r1_rx_input, 1, 3)
+        r1_buttons_layout.addWidget(QLabel("Y"), 2, 0)
+        r1_buttons_layout.addWidget(self.r1_y_input, 2, 1)
+        r1_buttons_layout.addWidget(QLabel("RY"), 2, 2)
+        r1_buttons_layout.addWidget(self.r1_ry_input, 2, 3)
+        r1_buttons_layout.addWidget(QLabel("Z"), 3, 0)
+        r1_buttons_layout.addWidget(self.r1_z_input, 3, 1)
+        r1_buttons_layout.addWidget(QLabel("RZ"), 3, 2)
+        r1_buttons_layout.addWidget(self.r1_rz_input, 3, 3)
         
         self.r1_widget.setLayout(r1_buttons_layout)
         
@@ -286,8 +328,36 @@ class InterfazRviz(QMainWindow):
     def set_r2_menu(self):        
         
         self.r2_layout.addTab(self.r2_widget, "Robot 2")
-        r2_buttons_layout = QVBoxLayout()
-        r2_buttons_layout.addWidget(QLabel("Robot 2 Menu Placeholder"))
+        r2_buttons_layout = QGridLayout()
+        
+        self.r2_type_input = QComboBox()
+        self.r2_type_input.addItems(["ur5e", "ur5"])
+        self.r2_mode_input = QComboBox()
+        self.r2_mode_input.addItems(["Simulation","Real"])
+        self.r2_x_input = QLineEdit(); self.r2_x_input.setText("0.0"); self.r2_x_input.setFixedWidth(80)
+        self.r2_y_input = QLineEdit(); self.r2_y_input.setText("0.0"); self.r2_y_input.setFixedWidth(80)
+        self.r2_z_input = QLineEdit(); self.r2_z_input.setText("0.0"); self.r2_z_input.setFixedWidth(80)
+        self.r2_rx_input = QLineEdit(); self.r2_rx_input.setText("0.0"); self.r2_rx_input.setFixedWidth(80)
+        self.r2_ry_input = QLineEdit(); self.r2_ry_input.setText("0.0"); self.r2_ry_input.setFixedWidth(80)
+        self.r2_rz_input = QLineEdit(); self.r2_rz_input.setText("0.0"); self.r2_rz_input.setFixedWidth(80)
+        
+        r2_buttons_layout.addWidget(QLabel("Type:"), 0, 0)
+        r2_buttons_layout.addWidget(self.r2_type_input, 0, 1)
+        r2_buttons_layout.addWidget(QLabel("Mode:"), 0, 2)
+        r2_buttons_layout.addWidget(self.r2_mode_input, 0, 3)
+        r2_buttons_layout.addWidget(QLabel("X"), 1, 0)
+        r2_buttons_layout.addWidget(self.r2_x_input, 1, 1)
+        r2_buttons_layout.addWidget(QLabel("RX"), 1, 2)
+        r2_buttons_layout.addWidget(self.r2_rx_input, 1, 3)
+        r2_buttons_layout.addWidget(QLabel("Y"), 2, 0)
+        r2_buttons_layout.addWidget(self.r2_y_input, 2, 1)
+        r2_buttons_layout.addWidget(QLabel("RY"), 2, 2)
+        r2_buttons_layout.addWidget(self.r2_ry_input, 2, 3)
+        r2_buttons_layout.addWidget(QLabel("Z"), 3, 0)
+        r2_buttons_layout.addWidget(self.r2_z_input, 3, 1)
+        r2_buttons_layout.addWidget(QLabel("RZ"), 3, 2)
+        r2_buttons_layout.addWidget(self.r2_rz_input, 3, 3)
+        
         self.r2_widget.setLayout(r2_buttons_layout)
         
         self.r2_layout.addTab(self.r2_adv_widget, "Robot 2 Advanced")
@@ -303,6 +373,10 @@ class InterfazRviz(QMainWindow):
         self.set_r2_menu()
         self.boton_iniciar_robots.clicked.connect(self.lanzar_robots)
         self.robots_layout.addWidget(self.boton_iniciar_robots)
+    
+    def set_controller_menu(self):
+        pass
+    
         
     def buscar_dispositivos(self):
         #apagar nodos hápticos antes de buscar
@@ -340,10 +414,7 @@ class InterfazRviz(QMainWindow):
             self.camera_ready = True
             print("Camara encontrada")
             self.lanzar_camera_launch()
-        
-        
-        
-        
+           
     def lanzar_haptic_launch(self):
         """Lanza el archivo launch de dispositivos hápticos"""
         if self.haptic1_ready and self.haptic2_ready:
