@@ -281,6 +281,7 @@ def launch_setup(context, *args, **kwargs):
         executable="urscript_interface",
         parameters=[{"robot_ip": robot_ip}],
         output="screen",
+        condition=UnlessCondition(use_fake_hardware),
     )
 
     controller_stopper_node = Node(

@@ -15,7 +15,8 @@ from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, 
                              QVBoxLayout, QGridLayout, QSizePolicy, 
                              QPushButton, QLabel, QTabWidget, QLineEdit,
-                             QComboBox, QHBoxLayout, QMessageBox, QCheckBox, QDockWidget)
+                             QComboBox, QHBoxLayout, QMessageBox, QCheckBox, QDockWidget,
+                             QSlider)
 
 # Import funciones from the same package
 from ur5_panel.funciones import *
@@ -139,61 +140,99 @@ class InterfazRviz(QMainWindow):
         self.main_layout.setRowStretch(0, 1)
 
     def setup_menu(self):
-        #variables del menú
+        """Configura el menú lateral de la interfaz"""
+        self.initialize_config_variables()
+        self.create_menu_structure()
+        self.initialize_menu_widgets()
+        self.build_menu_layout()
+    
+    def initialize_config_variables(self):
+        """Inicializa variables de configuración y estado"""
+        # Estados de dispositivos
         self.haptic1_ready = False
         self.haptic2_ready = False
         self.camera_ready = False
-        self.r1_config = {"ur_type": "ur5e",
-                    "robot_ip": "192.168.10.104",
-                    "description_package": "ur5_description",
-                    "tf_prefix": "r1_",
-                    "runtime_config_package": "ur5_bringup",
-                    "controllers_file": ["ur_controllers_", "r1", ".yaml"],
-                    "kinematics_params_file": ["/home/david/my_robot_calibration_", "ur5e", ".yaml"],
-                    "use_fake_hardware": "true", # Empezamos en modo simulación
-                    "launch_dashboard_client": "true",
-                    "launch_rviz": "false", 
-                    "reverse_port": "50001",
-                    "script_sender_port": "50002",
-                    "trajectory_port": "50003",
-                    "script_command_port": "50004",
-                    "pos_x": "0.0",
-                    "pos_y": "0.9",
-                    "pos_z": "0.0",
-                    "rot_x": "0.0",
-                    "rot_y": "0.0",
-                    "rot_z": "0.0",}
+        
+        # Configuración Robot 1
+        self.r1_config = {
+            "ur_type": "ur5e",
+            "robot_ip": "192.168.10.104",
+            "description_package": "ur5_description",
+            "tf_prefix": "r1_",
+            "runtime_config_package": "ur5_bringup",
+            "controllers_file": ["ur_controllers_", "r1", ".yaml"],
+            "kinematics_params_file": ["/home/david/my_robot_calibration_", "ur5e", ".yaml"],
+            "use_fake_hardware": "true",  # Empezamos en modo simulación
+            "launch_dashboard_client": "true",
+            "launch_rviz": "false",
+            "reverse_port": "50001",
+            "script_sender_port": "50002",
+            "trajectory_port": "50003",
+            "script_command_port": "50004",
+            "pos_x": "0.0",
+            "pos_y": "0.9",
+            "pos_z": "0.0",
+            "rot_x": "0.0",
+            "rot_y": "0.0",
+            "rot_z": "0.0",
+        }
+        
+        # Configuración Robot 2
         self.r2_config = {}
         
-        
-        
+        # Modos de control disponibles
+        self.control_mode_r1 = ["Teleoperation", "Trayectoria", "Posición"]
+        self.control_mode_r2 = ["Teleoperation", "Trayectoria", "Posición"]
+    
+    def create_menu_structure(self):
+        """Crea la estructura básica del menú"""
         self.menu_widget = QWidget()
         self.menu_layout = QVBoxLayout()
         self.menu_widget.setLayout(self.menu_layout)
         
-        #layouts
-        
+        # Layouts para secciones
         self.robots_layout = QVBoxLayout()
+        self.robots_controller_layout = QVBoxLayout()
         
-        # Widgets del menú
+    
+    def initialize_menu_widgets(self):
+        """Inicializa todos los widgets del menú"""
+        # Widgets principales
         self.label_menu = QLabel("Menu")
         self.boton_salir = QPushButton("Salir")
         self.boton_salir.clicked.connect(self.close)
-
-        # Placeholders
+        
+        # Widgets para botones principales
+        self.button_haptic = QPushButton("Buscar Dispositivos")
+        self.boton_iniciar_robots = QPushButton("Iniciar Robots")
+        
+        # Widgets contenedores de secciones
         self.device_widget = QWidget()
-        self.robots_widget = QWidget(); self.robots_widget.setLayout(self.robots_layout)
+        self.robots_widget = QWidget()
+        self.robots_widget.setLayout(self.robots_layout)
+        self.controller_widget = QWidget()
+        self.controller_widget.setLayout(self.robots_controller_layout)
+        # Widgets para configuración de robots
         self.r1_widget = QWidget()
         self.r1_adv_widget = QWidget()
         self.r2_widget = QWidget()
         self.r2_adv_widget = QWidget()
-        self.controller_widget = QWidget()
+        # Widgets para controladores de robots
+        self.r1_controller_widget = QWidget()
+        self.r1_CD_widget = QWidget()
+        self.r1_IK_widget = QWidget()
+        self.r2_controller_widget = QWidget()
+        self.r2_CD_widget = QWidget()
+        self.r2_IK_widget = QWidget()
+        
+        # Layouts con pestañas
         self.r1_layout = QTabWidget()
         self.r2_layout = QTabWidget()
-        self.button_haptic = QPushButton("Buscar Dispositivos")
-        self.boton_iniciar_robots = QPushButton("Iniciar Robots")
-
-        # Construir menú
+        self.r1_controller_layout = QTabWidget()
+        self.r2_controller_layout = QTabWidget()
+    
+    def build_menu_layout(self):
+        """Construye el layout final del menú"""
         self.menu_layout.addWidget(self.label_menu)
         self.menu_layout.addWidget(self.device_widget)
         self.menu_layout.addWidget(self.robots_widget)
@@ -289,33 +328,51 @@ class InterfazRviz(QMainWindow):
         
         self.r1_layout.addTab(self.r1_widget, "Robot 1")
         r1_buttons_layout = QGridLayout()
+        r1_buttons2_widget = QWidget()
+        r1_buttons2_layout = QHBoxLayout()
+        r1_buttons2_widget.setLayout(r1_buttons2_layout)
         self.r1_type_input = QComboBox()
         self.r1_type_input.addItems(["ur5e", "ur5"])
         self.r1_mode_input = QComboBox()
         self.r1_mode_input.addItems(["Simulation","Real"])
-        self.r1_x_input = QLineEdit(); self.r1_x_input.setText("0.0"); self.r1_x_input.setFixedWidth(80)
-        self.r1_y_input = QLineEdit(); self.r1_y_input.setText("0.0"); self.r1_y_input.setFixedWidth(80)
-        self.r1_z_input = QLineEdit(); self.r1_z_input.setText("0.0"); self.r1_z_input.setFixedWidth(80)
-        self.r1_rx_input = QLineEdit(); self.r1_rx_input.setText("0.0"); self.r1_rx_input.setFixedWidth(80)
-        self.r1_ry_input = QLineEdit(); self.r1_ry_input.setText("0.0"); self.r1_ry_input.setFixedWidth(80)
-        self.r1_rz_input = QLineEdit(); self.r1_rz_input.setText("0.0"); self.r1_rz_input.setFixedWidth(80)
+        n = 40
+        self.r1_x_input = QLineEdit(); self.r1_x_input.setText("0.0"); self.r1_x_input.setFixedWidth(n)
+        self.r1_y_input = QLineEdit(); self.r1_y_input.setText("0.9"); self.r1_y_input.setFixedWidth(n)
+        self.r1_z_input = QLineEdit(); self.r1_z_input.setText("0.0"); self.r1_z_input.setFixedWidth(n)
+        self.r1_rx_input = QLineEdit(); self.r1_rx_input.setText("0.0"); self.r1_rx_input.setFixedWidth(n)
+        self.r1_ry_input = QLineEdit(); self.r1_ry_input.setText("0.0"); self.r1_ry_input.setFixedWidth(n)
+        self.r1_rz_input = QLineEdit(); self.r1_rz_input.setText("0.0"); self.r1_rz_input.setFixedWidth(n)
         
-        r1_buttons_layout.addWidget(QLabel("Type:"), 0, 0)
-        r1_buttons_layout.addWidget(self.r1_type_input, 0, 1)
-        r1_buttons_layout.addWidget(QLabel("Mode:"), 0, 2)
-        r1_buttons_layout.addWidget(self.r1_mode_input, 0, 3)
-        r1_buttons_layout.addWidget(QLabel("X"), 1, 0)
+        r1_buttons2_layout.addWidget(QLabel("Type:"))
+        r1_buttons2_layout.addWidget(self.r1_type_input)
+        r1_buttons2_layout.addWidget(QLabel("Mode:"))
+        r1_buttons2_layout.addWidget(self.r1_mode_input)
+        r1_buttons_layout.addWidget(r1_buttons2_widget, 0, 0, 1, 6)
+        
+        # Labels alineados a la derecha para que parezcan estar junto a los inputs
+        label_x = QLabel("X  "); label_x.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r1_buttons_layout.addWidget(label_x, 1, 0)
         r1_buttons_layout.addWidget(self.r1_x_input, 1, 1)
-        r1_buttons_layout.addWidget(QLabel("RX"), 1, 2)
-        r1_buttons_layout.addWidget(self.r1_rx_input, 1, 3)
-        r1_buttons_layout.addWidget(QLabel("Y"), 2, 0)
-        r1_buttons_layout.addWidget(self.r1_y_input, 2, 1)
-        r1_buttons_layout.addWidget(QLabel("RY"), 2, 2)
+        
+        label_y = QLabel("Y  "); label_y.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r1_buttons_layout.addWidget(label_y, 1, 2)
+        r1_buttons_layout.addWidget(self.r1_y_input, 1, 3)
+        
+        label_z = QLabel("Z  "); label_z.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r1_buttons_layout.addWidget(label_z, 1, 4)
+        r1_buttons_layout.addWidget(self.r1_z_input, 1, 5)
+        
+        label_rx = QLabel("RX"); label_rx.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r1_buttons_layout.addWidget(label_rx, 2, 0)
+        r1_buttons_layout.addWidget(self.r1_rx_input, 2, 1)
+        
+        label_ry = QLabel("RY"); label_ry.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r1_buttons_layout.addWidget(label_ry, 2, 2)
         r1_buttons_layout.addWidget(self.r1_ry_input, 2, 3)
-        r1_buttons_layout.addWidget(QLabel("Z"), 3, 0)
-        r1_buttons_layout.addWidget(self.r1_z_input, 3, 1)
-        r1_buttons_layout.addWidget(QLabel("RZ"), 3, 2)
-        r1_buttons_layout.addWidget(self.r1_rz_input, 3, 3)
+        
+        label_rz = QLabel("RZ"); label_rz.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r1_buttons_layout.addWidget(label_rz, 2, 4)
+        r1_buttons_layout.addWidget(self.r1_rz_input, 2, 5)
         
         self.r1_widget.setLayout(r1_buttons_layout)
         
@@ -329,34 +386,52 @@ class InterfazRviz(QMainWindow):
         
         self.r2_layout.addTab(self.r2_widget, "Robot 2")
         r2_buttons_layout = QGridLayout()
+        r2_buttons2_widget = QWidget()
+        r2_buttons2_layout = QHBoxLayout()
+        r2_buttons2_widget.setLayout(r2_buttons2_layout)
         
         self.r2_type_input = QComboBox()
         self.r2_type_input.addItems(["ur5e", "ur5"])
         self.r2_mode_input = QComboBox()
         self.r2_mode_input.addItems(["Simulation","Real"])
-        self.r2_x_input = QLineEdit(); self.r2_x_input.setText("0.0"); self.r2_x_input.setFixedWidth(80)
-        self.r2_y_input = QLineEdit(); self.r2_y_input.setText("0.0"); self.r2_y_input.setFixedWidth(80)
-        self.r2_z_input = QLineEdit(); self.r2_z_input.setText("0.0"); self.r2_z_input.setFixedWidth(80)
-        self.r2_rx_input = QLineEdit(); self.r2_rx_input.setText("0.0"); self.r2_rx_input.setFixedWidth(80)
-        self.r2_ry_input = QLineEdit(); self.r2_ry_input.setText("0.0"); self.r2_ry_input.setFixedWidth(80)
-        self.r2_rz_input = QLineEdit(); self.r2_rz_input.setText("0.0"); self.r2_rz_input.setFixedWidth(80)
+        n = 40
+        self.r2_x_input = QLineEdit(); self.r2_x_input.setText("0.0"); self.r2_x_input.setFixedWidth(n)
+        self.r2_y_input = QLineEdit(); self.r2_y_input.setText("-0.9"); self.r2_y_input.setFixedWidth(n)
+        self.r2_z_input = QLineEdit(); self.r2_z_input.setText("0.0"); self.r2_z_input.setFixedWidth(n)
+        self.r2_rx_input = QLineEdit(); self.r2_rx_input.setText("0.0"); self.r2_rx_input.setFixedWidth(n)
+        self.r2_ry_input = QLineEdit(); self.r2_ry_input.setText("0.0"); self.r2_ry_input.setFixedWidth(n)
+        self.r2_rz_input = QLineEdit(); self.r2_rz_input.setText("0.0"); self.r2_rz_input.setFixedWidth(n)
         
-        r2_buttons_layout.addWidget(QLabel("Type:"), 0, 0)
-        r2_buttons_layout.addWidget(self.r2_type_input, 0, 1)
-        r2_buttons_layout.addWidget(QLabel("Mode:"), 0, 2)
-        r2_buttons_layout.addWidget(self.r2_mode_input, 0, 3)
-        r2_buttons_layout.addWidget(QLabel("X"), 1, 0)
+        r2_buttons2_layout.addWidget(QLabel("Type:"))
+        r2_buttons2_layout.addWidget(self.r2_type_input)
+        r2_buttons2_layout.addWidget(QLabel("Mode:"))
+        r2_buttons2_layout.addWidget(self.r2_mode_input)
+        
+        r2_buttons_layout.addWidget(r2_buttons2_widget, 0, 0, 1, 6)
+        
+        label_x = QLabel("X  "); label_x.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r2_buttons_layout.addWidget(label_x, 1, 0)
         r2_buttons_layout.addWidget(self.r2_x_input, 1, 1)
-        r2_buttons_layout.addWidget(QLabel("RX"), 1, 2)
-        r2_buttons_layout.addWidget(self.r2_rx_input, 1, 3)
-        r2_buttons_layout.addWidget(QLabel("Y"), 2, 0)
-        r2_buttons_layout.addWidget(self.r2_y_input, 2, 1)
-        r2_buttons_layout.addWidget(QLabel("RY"), 2, 2)
+        
+        label_y = QLabel("Y  "); label_y.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r2_buttons_layout.addWidget(label_y, 1, 2)
+        r2_buttons_layout.addWidget(self.r2_y_input, 1, 3)
+        
+        label_z = QLabel("Z  "); label_z.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r2_buttons_layout.addWidget(label_z, 1, 4)
+        r2_buttons_layout.addWidget(self.r2_z_input, 1, 5)
+        
+        label_rx = QLabel("RX"); label_rx.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r2_buttons_layout.addWidget(label_rx, 2, 0)
+        r2_buttons_layout.addWidget(self.r2_rx_input, 2, 1)
+        
+        label_ry = QLabel("RY"); label_ry.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r2_buttons_layout.addWidget(label_ry, 2, 2)
         r2_buttons_layout.addWidget(self.r2_ry_input, 2, 3)
-        r2_buttons_layout.addWidget(QLabel("Z"), 3, 0)
-        r2_buttons_layout.addWidget(self.r2_z_input, 3, 1)
-        r2_buttons_layout.addWidget(QLabel("RZ"), 3, 2)
-        r2_buttons_layout.addWidget(self.r2_rz_input, 3, 3)
+        
+        label_rz = QLabel("RZ"); label_rz.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        r2_buttons_layout.addWidget(label_rz, 2, 4)
+        r2_buttons_layout.addWidget(self.r2_rz_input, 2, 5)
         
         self.r2_widget.setLayout(r2_buttons_layout)
         
@@ -364,18 +439,120 @@ class InterfazRviz(QMainWindow):
         r2_adv_buttons_layout = QVBoxLayout()
         r2_adv_buttons_layout.addWidget(QLabel("Robot 2 Advanced Menu Placeholder"))
         self.r2_adv_widget.setLayout(r2_adv_buttons_layout)    
-        
- 
+         
     def set_robot_menu(self):
         self.robots_layout.addWidget(self.r1_layout)
         self.robots_layout.addWidget(self.r2_layout)
         self.set_r1_menu()
         self.set_r2_menu()
-        self.boton_iniciar_robots.clicked.connect(self.lanzar_robots)
+        self.boton_iniciar_robots.clicked.connect(self.iniciar_robots)
         self.robots_layout.addWidget(self.boton_iniciar_robots)
     
+
+    '''
+    ros2 run ur5_controller controller_node --ros-args 
+    -p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory" 
+    -p ur:="ur5e" 
+    -p nmspace:="r2" 
+    -p geomagic_topic:="/phantom2/pose" 
+    -p geomagic_button_topic:="/phantom2/button" 
+    -p csv_log_enable:="true" 
+    -p traj_mode:=1 
+    -p q_target:="[-1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0]" 
+    -p geomagic:="false" 
+    -p map_roll:=1 
+    -p map_pitch:=0 
+    -p map_yaw:=2 
+    -p sign_roll:=1.0 
+    -p sign_pitch:=1.0 
+    -p sign_yaw:=1.0
+
+
+    '''    
+    
+    def set_r1_controller(self):
+        self.r1_controller_layout.addTab(self.r1_controller_widget, "Controller")
+        self.r1_controller_layout.addTab(self.r1_CD_widget, "Joints")
+        self.r1_controller_layout.addTab(self.r1_IK_widget, "Cartesian")
+        
+        #inputs de Controller
+        self.r1_control_mode_input = QComboBox()
+        self.r1_control_mode_input.addItems(self.control_mode_r1)
+        r1_mode_layout = QGridLayout()
+        r1_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
+        r1_mode_layout.addWidget(self.r1_control_mode_input, 0, 1)
+        
+        self.r1_controller_widget.setLayout(r1_mode_layout)
+        
+        #inputs de Joints
+        self.r1_CD_widget_layout = QGridLayout()
+        self.r1_CD_widget.setLayout(self.r1_CD_widget_layout)
+        self.r1_CD_widget_layout.addWidget(QLabel("Robot 1 Joints Control Placeholder"), 0, 0,1, 2)
+        self.r1_q0 = QSlider(Qt.Horizontal); self.r1_q0.setMinimum(-180); self.r1_q0.setMaximum(180); self.r1_q0.setValue(0)
+        self.r1_q1 = QSlider(Qt.Horizontal); self.r1_q1.setMinimum(-180); self.r1_q1.setMaximum(180); self.r1_q1.setValue(0)
+        self.r1_q2 = QSlider(Qt.Horizontal); self.r1_q2.setMinimum(-180); self.r1_q2.setMaximum(180); self.r1_q2.setValue(0)
+        self.r1_q3 = QSlider(Qt.Horizontal); self.r1_q3.setMinimum(-180); self.r1_q3.setMaximum(180); self.r1_q3.setValue(0)
+        self.r1_q4 = QSlider(Qt.Horizontal); self.r1_q4.setMinimum(-180); self.r1_q4.setMaximum(180); self.r1_q4.setValue(0)
+        self.r1_q5 = QSlider(Qt.Horizontal); self.r1_q5.setMinimum(-180); self.r1_q5.setMaximum(180); self.r1_q5.setValue(0)
+        
+        self.r1_CD_widget_layout.addWidget(QLabel("Joint 1"), 1, 0)
+        self.r1_CD_widget_layout.addWidget(self.r1_q0, 1, 1)
+        self.r1_CD_widget_layout.addWidget(QLabel("Joint 2"), 2, 0)
+        self.r1_CD_widget_layout.addWidget(self.r1_q1, 2, 1)
+        self.r1_CD_widget_layout.addWidget(QLabel("Joint 3"), 3, 0)
+        self.r1_CD_widget_layout.addWidget(self.r1_q2, 3, 1)
+        self.r1_CD_widget_layout.addWidget(QLabel("Joint 4"), 4, 0)
+        self.r1_CD_widget_layout.addWidget(self.r1_q3, 4, 1)
+        self.r1_CD_widget_layout.addWidget(QLabel("Joint 5"), 5, 0)
+        self.r1_CD_widget_layout.addWidget(self.r1_q4, 5, 1)
+        self.r1_CD_widget_layout.addWidget(QLabel("Joint 6"), 6, 0)
+        self.r1_CD_widget_layout.addWidget(self.r1_q5, 6, 1)
+        #inputs de Cartesian
+        
+        
+        
+        
+    
+    def set_r2_controller(self):
+        self.r2_controller_layout.addTab(self.r2_controller_widget, "Controller")
+        self.r2_controller_layout.addTab(self.r2_CD_widget, "Joints")
+        self.r2_controller_layout.addTab(self.r2_IK_widget, "Cartesian")
+        #inputs de Controller
+        self.r2_control_mode_input = QComboBox()
+        self.r2_control_mode_input.addItems(self.control_mode_r2)
+        self.r2_CD_widget_layout = QGridLayout()
+        r2_mode_layout = QGridLayout()
+        r2_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
+        r2_mode_layout.addWidget(self.r2_control_mode_input, 0, 1)
+        self.r2_CD_widget_layout.addWidget(QLabel("Robot 1 Joints Control Placeholder"), 0, 0,1, 2)
+        self.r2_q0 = QSlider(Qt.Horizontal); self.r2_q0.setMinimum(-180); self.r2_q0.setMaximum(180); self.r2_q0.setValue(0)
+        self.r2_q1 = QSlider(Qt.Horizontal); self.r2_q1.setMinimum(-180); self.r2_q1.setMaximum(180); self.r2_q1.setValue(0)
+        self.r2_q2 = QSlider(Qt.Horizontal); self.r2_q2.setMinimum(-180); self.r2_q2.setMaximum(180); self.r2_q2.setValue(0)
+        self.r2_q3 = QSlider(Qt.Horizontal); self.r2_q3.setMinimum(-180); self.r2_q3.setMaximum(180); self.r2_q3.setValue(0)
+        self.r2_q4 = QSlider(Qt.Horizontal); self.r2_q4.setMinimum(-180); self.r2_q4.setMaximum(180); self.r2_q4.setValue(0)
+        self.r2_q5 = QSlider(Qt.Horizontal); self.r2_q5.setMinimum(-180); self.r2_q5.setMaximum(180); self.r2_q5.setValue(0)
+        
+        self.r2_CD_widget_layout.addWidget(QLabel("Joint 1"), 1, 0)
+        self.r2_CD_widget_layout.addWidget(self.r2_q0, 1, 1)
+        self.r2_CD_widget_layout.addWidget(QLabel("Joint 2"), 2, 0)
+        self.r2_CD_widget_layout.addWidget(self.r2_q1, 2, 1)
+        self.r2_CD_widget_layout.addWidget(QLabel("Joint 3"), 3, 0)
+        self.r2_CD_widget_layout.addWidget(self.r2_q2, 3, 1)
+        self.r2_CD_widget_layout.addWidget(QLabel("Joint 4"), 4, 0)
+        self.r2_CD_widget_layout.addWidget(self.r2_q3, 4, 1)
+        self.r2_CD_widget_layout.addWidget(QLabel("Joint 5"), 5, 0)
+        self.r2_CD_widget_layout.addWidget(self.r2_q4, 5, 1)
+        self.r2_CD_widget_layout.addWidget(QLabel("Joint 6"), 6, 0)
+        self.r2_CD_widget_layout.addWidget(self.r2_q5, 6, 1)
+        
+    
+    
     def set_controller_menu(self):
-        pass
+        self.robots_controller_layout.addWidget(self.r1_controller_layout)
+        self.robots_controller_layout.addWidget(self.r2_controller_layout)
+        self.set_r1_controller()
+        self.set_r2_controller()
+        
     
         
     def buscar_dispositivos(self):
@@ -538,17 +715,44 @@ class InterfazRviz(QMainWindow):
         self.launch_processes = {k: None for k in self.launch_processes}
         print("[Shutdown] Todos los launches detenidos")
     
+    def iniciar_robots(self):
+        """Reinicia los robots: detiene si están corriendo y luego lanza"""
+        print("[Robots] Reiniciando robots...")
+        self.detener_robots()
+        self.lanzar_robots()
+    
     def lanzar_robots(self):
         """Lanza los launches de ambos robots simultáneamente"""
-        if self.launch_processes['robots'] is not None:
-            print("[Robots] Robots ya están corriendo")
-            return
+        # Construir comando con argumentos desde la interfaz
+        command = [
+            'ros2', 'launch', 'ur5_bringup', 'dual_control.launch.py',
+            f'r1_type:={self.r1_type_input.currentText()}',
+            f'r2_type:={self.r2_type_input.currentText()}',
+            f'use_fake_hardware_r1:={"true" if self.r1_mode_input.currentText().lower() == "simulation" else "false"}',
+            f'use_fake_hardware_r2:={"true" if self.r2_mode_input.currentText().lower() == "simulation" else "false"}',
+            # Posiciones y orientaciones desde inputs   
+            f'r1_x_pos:={self.r1_x_input.text()}',
+            f'r1_y_pos:={self.r1_y_input.text()}',
+            f'r1_z_pos:={self.r1_z_input.text()}',
+            f'r1_rot_x:={self.r1_rx_input.text()}',
+            f'r1_rot_y:={self.r1_ry_input.text()}',
+            f'r1_rot_z:={self.r1_rz_input.text()}',
+            f'r2_x_pos:={self.r2_x_input.text()}',
+            f'r2_y_pos:={self.r2_y_input.text()}',
+            f'r2_z_pos:={self.r2_z_input.text()}',
+            f'r2_rot_x:={self.r2_rx_input.text()}',
+            f'r2_rot_y:={self.r2_ry_input.text()}',
+            f'r2_rot_z:={self.r2_rz_input.text()}',
+            # Agrega más argumentos según necesites
+        ]
             
         try:
             print("[Robots] Iniciando launch de robots...")
+            print(f"[Robots] Comando: {' '.join(command)}")
+            
             # Lanzar el proceso
             self.launch_processes['robots'] = subprocess.Popen(
-                ['ros2', 'launch', 'ur5_bringup', 'dual_control.launch.py'],
+                command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 preexec_fn=os.setsid
