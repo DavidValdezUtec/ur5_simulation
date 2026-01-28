@@ -16,7 +16,9 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget,
                              QVBoxLayout, QGridLayout, QSizePolicy, 
                              QPushButton, QLabel, QTabWidget, QLineEdit,
                              QComboBox, QHBoxLayout, QMessageBox, QCheckBox, QDockWidget,
-                             QSlider)
+                             QSlider, QScrollArea)
+from PyQt5.QtGui import QIcon
+from PyQt5 import QtCore
 
 # Import funciones from the same package
 from ur5_panel.funciones import *
@@ -54,6 +56,9 @@ class CameraSubscriber(Node):
             self.callback(cv_image)
         except Exception as e:
             self.get_logger().error(f'Error converting image: {e}')
+
+
+
 
 class InterfazRviz(QMainWindow):
     def __init__(self):
@@ -127,8 +132,9 @@ class InterfazRviz(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, self.video_widget)
         
         # Añadir widgets al layout principal
-        self.main_layout.addWidget(self.menu_widget, 0, 0)
+        self.main_layout.addWidget(self.menu_scroll, 0, 0)
         self.main_layout.addWidget(self.rviz_widget, 0, 1)
+        self.main_layout.addWidget(self.boton_salir, 1, 0)  # Botón Salir fuera del scroll
 
         '''# Configurar stretch
         # Columna 0 (menú): tamaño mínimo
@@ -186,9 +192,18 @@ class InterfazRviz(QMainWindow):
     
     def create_menu_structure(self):
         """Crea la estructura básica del menú"""
+        # Widget interno del menú con scroll
         self.menu_widget = QWidget()
         self.menu_layout = QVBoxLayout()
         self.menu_widget.setLayout(self.menu_layout)
+        
+        # Scroll area para el menú
+        self.menu_scroll = QScrollArea()
+        self.menu_scroll.setWidget(self.menu_widget)
+        self.menu_scroll.setWidgetResizable(True)
+        self.menu_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.menu_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.menu_scroll.setMinimumWidth(300)
         
         # Layouts para secciones
         self.robots_layout = QVBoxLayout()
@@ -238,7 +253,6 @@ class InterfazRviz(QMainWindow):
         self.menu_layout.addWidget(self.robots_widget)
         self.menu_layout.addWidget(self.controller_widget)
         self.menu_layout.addStretch()
-        self.menu_layout.addWidget(self.boton_salir)
         
     def set_devices_menu(self):
         self.device_layout = QGridLayout()
@@ -471,9 +485,18 @@ class InterfazRviz(QMainWindow):
     '''    
     
     def set_r1_controller(self):
-        self.r1_controller_layout.addTab(self.r1_controller_widget, "Controller")
+        icon_path = "/home/david/tesis_ws/src/ur5_simulation/ur5_interfaz/ur5_panel/resource/icons/menu1.svg"
+        
+        icon = QIcon(icon_path)
+        
+        
+        self.r1_controller_layout.addTab(self.r1_controller_widget,icon, "")
+        self.r1_controller_layout.setIconSize(QtCore.QSize(24, 24))
         self.r1_controller_layout.addTab(self.r1_CD_widget, "Joints")
         self.r1_controller_layout.addTab(self.r1_IK_widget, "Cartesian")
+        
+        # Conectar señal para detectar cambios de pestaña
+        self.r1_controller_layout.currentChanged.connect(self.on_r1_controller_tab_changed)
         
         #inputs de Controller
         self.r1_control_mode_input = QComboBox()
@@ -552,6 +575,19 @@ class InterfazRviz(QMainWindow):
         self.robots_controller_layout.addWidget(self.r2_controller_layout)
         self.set_r1_controller()
         self.set_r2_controller()
+    
+    def on_r1_controller_tab_changed(self, index):
+        """Se ejecuta cuando el usuario cambia de pestaña en el controlador del robot 1"""
+        tab_names = ["Controller", "Joints", "Cartesian"]
+        print(f"R1 Controller - Cambió a pestaña: {tab_names[index]} (índice {index})")
+        
+        # Aquí puedes agregar lógica específica según la pestaña
+        if index == 0:
+            print("  → Modo Controller activo")
+        elif index == 1:
+            print("  → Modo Joints activo")
+        elif index == 2:
+            print("  → Modo Cartesian activo")
         
     
         
@@ -859,7 +895,20 @@ def main():
     """Entry point for ros2 run command"""
     app = QApplication(sys.argv)
     window = None
-    
+
+    # Cargar y aplicar style.qss desde la carpeta config del paquete ur5_panel
+    # Workspace: /home/david/tesis_ws
+    # Paquete: ur5_panel
+    # Carpeta config: /home/david/tesis_ws/src/ur5_simulation/ur5_interfaz/ur5_panel/config/style.qss
+    qss_path = os.path.join(os.path.dirname(__file__), '../config/style.qss')
+    qss_path = os.path.abspath(qss_path)
+    if os.path.exists(qss_path):
+        print("Style cargado desde:", qss_path)
+        with open(qss_path, 'r') as f:
+            app.setStyleSheet(f.read())
+    else:
+        print(f"[Warning] No se encontró style.qss en: {qss_path}")
+
     # Manejar excepciones no capturadas
     def exception_hook(exctype, value, traceback_obj):
         """Asegurar limpieza en caso de excepción no manejada"""
@@ -869,9 +918,9 @@ def main():
         if window is not None:
             window.shutdown()
         sys.__excepthook__(exctype, value, traceback_obj)
-    
+
     sys.excepthook = exception_hook
-    
+
     try:
         window = InterfazRviz()
         window.show()

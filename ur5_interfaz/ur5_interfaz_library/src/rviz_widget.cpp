@@ -553,9 +553,9 @@ void launch_rviz(
 
             // Set specific camera parameters for optimal robot viewing
             auto view = view_mgr->getCurrent();
-            view->subProp("Yaw")->setValue(4.28858);
+            view->subProp("Yaw")->setValue(0.5);
             view->subProp("Pitch")->setValue(0.240398);
-            view->subProp("Focal Point")->setValue("2.1; 0; 0");
+            view->subProp("Focal Point")->setValue("0; 0; 0");
             view->subProp("Distance")->setValue(5.63583);
 
             manager->setFixedFrame(fixed_frame.c_str());
