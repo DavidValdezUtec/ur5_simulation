@@ -80,3 +80,27 @@ QSlider::handle:horizontal {
 QDockWidget {
 	background: #23272e;
 }
+
+
+
+/* Estilos específicos para los tabs verticales con iconos en QTabWidget con objectName 'menu_general' */
+QTabWidget#menu_general > QTabBar::tab {
+	min-width: 40px;
+	min-height: 40px;
+	max-height: 40px;
+	max-width: 40px;
+	padding: 4px;
+	margin: 4px 4px 4px 4px;
+	background: #2d313a;
+	border: none;
+}
+QTabWidget#menu_general > QTabBar::tab:selected {
+	background: #00bfff;
+	color: #23272e;
+}
+QTabWidget#menu_general > QTabBar::tab:hover {
+	background: #4f5668;
+}
+QTabWidget#menu_general > QTabBar {
+	qproperty-drawBase: 0;
+}

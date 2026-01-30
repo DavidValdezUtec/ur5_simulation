@@ -4,6 +4,8 @@
    <xacro:arg name="name" default="ur"/>
    <!-- import main macro -->
    <xacro:include filename="$(find ur5_description)/urdf/ur_macro.xacro"/>
+  <!-- optional sensor/tool attachments -->
+  <xacro:include filename="$(find ur5_description)/urdf/sensors/tool_camera.xacro"/>
 
    <!-- possible 'ur_type' values: ur3, ur3e, ur5, ur5e, ur7e, ur10, ur10e, ur12e, ur16e, ur20, ur30 -->
    <!-- the default value should raise an error in case this was called without defining the type -->
@@ -16,6 +18,19 @@
    <xacro:arg name="rot_x" default="0.0"/>
    <xacro:arg name="rot_y" default="0.0"/>
    <xacro:arg name="rot_z" default="0.0"/>
+
+  <!-- Tool camera attachment (fixed joint) -->
+  <xacro:arg name="use_tool_camera" default="false"/>
+  <!-- For cameras like Orbbec/RealSense, prefer mounting "camera_link" and let the driver publish optical frames -->
+  <xacro:arg name="tool_camera_frame" default="camera_link"/>
+  <!-- Pose of camera frame w.r.t. tool0 -->
+  <xacro:arg name="tool_camera_xyz" default="0 0 0"/>
+  <xacro:arg name="tool_camera_rpy" default="0 0 0"/>
+  <!-- Optional: create optical frame from URDF (disable if your camera driver already publishes it) -->
+  <xacro:arg name="tool_camera_create_optical" default="false"/>
+  <xacro:arg name="tool_camera_optical_frame" default="camera_color_optical_frame"/>
+  <xacro:arg name="tool_camera_optical_xyz" default="0 0 0"/>
+  <xacro:arg name="tool_camera_optical_rpy" default="0 0 0"/>
 
    <!-- parameters -->
     
@@ -135,6 +150,20 @@
      >
      <origin xyz="$(arg pos_x) $(arg pos_y) $(arg pos_z)" rpy="$(arg rot_x) $(arg rot_y) $(arg rot_z)" />          <!-- position robot in the world -->
    </xacro:ur_robot>
+
+   <xacro:if value="$(arg use_tool_camera)">
+     <xacro:tool_camera_fixed
+       parent_link="$(arg tf_prefix)tool0"
+       tf_prefix="$(arg tf_prefix)"
+       mount_frame="$(arg tool_camera_frame)"
+       joint_name="tool0-camera"
+       xyz="$(arg tool_camera_xyz)"
+       rpy="$(arg tool_camera_rpy)"
+       create_optical_frame="$(arg tool_camera_create_optical)"
+       optical_frame="$(arg tool_camera_optical_frame)"
+       optical_xyz="$(arg tool_camera_optical_xyz)"
+       optical_rpy="$(arg tool_camera_optical_rpy)"/>
+   </xacro:if>
 
    <xacro:if value="$(arg sim_gazebo)">
     <!-- Gazebo plugins -->

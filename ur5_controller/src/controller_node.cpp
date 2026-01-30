@@ -27,6 +27,7 @@
 #include <fstream>
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <cmath>
@@ -284,10 +285,181 @@ public:
         init_csv_logger();
     }
 
+    // Callback para parámetros dinámicos (aplica cambios en caliente)
+    params_cb_handle_ = this->add_on_set_parameters_callback(
+        std::bind(&UR5IKNode::on_parameters_set, this, std::placeholders::_1));
+
     timer_ = this->create_wall_timer(std::chrono::milliseconds(1), std::bind(&UR5IKNode::control_loop, this));
   }
 
 private:
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr params_cb_handle_;
+    std::mutex dynamic_params_mutex_;
+
+    rcl_interfaces::msg::SetParametersResult on_parameters_set(const std::vector<rclcpp::Parameter>& params) {
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = true;
+        result.reason = "";
+
+        // Copias locales para aplicar todo de forma consistente
+        Eigen::Vector3i new_map_pos = map_pos_;
+        Eigen::Vector3d new_sign_pos = sign_pos_;
+        Eigen::Vector3i new_map_rot = map_rot_;
+        Eigen::Vector3d new_sign_rot = sign_rot_;
+
+        Eigen::Vector3d new_traj_A = config_.traj_A;
+        double new_traj_wn = config_.traj_wn;
+        double new_traj_c0 = config_.traj_c0;
+        int new_traj_mode = config_.traj_mode;
+        std::string new_controller = config_.controller;
+
+        auto reject = [&](const std::string& why) {
+            result.successful = false;
+            result.reason = why;
+        };
+
+        auto validate_map_idx = [&](int v, const std::string& name) {
+            if (v < 0 || v > 2) {
+                reject(name + " debe estar en [0,2]");
+                return false;
+            }
+            return true;
+        };
+        auto validate_sign = [&](double v, const std::string& name) {
+            if (!(v == 1.0 || v == -1.0)) {
+                reject(name + " debe ser 1.0 o -1.0");
+                return false;
+            }
+            return true;
+        };
+
+        for (const auto& p : params) {
+            const auto& name = p.get_name();
+
+            // --- Mapeo de posición ---
+            if (name == "map_x") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_x debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_pos.x() = v;
+            } else if (name == "map_y") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_y debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_pos.y() = v;
+            } else if (name == "map_z") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_z debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_pos.z() = v;
+            } else if (name == "sign_x") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_x debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_pos.x() = v;
+            } else if (name == "sign_y") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_y debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_pos.y() = v;
+            } else if (name == "sign_z") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_z debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_pos.z() = v;
+
+            // --- Mapeo de rotación ---
+            } else if (name == "map_roll") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_roll debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_rot.x() = v;
+            } else if (name == "map_pitch") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_pitch debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_rot.y() = v;
+            } else if (name == "map_yaw") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_yaw debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_rot.z() = v;
+            } else if (name == "sign_roll") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_roll debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_rot.x() = v;
+            } else if (name == "sign_pitch") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_pitch debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_rot.y() = v;
+            } else if (name == "sign_yaw") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_yaw debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_rot.z() = v;
+
+            // --- Trayectoria automática ---
+            } else if (name == "traj_A") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE_ARRAY) { reject("traj_A debe ser double[]"); break; }
+                auto v = p.as_double_array();
+                if (v.size() != 3) { reject("traj_A debe tener tamaño 3"); break; }
+                new_traj_A = Eigen::Vector3d(v[0], v[1], v[2]);
+            } else if (name == "traj_wn") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("traj_wn debe ser double"); break; }
+                new_traj_wn = p.as_double();
+            } else if (name == "traj_c0") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("traj_c0 debe ser double"); break; }
+                new_traj_c0 = p.as_double();
+            } else if (name == "traj_mode") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("traj_mode debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                // En este archivo sólo existen modos 1 y 2 (el 3 está comentado/eliminado)
+                if (v != 1 && v != 2) { reject("traj_mode debe ser 1 o 2"); break; }
+                new_traj_mode = v;
+
+            // --- Controlador ---
+            } else if (name == "controller_type") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_STRING) { reject("controller_type debe ser string"); break; }
+                auto v = p.as_string();
+                if (!(v == "QP" || v == "IMP" || v == "SLD")) {
+                    reject("controller_type debe ser 'QP', 'IMP' o 'SLD'");
+                    break;
+                }
+                new_controller = v;
+            }
+        }
+
+        if (!result.successful) {
+            return result;
+        }
+
+        {
+            std::scoped_lock<std::mutex> lock(dynamic_params_mutex_);
+            map_pos_ = new_map_pos;
+            sign_pos_ = new_sign_pos;
+            map_rot_ = new_map_rot;
+            sign_rot_ = new_sign_rot;
+            config_.traj_A = new_traj_A;
+            config_.traj_wn = new_traj_wn;
+            config_.traj_c0 = new_traj_c0;
+            config_.traj_mode = new_traj_mode;
+            config_.controller = new_controller;
+        }
+
+        RCLCPP_INFO(this->get_logger(),
+                    "Parametros actualizados: map_pos=[%d,%d,%d] sign_pos=[%.0f,%.0f,%.0f] map_rot=[%d,%d,%d] sign_rot=[%.0f,%.0f,%.0f] traj_mode=%d controller=%s",
+                    map_pos_.x(), map_pos_.y(), map_pos_.z(),
+                    sign_pos_.x(), sign_pos_.y(), sign_pos_.z(),
+                    map_rot_.x(), map_rot_.y(), map_rot_.z(),
+                    sign_rot_.x(), sign_rot_.y(), sign_rot_.z(),
+                    config_.traj_mode,
+                    config_.controller.c_str());
+
+        return result;
+    }
+
     // Suscriptores y publicadores
     rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
@@ -769,6 +941,20 @@ private:
     
     void control_loop() {
         auto loop_t0 = std::chrono::steady_clock::now();
+
+        // Copiar parámetros dinámicos a locales (para aplicar cambios en caliente)
+        Eigen::Vector3i map_pos_local;
+        Eigen::Vector3d sign_pos_local;
+        Eigen::Vector3i map_rot_local;
+        Eigen::Vector3d sign_rot_local;
+        {
+            std::scoped_lock<std::mutex> lock(dynamic_params_mutex_);
+            map_pos_local = map_pos_;
+            sign_pos_local = sign_pos_;
+            map_rot_local = map_rot_;
+            sign_rot_local = sign_rot_;
+        }
+
         if (!pose_inicial_capturada_ || !posicion_inicial_alcanzada_) {
             return;
         }
@@ -785,7 +971,7 @@ private:
             Eigen::Vector3d axis_raw =  angle_axis.axis() * angle_axis.angle();
             double escala = 0.5; // factor de orientación
             Eigen::Vector3d axis_map;
-            for(int i=0; i<3; i++) axis_map(i) = axis_raw(map_rot_(i)) * sign_rot_(i) * escala;
+            for(int i=0; i<3; i++) axis_map(i) = axis_raw(map_rot_local(i)) * sign_rot_local(i) * escala;
             if (axis_map.norm() > 1e-6){
                 Eigen::Matrix3d R_delta = Eigen::AngleAxisd(axis_map.norm(), axis_map.normalized()).toRotationMatrix();
                 cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial * R_delta;
@@ -796,8 +982,16 @@ private:
 
             RCLCPP_INFO(this->get_logger(), "Dif orientación háptico (eje): [%.3f, %.3f, %.3f]",
                         dif_orientacion_haptic.vec().x(), dif_orientacion_haptic.vec().y(), dif_orientacion_haptic.vec().z());
-            cartesian_state_.position_desired = trayectoria_geomagic(
-            cartesian_state_.position_initial, haptic_state_.position_initial, haptic_state_.position, 2.5);
+            
+            for(int i=0; i<3; i++){
+                cartesian_state_.position_desired(i) = cartesian_state_.position_initial(i) +
+                    (haptic_state_.position(map_pos_local(i)) - haptic_state_.position_initial(map_pos_local(i))) * sign_pos_local(i)*2.5;     
+            }
+            
+
+            
+            // cartesian_state_.position_desired = trayectoria_geomagic(
+            // cartesian_state_.position_initial, haptic_state_.position_initial, haptic_state_.position, 2.5);
 
             cartesian_state_.velocity = haptic_state_.velocity * 2.5; // escala de velocidad
             cartesian_state_.angular_velocity = haptic_state_.angular_velocity; // escala de velocidad

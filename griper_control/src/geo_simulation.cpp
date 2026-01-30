@@ -28,8 +28,8 @@ public:
 		this->declare_parameter<std::string>("file_path", get_default_path());
 		this->get_parameter("file_path", file_path_);
 
-		pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("/phantom/pose", 10);
-		button_pub_ = this->create_publisher<omni_msgs::msg::OmniButtonEvent>("/phantom/button", 10);
+		pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("/phantom1/pose", 10);
+		button_pub_ = this->create_publisher<omni_msgs::msg::OmniButtonEvent>("/phantom1/button", 10);
 
 		if (!load_file(file_path_)) {
 			RCLCPP_ERROR(this->get_logger(), "No se pudieron cargar datos: %s", file_path_.c_str());

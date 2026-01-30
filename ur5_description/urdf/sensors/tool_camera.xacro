@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+  <xacro:macro
+    name="tool_camera_fixed"
+    params="parent_link tf_prefix:='' mount_frame:='camera_link' joint_name:='tool0-camera' xyz:='0 0 0' rpy:='0 0 0' create_optical_frame:='false' optical_frame:='camera_color_optical_frame' optical_xyz:='0 0 0' optical_rpy:='0 0 0'">
+
+    <link name="${tf_prefix}${mount_frame}">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="0.05"/>
+        <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+      </inertial>
+    </link>
+
+    <joint name="${tf_prefix}${joint_name}" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="${tf_prefix}${mount_frame}"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+
+    <xacro:if value="${create_optical_frame == 'true'}">
+      <link name="${tf_prefix}${optical_frame}"/>
+      <joint name="${tf_prefix}${mount_frame}-optical" type="fixed">
+        <parent link="${tf_prefix}${mount_frame}"/>
+        <child link="${tf_prefix}${optical_frame}"/>
+        <origin xyz="${optical_xyz}" rpy="${optical_rpy}"/>
+      </joint>
+    </xacro:if>
+
+  </xacro:macro>
+</robot>
