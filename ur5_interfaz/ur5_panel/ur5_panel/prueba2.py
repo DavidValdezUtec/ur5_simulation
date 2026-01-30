@@ -553,6 +553,106 @@ class InterfazRviz(QMainWindow):
 
 
     '''    
+
+    def _ensure_mapping_storage(self):
+        if not hasattr(self, "_mapping_matrices"):
+            self._mapping_matrices = {}
+
+    def _create_mapping_matrix(
+        self,
+        *,
+        key: str,
+        title: str,
+        row_labels,
+        col_labels,
+        initial_selection=None,
+        invert_label: str = "+/-1",
+        parent=None,
+    ) -> QGroupBox:
+        """Crea una matriz 3x3 (o NxM) de QRadioButton con selección única por columnas.
+
+        La regla es la misma que en a.py: cada fila debe tener una columna distinta.
+        Se usa `clicked` para evitar bucles al hacer `setChecked()` programáticamente.
+        """
+        self._ensure_mapping_storage()
+
+        widget = QGroupBox(title, parent)
+        layout = QGridLayout()
+        widget.setLayout(layout)
+
+        row_labels = list(row_labels)
+        col_labels = list(col_labels)
+
+        # Cabeceras
+        layout.addWidget(QLabel(), 0, 0)
+        layout.addWidget(QLabel(invert_label), 0, 1)
+        for j, label in enumerate(col_labels):
+            layout.addWidget(QLabel(label), 0, 2 + j)
+        for i, label in enumerate(row_labels):
+            layout.addWidget(QLabel(label), 2 + i, 0)
+
+        invert_checks = [QCheckBox(widget) for _ in row_labels]
+        for i, cb in enumerate(invert_checks):
+            layout.addWidget(cb, 2 + i, 1)
+
+        groups = [QButtonGroup(widget) for _ in row_labels]
+        radios = [[QRadioButton(widget) for _ in col_labels] for _ in row_labels]
+
+        if initial_selection is None:
+            if len(col_labels) == 0:
+                selection = [0 for _ in row_labels]
+            else:
+                selection = [i % len(col_labels) for i in range(len(row_labels))]
+        else:
+            selection = list(initial_selection)
+
+        for row_idx in range(len(row_labels)):
+            for col_idx in range(len(col_labels)):
+                rb = radios[row_idx][col_idx]
+                groups[row_idx].addButton(rb, col_idx)
+                layout.addWidget(rb, 2 + row_idx, 2 + col_idx)
+                if selection[row_idx] == col_idx:
+                    rb.setChecked(True)
+                rb.clicked.connect(
+                    lambda checked, r=row_idx, c=col_idx, k=key: self._on_mapping_clicked(k, r, c)
+                )
+
+        self._mapping_matrices[key] = {
+            "widget": widget,
+            "layout": layout,
+            "invert_checks": invert_checks,
+            "groups": groups,
+            "radios": radios,
+            "selection": selection,
+            "row_labels": row_labels,
+            "col_labels": col_labels,
+        }
+        return widget
+
+    def _on_mapping_clicked(self, key: str, fila_clicada: int, nueva_columna: int) -> None:
+        data = self._mapping_matrices.get(key)
+        if not data:
+            return
+
+        selection = data["selection"]
+        radios = data["radios"]
+
+        columna_antigua = selection[fila_clicada]
+        if columna_antigua == nueva_columna:
+            return
+
+        fila_en_conflicto = -1
+        for r, col in enumerate(selection):
+            if r != fila_clicada and col == nueva_columna:
+                fila_en_conflicto = r
+                break
+
+        if fila_en_conflicto != -1:
+            # setChecked() NO dispara 'clicked' => sin recursión.
+            radios[fila_en_conflicto][columna_antigua].setChecked(True)
+            selection[fila_en_conflicto] = columna_antigua
+
+        selection[fila_clicada] = nueva_columna
     
     def set_r1_controller(self):
         
@@ -570,58 +670,35 @@ class InterfazRviz(QMainWindow):
         r1_mode_layout.addWidget(self.r1_control_mode_input, 0, 1)
         self.r1_checkbox_safe_trayectory = QCheckBox("Save Trajectory")
         r1_mode_layout.addWidget(self.r1_checkbox_safe_trayectory, 1, 0)
-        
-        linear_layout = QGridLayout()
-        linear_widget = QGroupBox("Movimiento Lineal")
-        linear_widget.setLayout(linear_layout)
-        linear_layout.addWidget(QLabel(), 0, 0)
-        linear_layout.addWidget(QLabel("+/-1"), 0, 1)
-        linear_layout.addWidget(QLabel("Robot X"), 0, 2)
-        linear_layout.addWidget(QLabel("Robot Y"), 0, 3)
-        linear_layout.addWidget(QLabel("Robot Z"), 0, 4)
-        linear_layout.addWidget(QLabel("Joy X"), 2, 0)
-        linear_layout.addWidget(QLabel("Joy Y"), 3, 0)
-        linear_layout.addWidget(QLabel("Joy Z"), 4, 0)
 
-        # IMPORTANTE (PyQt): guarda referencias en self.* para que no los recoja el GC.
-        self.r1_linear_invert_checks = [
-            QCheckBox(linear_widget),
-            QCheckBox(linear_widget),
-            QCheckBox(linear_widget),
-        ]
-        linear_layout.addWidget(self.r1_linear_invert_checks[0], 2, 1)
-        linear_layout.addWidget(self.r1_linear_invert_checks[1], 3, 1)
-        linear_layout.addWidget(self.r1_linear_invert_checks[2], 4, 1)
-
-        # Un grupo por fila (Joy X/Y/Z): cada fila elige Robot X/Y/Z
-        self.r1_linear_map_groups = [
-            QButtonGroup(linear_widget),
-            QButtonGroup(linear_widget),
-            QButtonGroup(linear_widget),
-        ]
-        self.r1_linear_map_radios = [
-            [QRadioButton(linear_widget), QRadioButton(linear_widget), QRadioButton(linear_widget)],
-            [QRadioButton(linear_widget), QRadioButton(linear_widget), QRadioButton(linear_widget)],
-            [QRadioButton(linear_widget), QRadioButton(linear_widget), QRadioButton(linear_widget)],
-        ]
-        
-        # Estado interno: índice de columna seleccionada para cada fila
-        # Inicializamos en diagonal (0, 1, 2) para que empiece sin conflictos
-        self.r1_linear_seleccion_actual = [0, 1, 2]
-
-        for row_idx, grid_row in enumerate([2, 3, 4]):
-            for col_idx, grid_col in enumerate([2, 3, 4]):
-                rb = self.r1_linear_map_radios[row_idx][col_idx]
-                self.r1_linear_map_groups[row_idx].addButton(rb, col_idx)
-                linear_layout.addWidget(rb, grid_row, grid_col)
-                
-                # Marcar si coincide con el estado inicial
-                if self.r1_linear_seleccion_actual[row_idx] == col_idx:
-                    rb.setChecked(True)
-                
-                # Usar clicked en lugar de toggled para evitar bucles recursivos
-                rb.clicked.connect(lambda checked, r=row_idx, c=col_idx: self.manejar_clic_r1_linear(r, c))
+        linear_widget = self._create_mapping_matrix(
+            key="r1_linear",
+            title="Movimiento Lineal",
+            row_labels=["Joy X", "Joy Y", "Joy Z"],
+            col_labels=["Robot X", "Robot Y", "Robot Z"],
+            initial_selection=[0, 1, 2],
+            parent=self.r1_controller_widget,
+        )
+        # Mantener nombres antiguos por compatibilidad
+        self.r1_linear_invert_checks = self._mapping_matrices["r1_linear"]["invert_checks"]
+        self.r1_linear_map_groups = self._mapping_matrices["r1_linear"]["groups"]
+        self.r1_linear_map_radios = self._mapping_matrices["r1_linear"]["radios"]
+        self.r1_linear_seleccion_actual = self._mapping_matrices["r1_linear"]["selection"]
         r1_mode_layout.addWidget(linear_widget, 5, 0, 1, 2)
+
+        rot_widget = self._create_mapping_matrix(
+            key="r1_rot",
+            title="Movimiento Rotacional",
+            row_labels=["Joy RX", "Joy RY", "Joy RZ"],
+            col_labels=["Robot RX", "Robot RY", "Robot RZ"],
+            initial_selection=[0, 1, 2],
+            parent=self.r1_controller_widget,
+        )
+        self.r1_rot_invert_checks = self._mapping_matrices["r1_rot"]["invert_checks"]
+        self.r1_rot_map_groups = self._mapping_matrices["r1_rot"]["groups"]
+        self.r1_rot_map_radios = self._mapping_matrices["r1_rot"]["radios"]
+        self.r1_rot_seleccion_actual = self._mapping_matrices["r1_rot"]["selection"]
+        r1_mode_layout.addWidget(rot_widget, 6, 0, 1, 2)
         
         
         
@@ -632,38 +709,6 @@ class InterfazRviz(QMainWindow):
         
         #inputs de Cartesian
 
-    def manejar_clic_r1_linear(self, fila_clicada: int, nueva_columna: int):
-        """Lógica de matriz tipo a.py: columnas únicas por fila mediante intercambio.
-
-        Regla: Joy X/Y/Z (filas) eligen Robot X/Y/Z (columnas), sin repetir columna.
-        Si el usuario selecciona una columna ya usada por otra fila, se intercambian.
-        """
-        # 1) Columna que tenía la fila clicada ANTES del cambio
-        columna_antigua = self.r1_linear_seleccion_actual[fila_clicada]
-
-        # Si el usuario clicó la que ya estaba seleccionada, no hacemos nada
-        if columna_antigua == nueva_columna:
-            return
-
-        # 2) Buscar conflicto: otra fila que ya tenga nueva_columna
-        fila_en_conflicto = -1
-        for r, col in enumerate(self.r1_linear_seleccion_actual):
-            if r != fila_clicada and col == nueva_columna:
-                fila_en_conflicto = r
-                break
-
-        # 3) Intercambio: la fila en conflicto toma la columna antigua
-        if fila_en_conflicto != -1:
-            # setChecked() NO dispara 'clicked', así que evitamos bucles.
-            self.r1_linear_map_radios[fila_en_conflicto][columna_antigua].setChecked(True)
-            self.r1_linear_seleccion_actual[fila_en_conflicto] = columna_antigua
-
-        # 4) Actualizar el estado interno de la fila clicada
-        # (la UI de esa fila ya se marcó por el click del usuario)
-        self.r1_linear_seleccion_actual[fila_clicada] = nueva_columna
-        
-          
-    
     def set_r2_controller(self):
         self.r2_controller_layout.addTab(self.r2_controller_widget, "Controller")
         #inputs de Controller
@@ -672,6 +717,36 @@ class InterfazRviz(QMainWindow):
         r2_mode_layout = QGridLayout()
         r2_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
         r2_mode_layout.addWidget(self.r2_control_mode_input, 0, 1)
+
+        linear_widget = self._create_mapping_matrix(
+            key="r2_linear",
+            title="Movimiento Lineal",
+            row_labels=["Joy X", "Joy Y", "Joy Z"],
+            col_labels=["Robot X", "Robot Y", "Robot Z"],
+            initial_selection=[0, 1, 2],
+            parent=self.r2_controller_widget,
+        )
+        self.r2_linear_invert_checks = self._mapping_matrices["r2_linear"]["invert_checks"]
+        self.r2_linear_map_groups = self._mapping_matrices["r2_linear"]["groups"]
+        self.r2_linear_map_radios = self._mapping_matrices["r2_linear"]["radios"]
+        self.r2_linear_seleccion_actual = self._mapping_matrices["r2_linear"]["selection"]
+        r2_mode_layout.addWidget(linear_widget, 5, 0, 1, 2)
+
+        rot_widget = self._create_mapping_matrix(
+            key="r2_rot",
+            title="Movimiento Rotacional",
+            row_labels=["Joy RX", "Joy RY", "Joy RZ"],
+            col_labels=["Robot RX", "Robot RY", "Robot RZ"],
+            initial_selection=[0, 1, 2],
+            parent=self.r2_controller_widget,
+        )
+        self.r2_rot_invert_checks = self._mapping_matrices["r2_rot"]["invert_checks"]
+        self.r2_rot_map_groups = self._mapping_matrices["r2_rot"]["groups"]
+        self.r2_rot_map_radios = self._mapping_matrices["r2_rot"]["radios"]
+        self.r2_rot_seleccion_actual = self._mapping_matrices["r2_rot"]["selection"]
+        r2_mode_layout.addWidget(rot_widget, 6, 0, 1, 2)
+
+        self.r2_controller_widget.setLayout(r2_mode_layout)
         
         
     
