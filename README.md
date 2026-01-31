@@ -38,7 +38,12 @@ sudo apt upgrade
 sudo apt install ros-humble-desktop ros-dev-tools
 
 # Añadir el script de configuración al .bashrc para cargarlo automáticamente
-echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+echo '
+if [ -f /opt/ros/humble/setup.bash ]; then
+    source /opt/ros/humble/setup.bash
+    # Forzar X11 para evitar errores con Wayland en algunas interfaces gráficas
+    export QT_QPA_PLATFORM=xcb
+fi' >> ~/.bashrc
 ```
 **Importante:** Cierra y vuelve a abrir tu terminal para que los cambios surtan efecto.
 
@@ -57,6 +62,7 @@ sudo apt install \
   ros-humble-ros2-control \
   ros-humble-controller-manager \
   ros-humble-ur \
+  ros-humble-ur-simulation-gz\
   ros-humble-pinocchio \
   libeigen3-dev \
   libgoogle-glog-dev \
