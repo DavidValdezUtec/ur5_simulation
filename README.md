@@ -7,6 +7,7 @@ Este repositorio contiene el software necesario para teleoperar dos robots UR5/U
 *   **Sistema Operativo:** Ubuntu 22.04
 *   **Plataforma ROS:** ROS 2 Humble
 *   **RAM:** Se recomienda un mínimo de 8 GB de RAM para la compilación.
+*   **Drivers:** Instale losdrivers del dispositivo Haptico Geomagic Touch. Touch Haptic Driver v3.4
 
 ## Guía de Instalación
 
@@ -17,11 +18,35 @@ Sigue estos pasos en orden para configurar tu entorno de desarrollo.
 Estos comandos instalarán la distribución de escritorio de ROS 2 Humble y las herramientas de desarrollo.
 
 ```bash
+# Descarga e instala los drivers de Open Haptic
+curl -L -o TouchDriver_2024_09_19.tgz https://s3.us-east-1.amazonaws.com/dl.3dsystems.com/binaries/Sensable/Linux/TouchDriver_2024_09_19.tgz
+tar -xzvf TouchDriver_2024_09_19.tgz
+cd Touch_Driver_2024_09_19
+# Ejecutar el script con bash para evitar errores de compatibilidad
+sudo bash install_haptic_driver
+cd ..
+# Limpiar los archivos descargados
+rm -rf Touch_Driver_2024_09_19 TouchDriver_2024_09_19.tgz
+
+curl -L -o openhaptics_developer.tar.gz "https://s3.amazonaws.com/dl.3dsystems.com/binaries/support/downloads/KB+Files/Open+Haptics/openhaptics_3.4-0-developer-edition-amd64.tar.gz"
+tar -xzvf openhaptics_developer.tar.gz
+cd openhaptics_3.4-0-developer-edition-amd64
+sudo ./install  #EN medio de la instlaacion pedirá continuar, marcar "y" al final pedirá reiniciar (enter) o cancelar el reincio (q), elegir q
+cd ..
+rm -rf openhaptics_developer.tar.gz
+
+#Paquetes para los progrmas graficos del driver
+sudo apt update
+sudo apt install build-essential libncurses5-dev freeglut3-dev zlib1g-dev libncurses5 -y
+
+
+
 # Configurar la codificación de caracteres a UTF-8
 sudo apt update && sudo apt install locales
 sudo locale-gen es_ES es_ES.UTF-8
 sudo update-locale LC_ALL=es_ES.UTF-8 LANG=es_ES.UTF-8
 export LANG=es_ES.UTF-8
+
 
 # Habilitar los repositorios 'universe' y 'multiverse'
 sudo apt install software-properties-common
@@ -66,39 +91,46 @@ sudo apt install \
   ros-humble-pinocchio \
   libeigen3-dev \
   libgoogle-glog-dev \
-  libmodbus-dev
+  libmodbus-dev -y
 ```
 
 ### 3. Instalación de Dependencias desde Código Fuente
 
-`OSQP` y `Osqp-Eigen` se compilan desde el código fuente para asegurar la compatibilidad.
+`OSQP` y `Osqp-Eigen` se compilan desde el código fuente para asegurar la compatibilidad. Usaremos un directorio temporal para no dejar archivos residuales.
 
-1.  **Instalar OSQP:**
-    ```bash
-    git clone --recursive https://github.com/osqp/osqp.git
-    cd osqp
-    git checkout v0.6.3
-    git submodule update --init --recursive
-    mkdir build && cd build
-    cmake .. && make
-    sudo make install
-    cd ../..
-    ```
+```bash
+# Crear un directorio temporal y navegar a él
+mkdir /tmp/source_deps && cd /tmp/source_deps
 
-2.  **Instalar Osqp-Eigen:**
-    ```bash
-    git clone https://github.com/robotology/osqp-eigen.git
-    cd osqp-eigen
-    git checkout v0.8.1
-    mkdir build && cd build
-    cmake .. && make
-    sudo make install
-    cd ../..
-    ```
-    **Nota:** Actualiza el caché del enlazador después de instalar librerías manualmente.
-    ```bash
-    sudo ldconfig
-    ```
+# --- Instalar OSQP ---
+git clone --recursive https://github.com/osqp/osqp.git
+cd osqp
+git checkout v0.6.3
+git submodule update --init --recursive
+mkdir build && cd build
+cmake .. && make
+sudo make install
+cd .. # Volver a la raíz de osqp
+cd .. # Volver a /tmp/source_deps
+
+# --- Instalar Osqp-Eigen ---
+git clone https://github.com/robotology/osqp-eigen.git
+cd osqp-eigen
+git checkout v0.8.1
+mkdir build && cd build
+cmake .. && make
+sudo make install
+cd .. # Volver a la raíz de osqp-eigen
+cd .. # Volver a /tmp/source_deps
+
+# --- Limpieza ---
+# Regresar al directorio anterior y eliminar la carpeta temporal
+cd "$OLDPWD"
+rm -rf /tmp/source_deps
+
+# Actualizar el caché del enlazador después de instalar librerías manualmente
+sudo ldconfig
+```
 
 ### 4. Compilación del Workspace
 
@@ -109,14 +141,15 @@ Una vez instaladas todas las dependencias, clona este repositorio y los paquetes
 mkdir -p ~/tesis_ws/src
 cd ~/tesis_ws/src
 
-# Clona los repositorios necesarios
-git clone https://github.com/DavidValdezUtec/ur5_simulation.git
-git clone https://github.com/stevens-armlab/Geomagic_Touch_ROS2.git
-# Aquí iría el 'git clone' para el driver del UR si es necesario
-
 # Regresa a la raíz del workspace y compila
 cd ~/tesis_ws
-colcon build --symlink-install
+colcon build --packages-select omni_msgs ur5_description omni_description ur5_impedance ur5_kinematics ur5_sliding ur5_scaled_sender ur5_bringup
+
+colcon build --packages-select omni_common griper_control geomagic_interface
+
+colcon build --packages-select ur5_controller
+colcon build --packages-select ur5_interfaz_library ur5_panel
+
 ```
 **Nota sobre la compilación:** Si encuentras un error de tipo `killed` o `Terminado`, significa que te has quedado sin memoria RAM. Intenta compilar de nuevo usando un solo núcleo:
 `colcon build --parallel-workers 1`
