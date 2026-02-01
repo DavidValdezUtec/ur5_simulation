@@ -21,6 +21,12 @@ from PyQt5.QtGui import QPixmap, QIcon, QPainter, QColor
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5 import QtCore
 
+try:
+    from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
+except Exception:
+    PackageNotFoundError = Exception
+    get_package_share_directory = None
+
 # Import funciones from the same package
 from ur5_panel.funciones import *
 from ur5_panel.ui_mixins import UIMixin
@@ -129,14 +135,31 @@ class InterfazRviz(QMainWindow, UIMixin):
         transform = QTransform().rotate(angle)
         rotated_pixmap = pix.transformed(transform, Qt.SmoothTransformation)
         return QIcon(rotated_pixmap)
+
+    def _get_package_paths(self):
+        """Obtiene rutas a recursos del paquete (share/config y share/resource)."""
+        share_dir = None
+        if get_package_share_directory is not None:
+            try:
+                share_dir = get_package_share_directory('ur5_panel')
+            except PackageNotFoundError:
+                share_dir = None
+
+        if share_dir is None:
+            package_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            share_dir = package_root
+
+        icons_dir = os.path.join(share_dir, 'resource', 'icons')
+        qss_path = os.path.join(share_dir, 'config', 'style.qss')
+        return share_dir, icons_dir, qss_path
     
     def cargar_iconos(self):
-        self.icon_path = "/home/david/tesis_ws/src/ur5_simulation/ur5_interfaz/ur5_panel/resource/icons/"
+        _, self.icon_path, _ = self._get_package_paths()
         
-        self.icon_menu1 = self.rotar_icon(self.cargar_y_colorear_svg(self.icon_path + "menu1.svg","#FFFFFF"), 0)
-        self.icon_menu2 = self.rotar_icon(self.cargar_y_colorear_svg(self.icon_path + "menu2.svg","#FFFFFF"), 90)
-        self.icon_menu3 = self.rotar_icon(self.cargar_y_colorear_svg(self.icon_path + "menu3.svg","#FFFFFF"), 90)
-        self.icon_menu4 = self.rotar_icon(self.cargar_y_colorear_svg(self.icon_path + "menu4.svg","#FFFFFF"), 90)
+        self.icon_menu1 = self.rotar_icon(self.cargar_y_colorear_svg(os.path.join(self.icon_path, "menu1.svg"), "#FFFFFF"), 0)
+        self.icon_menu2 = self.rotar_icon(self.cargar_y_colorear_svg(os.path.join(self.icon_path, "menu2.svg"), "#FFFFFF"), 90)
+        self.icon_menu3 = self.rotar_icon(self.cargar_y_colorear_svg(os.path.join(self.icon_path, "menu3.svg"), "#FFFFFF"), 90)
+        self.icon_menu4 = self.rotar_icon(self.cargar_y_colorear_svg(os.path.join(self.icon_path, "menu4.svg"), "#FFFFFF"), 90)
         pass
 
     def setup_ui(self):
@@ -606,12 +629,15 @@ def main():
     app = QApplication(sys.argv)
     window = None
 
-    # Cargar y aplicar style.qss desde la carpeta config del paquete ur5_panel
-    # Workspace: /home/david/tesis_ws
-    # Paquete: ur5_panel
-    # Carpeta config: /home/david/tesis_ws/src/ur5_simulation/ur5_interfaz/ur5_panel/config/style.qss
-    qss_path = os.path.join(os.path.dirname(__file__), '../config/style.qss')
-    qss_path = os.path.abspath(qss_path)
+    # Cargar y aplicar style.qss desde el share directory del paquete (compatible con install/)
+    qss_path = None
+    if get_package_share_directory is not None:
+        try:
+            qss_path = os.path.join(get_package_share_directory('ur5_panel'), 'config', 'style.qss')
+        except PackageNotFoundError:
+            qss_path = None
+    if qss_path is None:
+        qss_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../config/style.qss'))
     if os.path.exists(qss_path):
         print("Style cargado desde:", qss_path)
         with open(qss_path, 'r') as f:
