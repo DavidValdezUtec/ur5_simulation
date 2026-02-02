@@ -13,7 +13,7 @@ Este repositorio contiene el software necesario para teleoperar dos robots UR5/U
 
 Sigue estos pasos en orden para configurar tu entorno de desarrollo.
 
-### 1. Instalación de ROS 2 Humble
+### Instalación de Drivers de Geomagic Touch
 
 Estos comandos instalarán la distribución de escritorio de ROS 2 Humble y las herramientas de desarrollo.
 
@@ -38,8 +38,13 @@ rm -rf openhaptics_developer.tar.gz
 #Paquetes para los progrmas graficos del driver
 sudo apt update
 sudo apt install build-essential libncurses5-dev freeglut3-dev zlib1g-dev libncurses5 -y
+```
 
+### 1. Instalación de ROS 2 Humble
 
+Estos comandos instalarán la distribución de escritorio de ROS 2 Humble y las herramientas de desarrollo.
+
+```bash
 
 # Configurar la codificación de caracteres a UTF-8
 sudo apt update && sudo apt install locales
