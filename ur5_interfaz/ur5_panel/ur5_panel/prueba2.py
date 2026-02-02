@@ -160,6 +160,7 @@ class InterfazRviz(QMainWindow, UIMixin):
         self.icon_menu2 = self.rotar_icon(self.cargar_y_colorear_svg(os.path.join(self.icon_path, "menu2.svg"), "#FFFFFF"), 90)
         self.icon_menu3 = self.rotar_icon(self.cargar_y_colorear_svg(os.path.join(self.icon_path, "menu3.svg"), "#FFFFFF"), 90)
         self.icon_menu4 = self.rotar_icon(self.cargar_y_colorear_svg(os.path.join(self.icon_path, "menu4.svg"), "#FFFFFF"), 90)
+        self.icon_reload = self.cargar_y_colorear_svg(os.path.join(self.icon_path, "reload.svg"), "#FFFFFF")
         pass
 
     def setup_ui(self):
@@ -259,14 +260,12 @@ class InterfazRviz(QMainWindow, UIMixin):
         # Crear QDockWidget y asignarle el widget interno
         self.video_widget = QDockWidget("Cámara", self)
         self.video_widget.setWidget(video_content_widget)
+        #self.video_widget.setWindowFlags(self.video_widget.windowFlags() | Qt.Tool)
         self.video_widget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.TopDockWidgetArea | Qt.BottomDockWidgetArea)
         self.video_widget.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
         
         # Configurar tamaño del dock widget (cuando está flotando)
         self.video_widget.resize(800, 600)  # Ancho x Alto cuando está flotante
-        # También puedes establecer tamaño mínimo/máximo:
-        # self.video_widget.setMinimumSize(400, 300)
-        # self.video_widget.setMaximumSize(1200, 900)
         
         # Crear nodo suscriptor de cámara
         self.camera_node = CameraSubscriber(self.update_video)

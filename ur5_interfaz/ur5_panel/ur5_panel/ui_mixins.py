@@ -143,6 +143,7 @@ class UIMixin:
         self.r2_adv_widget = QWidget()
         # Widgets para controladores de robots
         self.r1_controller_widget = QWidget()
+        self.r1_controller_adv_widget = QWidget()
         self.r1_CD_widget = QWidget()
         self.r1_IK_widget = QWidget()
         self.r2_controller_widget = QWidget()
@@ -418,6 +419,7 @@ class UIMixin:
     def set_r1_controller(self):
         
         self.r1_controller_layout.addTab(self.r1_controller_widget,"Control")
+        self.r1_controller_layout.addTab(self.r1_controller_adv_widget,"Advanced")
         
         
         # Conectar señal para detectar cambios de pestaña
@@ -426,13 +428,33 @@ class UIMixin:
         #inputs de Controller
         self.r1_control_mode_input = QComboBox()
         self.r1_control_mode_input.addItems(self.control_mode_r1)
+        trayectories = QComboBox()
+        trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
+        
         r1_mode_layout = QGridLayout()
-        r1_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
-        r1_mode_layout.addWidget(self.r1_control_mode_input, 0, 1)
+        r1_adv_mode_layout = QGridLayout()
+        
         self.r1_checkbox_safe_trayectory = QCheckBox("Save Trajectory")
+        self.r1_checkbox_safe_trayectory.setChecked(True)
+        
+        
+        botones_layout = QHBoxLayout()
+        botones_widget = QWidget(); botones_widget.setLayout(botones_layout)
+        boton_start_controller = QPushButton("Start Controller")
+        boton_reload_controller = QPushButton(self.icon_reload, "")
+        boton_reload_controller.setToolTip("Reload Controller Configuration")
+        boton_reload_controller.setFixedSize(30,30)
+        botones_layout.addWidget(boton_start_controller)
+        botones_layout.addWidget(boton_reload_controller)
+        
+        
+        r1_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
+        r1_mode_layout.addWidget(self.r1_control_mode_input, 0, 1)            
+        r1_mode_layout.addWidget(trayectories, 1, 1)
         r1_mode_layout.addWidget(self.r1_checkbox_safe_trayectory, 1, 0)
+        r1_mode_layout.addWidget(botones_widget, 2, 0, 1, 2)
 
-        linear_widget = self._create_mapping_matrix(
+        self.r1_linear_widget = self._create_mapping_matrix(
             key="r1_linear",
             title="Movimiento Lineal",
             row_labels=["Joy X", "Joy Y", "Joy Z"],
@@ -445,9 +467,9 @@ class UIMixin:
         self.r1_linear_map_groups = self._mapping_matrices["r1_linear"]["groups"]
         self.r1_linear_map_radios = self._mapping_matrices["r1_linear"]["radios"]
         self.r1_linear_seleccion_actual = self._mapping_matrices["r1_linear"]["selection"]
-        r1_mode_layout.addWidget(linear_widget, 5, 0, 1, 2)
+        r1_adv_mode_layout.addWidget(self.r1_linear_widget, 5, 0, 1, 2)
 
-        rot_widget = self._create_mapping_matrix(
+        self.r1_rot_widget = self._create_mapping_matrix(
             key="r1_rot",
             title="Movimiento Rotacional",
             row_labels=["Joy RX", "Joy RY", "Joy RZ"],
@@ -459,12 +481,12 @@ class UIMixin:
         self.r1_rot_map_groups = self._mapping_matrices["r1_rot"]["groups"]
         self.r1_rot_map_radios = self._mapping_matrices["r1_rot"]["radios"]
         self.r1_rot_seleccion_actual = self._mapping_matrices["r1_rot"]["selection"]
-        r1_mode_layout.addWidget(rot_widget, 6, 0, 1, 2)
+        r1_adv_mode_layout.addWidget(self.r1_rot_widget, 6, 0, 1, 2)
         
         
         
         self.r1_controller_widget.setLayout(r1_mode_layout)
-        
+        self.r1_controller_adv_widget.setLayout(r1_adv_mode_layout)
         
         
         
@@ -479,7 +501,7 @@ class UIMixin:
         r2_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
         r2_mode_layout.addWidget(self.r2_control_mode_input, 0, 1)
 
-        linear_widget = self._create_mapping_matrix(
+        self.r2_linear_widget = self._create_mapping_matrix(
             key="r2_linear",
             title="Movimiento Lineal",
             row_labels=["Joy X", "Joy Y", "Joy Z"],
@@ -491,9 +513,9 @@ class UIMixin:
         self.r2_linear_map_groups = self._mapping_matrices["r2_linear"]["groups"]
         self.r2_linear_map_radios = self._mapping_matrices["r2_linear"]["radios"]
         self.r2_linear_seleccion_actual = self._mapping_matrices["r2_linear"]["selection"]
-        r2_mode_layout.addWidget(linear_widget, 5, 0, 1, 2)
+        r2_mode_layout.addWidget(self.r2_linear_widget, 5, 0, 1, 2)
 
-        rot_widget = self._create_mapping_matrix(
+        self.r2_rot_widget = self._create_mapping_matrix(
             key="r2_rot",
             title="Movimiento Rotacional",
             row_labels=["Joy RX", "Joy RY", "Joy RZ"],
@@ -505,7 +527,7 @@ class UIMixin:
         self.r2_rot_map_groups = self._mapping_matrices["r2_rot"]["groups"]
         self.r2_rot_map_radios = self._mapping_matrices["r2_rot"]["radios"]
         self.r2_rot_seleccion_actual = self._mapping_matrices["r2_rot"]["selection"]
-        r2_mode_layout.addWidget(rot_widget, 6, 0, 1, 2)
+        r2_mode_layout.addWidget(self.r2_rot_widget, 6, 0, 1, 2)
 
         self.r2_controller_widget.setLayout(r2_mode_layout)
         
