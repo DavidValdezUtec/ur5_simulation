@@ -1,4 +1,3 @@
-
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QRadioButton,
                              QVBoxLayout, QGridLayout, QSizePolicy, 
@@ -50,9 +49,75 @@ class UIMixin:
             "rot_y": "0.0",
             "rot_z": "0.0",
         }
-        
         # Configuración Robot 2
-        self.r2_config = {}
+        self.r2_config = {
+            "ur_type": "ur5e",
+            "robot_ip": "192.168.10.103",
+            "description_package": "ur5_description",
+            "tf_prefix": "r2_",
+            "runtime_config_package": "ur5_bringup",
+            "controllers_file": ["ur_controllers_", "r2", ".yaml"],
+            "kinematics_params_file": ["/home/david/my_robot_calibration_", "ur5e", ".yaml"],
+            "use_fake_hardware": "true",  # Empezamos en modo simulación
+            "launch_dashboard_client": "true",
+            "launch_rviz": "false",
+            "reverse_port": "50011",
+            "script_sender_port": "50012",
+            "trajectory_port": "50013",
+            "script_command_port": "50014",
+            "pos_x": "0.0",
+            "pos_y": "-0.9",
+            "pos_z": "0.0",
+            "rot_x": "0.0",
+            "rot_y": "0.0",
+            "rot_z": "0.0",
+        }
+        2
+        self.r1_control_config = {
+            "control_topic": "/scaled_joint_trajectory_controller/joint_trajectory",
+            "ur":"ur5e",
+            "nmspace":"r1",
+            "geomagic":"false",
+            "geomagic_topic":"/phantom1/pose",
+            "csv_log_enable":"true",
+            "traj_mode":"0",
+            "q_target":"[-1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0]",
+            "map_x":"0",
+            "map_y":"1",
+            "map_z":"2",
+            "sign_x":"1.0",
+            "sign_y":"1.0",
+            "sign_z":"1.0",
+            "map_roll":"0",
+            "map_pitch":"0",
+            "map_yaw":"0",
+            "sign_roll":"1.0",
+            "sign_pitch":"1.0",
+            "sign_yaw":"1.0",            
+        }
+        self.r2_control_config = {
+            "control_topic": "/scaled_joint_trajectory_controller/joint_trajectory",
+            "ur":"ur5e",
+            "nmspace":"r2",
+            "geomagic":"false",
+            "geomagic_topic":"/phantom2/pose",
+            "csv_log_enable":"true",
+            "traj_mode":"0",
+            "q_target":"[1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0]",
+            "map_x":"0",
+            "map_y":"1",
+            "map_z":"2",
+            "sign_x":"1.0",
+            "sign_y":"1.0",
+            "sign_z":"1.0",
+            "map_roll":"0",
+            "map_pitch":"0",
+            "map_yaw":"0",
+            "sign_roll":"1.0",
+            "sign_pitch":"1.0",
+            "sign_yaw":"1.0",            
+        }
+        
         
         # Modos de control disponibles
         self.control_mode_r1 = ["Teleoperation", "Trayectoria"]
@@ -249,7 +314,51 @@ class UIMixin:
         r1_adv_buttons_layout.addWidget(self.r1_IP_input)
         
         self.r1_adv_widget.setLayout(r1_adv_buttons_layout)
+        self.setup_config_connections('r1')
            
+    def setup_config_connections(self, robot_id):
+        """Conecta los widgets de configuración de un robot a los métodos de actualización."""
+        config = getattr(self, f"{robot_id}_config")
+        
+        getattr(self, f"{robot_id}_type_input").currentTextChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'ur_type', text)
+        )
+        getattr(self, f"{robot_id}_mode_input").currentTextChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'use_fake_hardware', 'true' if text == 'Simulation' else 'false')
+        )
+        getattr(self, f"{robot_id}_x_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'pos_x', text)
+        )
+        getattr(self, f"{robot_id}_y_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'pos_y', text)
+        )
+        getattr(self, f"{robot_id}_z_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'pos_z', text)
+        )
+        getattr(self, f"{robot_id}_rx_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'rot_x', text)
+        )
+        getattr(self, f"{robot_id}_ry_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'rot_y', text)
+        )
+        getattr(self, f"{robot_id}_rz_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'rot_z', text)
+        )
+        # La IP del robot 2 no está en la pestaña avanzada, necesita un manejo especial o mover el widget
+        if hasattr(self, f"{robot_id}_IP_input"):
+            getattr(self, f"{robot_id}_IP_input").textChanged.connect(
+                lambda text, r_id=robot_id: self.update_config(r_id, 'robot_ip', text)
+            )
+
+    def update_config(self, robot_id, key, value):
+        """Actualiza una clave en el diccionario de configuración del robot especificado."""
+        config = getattr(self, f"{robot_id}_config")
+        if key in config:
+            config[key] = value
+            print(f"{robot_id.upper()} Config updated: {key} = {value}") # Opcional: para depuración
+        else:
+            print(f"Warning: La clave '{key}' no existe en {robot_id}_config.")
+
     def set_r2_menu(self):        
         
         self.r2_layout.addTab(self.r2_widget, "Robot 2")
@@ -305,9 +414,12 @@ class UIMixin:
         
         self.r2_layout.addTab(self.r2_adv_widget, "Robot 2 Advanced")
         r2_adv_buttons_layout = QVBoxLayout()
-        r2_adv_buttons_layout.addWidget(QLabel("Robot 2 Advanced Menu Placeholder"))
-        self.r2_adv_widget.setLayout(r2_adv_buttons_layout)    
-         
+        r2_adv_buttons_layout.addWidget(QLabel("Robot IP"))
+        self.r2_IP_input = QLineEdit(); self.r2_IP_input.setText("192.168.1.2")
+        r2_adv_buttons_layout.addWidget(self.r2_IP_input)
+        self.r2_adv_widget.setLayout(r2_adv_buttons_layout)
+        self.setup_config_connections('r2')
+        
     def set_robot_menu(self):
         self.robots_layout.addWidget(self.r1_layout)
         self.robots_layout.addWidget(self.r2_layout)
@@ -441,6 +553,7 @@ class UIMixin:
         botones_layout = QHBoxLayout()
         botones_widget = QWidget(); botones_widget.setLayout(botones_layout)
         boton_start_controller = QPushButton("Start Controller")
+        boton_start_controller.clicked.connect(lambda: self.start_controller("r1","ur5e"))
         boton_reload_controller = QPushButton(self.icon_reload, "")
         boton_reload_controller.setToolTip("Reload Controller Configuration")
         boton_reload_controller.setFixedSize(30,30)
@@ -531,7 +644,13 @@ class UIMixin:
 
         self.r2_controller_widget.setLayout(r2_mode_layout)
         
+    def setup_control_config_connections(self, robot_id):
+        getattr(self, f"{robot_id}_control_mode_input").currentTextChanged.connect(
+            lambda text, r_id=robot_id: self.update_control_config(r_id, 'control_mode', text)
+        )
         
+    def update_control_config(self, robot_id, key, value):
+        pass
     
     
     def set_controller_menu(self):

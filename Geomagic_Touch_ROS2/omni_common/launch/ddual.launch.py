@@ -9,7 +9,12 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
 
     # --- Nodos (definidos al principio para claridad) ---
-    touch_driver_path = os.path.expanduser('~/Documentos/TouchDriver_2024_09_19/bin/Touch_HeadlessSetup')
+    # La ruta ahora apunta a la copia local dentro del paquete
+    touch_driver_path = os.path.join(
+        get_package_share_directory('omni_common'),'omni_common',
+        'bin', 'Touch_HeadlessSetup'
+    )
+    
     calibrate = ExecuteProcess(
         cmd=[touch_driver_path, 'auto=phantom1,phantom2'],
         shell=False,

@@ -209,7 +209,7 @@ class InterfazRviz(QMainWindow, UIMixin):
         self.main_layout.addWidget(self.rviz_widget, 0, 1)
         self.main_layout.addWidget(self.boton_salir, 1, 0)  # Botón Salir fuera del scroll
 
-        '''# Configurar stretch
+        '''# Configurar stretch1.8
         # Columna 0 (menú): tamaño mínimo
         # Columna 1 (RViz): se expande
         # Video: dock widget flotante/acoplable
@@ -305,7 +305,42 @@ class InterfazRviz(QMainWindow, UIMixin):
 
 
     '''    
-
+    def start_controller(self, robot_number,robot_type):
+        """Inicia el nodo controlador para el robot 1 con los parámetros de la interfaz"""
+        print("[R1 Controller] Iniciando nodo controlador para Robot 1...")
+        
+        # Construir comando con parámetros desde la interfaz
+        command = [
+            'ros2', 'run', 'ur5_controller', 'controller_node',
+            '--ros-args',
+            f'-p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory"',
+            f'-p ur:="{self.r1_type_input.currentText()}"',
+            f'-p nmspace:="r1"',
+            f'-p geomagic:="{"true" if self.haptic1_ready else "false"}"',
+            f'-p geomagic_topic:="{"phantom1" if robot_number == 1 else "phantom2"}/pose"',
+            f'-p geomagic_button_topic:="{"/phantom1/button" if robot_number == 1 else "/phantom2/button"}"',
+            f'-p csv_log_enable:="true"',
+            f'-p traj_mode:={self.r1_controller_layout.currentIndex()}',
+            f'-p q_target:="[{self.r1_joint1_input.text()}, {self.r1_joint2_input.text()}, {self.r1_joint3_input.text()}, {self.r1_joint4_input.text()}, {self.r1_joint5_input.text()}, {self.r1_joint6_input.text()}]"',
+            f'-p map_x:={self.r1_map_x_input.currentIndex()}',
+            f'-p map_y:={self.r1_map_y_input.currentIndex()}',
+            f'-p map_z:={self.r1_map_z_input.currentIndex()}',
+            f'-p sign_x:={self.r1_sign_x_input.value()}',
+            f'-p sign_y:={self.r1_sign_y_input.value()}',
+            f'-p sign_z:={self.r1_sign_z_input.value()}',
+            f'-p map_roll:={self.r1_map_roll_input.currentIndex()}',
+            f'-p map_pitch:={self.r1_map_pitch_input.currentIndex()}',
+            f'-p map_yaw:={self.r1_map_yaw_input.currentIndex()}',
+            f'-p sign_roll:={self.r1_sign_roll_input.value()}',
+            f'-p sign_pitch:={self.r1_sign_pitch_input.value()}',
+            f'-p sign_yaw:={self.r1_sign_yaw_input.value()}'
+        ]
+        
+        try:
+            # Lanzar el proceso del controlador
+            self.r1_controller_process = subprocess.Popen(command)
+        except Exception as e:
+            print(f"[R1 Controller] Error al iniciar el nodo controlador: {e}")
     
     
     def on_r1_controller_tab_changed(self, index):
@@ -494,23 +529,24 @@ class InterfazRviz(QMainWindow, UIMixin):
         # Construir comando con argumentos desde la interfaz
         command = [
             'ros2', 'launch', 'ur5_bringup', 'dual_control.launch.py',
-            f'r1_type:={self.r1_type_input.currentText()}',
-            f'r2_type:={self.r2_type_input.currentText()}',
-            f'use_fake_hardware_r1:={"true" if self.r1_mode_input.currentText().lower() == "simulation" else "false"}',
-            f'use_fake_hardware_r2:={"true" if self.r2_mode_input.currentText().lower() == "simulation" else "false"}',
+            f'r1_type:={self.r1_config["ur_type"]}',
+            f'r2_type:={self.r2_config["ur_type"]}',
+            f'use_fake_hardware_r1:={self.r1_config["use_fake_hardware"]}',
+            f'use_fake_hardware_r2:={self.r2_config["use_fake_hardware"]}',
+            f''
             # Posiciones y orientaciones desde inputs   
-            f'r1_x_pos:={self.r1_x_input.text()}',
-            f'r1_y_pos:={self.r1_y_input.text()}',
-            f'r1_z_pos:={self.r1_z_input.text()}',
-            f'r1_rot_x:={self.r1_rx_input.text()}',
-            f'r1_rot_y:={self.r1_ry_input.text()}',
-            f'r1_rot_z:={self.r1_rz_input.text()}',
-            f'r2_x_pos:={self.r2_x_input.text()}',
-            f'r2_y_pos:={self.r2_y_input.text()}',
-            f'r2_z_pos:={self.r2_z_input.text()}',
-            f'r2_rot_x:={self.r2_rx_input.text()}',
-            f'r2_rot_y:={self.r2_ry_input.text()}',
-            f'r2_rot_z:={self.r2_rz_input.text()}',
+            f'r1_x_pos:={self.r1_config["pos_x"]}',
+            f'r1_y_pos:={self.r1_config["pos_y"]}',
+            f'r1_z_pos:={self.r1_config["pos_z"]}',
+            f'r1_rot_x:={self.r1_config["rot_x"]}',
+            f'r1_rot_y:={self.r1_config["rot_y"]}',
+            f'r1_rot_z:={self.r1_config["rot_z"]}',
+            f'r2_x_pos:={self.r2_config["pos_x"]}',
+            f'r2_y_pos:={self.r2_config["pos_y"]}',
+            f'r2_z_pos:={self.r2_config["pos_z"]}',
+            f'r2_rot_x:={self.r2_config["rot_x"]}',
+            f'r2_rot_y:={self.r2_config["rot_y"]}',
+            f'r2_rot_z:={self.r2_config["rot_z"]}',
             # Agrega más argumentos según necesites
         ]
             

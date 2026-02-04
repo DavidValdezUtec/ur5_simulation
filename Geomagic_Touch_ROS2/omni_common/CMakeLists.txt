@@ -149,6 +149,14 @@ install(
   DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
+install(
+  PROGRAMS
+    include/${PROJECT_NAME}/bin/Touch_HeadlessSetup
+    include/${PROJECT_NAME}/bin/TouchCheckup
+    include/${PROJECT_NAME}/bin/Touch_AdvancedConfig
+  
+  DESTINATION share/${PROJECT_NAME}/omni_common/bin
+)
 
 
 if(BUILD_TESTING)
