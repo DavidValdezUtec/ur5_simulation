@@ -166,6 +166,13 @@ sudo ldconfig
 info "Compilando el workspace de ROS 2..."
 cd ~/tesis_ws
 
+# Nota sobre permisos de Geomagic Touch
+info "Nota sobre permisos de Geomagic Touch"
+echo "Si el Geomagic Touch aparece como /dev/ttyACM0 y tienes errores de permisos,"
+echo "es posible que debas añadir tu usuario al grupo 'dialout' en el sistema anfitrión (host)."
+echo "En entornos con Distrobox, este paso no debe ejecutarse dentro del contenedor."
+echo "Consulta la sección 'Troubleshooting' del README.md. Este cambio requiere reiniciar el host."
+
 # Compilar paquetes en el orden especificado
 colcon build --symlink-install --packages-select omni_msgs ur5_description omni_description ur5_impedance ur5_kinematics ur5_sliding ur5_scaled_sender ur5_bringup
 colcon build --symlink-install --packages-select omni_common griper_control geomagic_interface

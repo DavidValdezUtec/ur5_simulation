@@ -194,11 +194,11 @@ ros2 run ur5_controller controller_backup --ros-args -p control_topic:="/scaled_
 
 ### Permisos de Geomagic Touch en Linux (Error /dev/ttyACM0)
 
-Si tienes problemas para acceder al dispositivo Geomagic Touch y necesitas ejecutar `sudo chmod 777 /dev/ttyACM0` cada vez que lo conectas, es un problema de permisos de usuario.
+Si tienes problemas para acceder al dispositivo Geomagic Touch (por ejemplo, un error de "permiso denegado" al acceder a `/dev/ttyACM0`) y necesitas ejecutar `sudo chmod 777 /dev/ttyACM0` cada vez que lo conectas, es un problema de permisos de usuario. Esto puede ocurrir si las reglas `udev` de los drivers no se aplican correctamente.
 
 En sistemas basados en Debian (como Ubuntu, PikaOS), los dispositivos serie se asignan por defecto al grupo `dialout`. Para dar a tu usuario acceso permanente, debes añadirlo a este grupo.
 
-Ejecuta el siguiente comando en tu sistema anfitrión (el host, no dentro de un contenedor como Distrobox):
+Ejecuta el siguiente comando en tu **sistema anfitrión** (el host, no dentro de un contenedor como Distrobox):
 
 ```bash
 sudo usermod -a -G dialout $USER
