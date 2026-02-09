@@ -69,7 +69,11 @@ def calibrar_dispositivos(num_dispositivos):
     Args:
         num_dispositivos (int): Número de dispositivos conectados
     """
-    setup_path = "/home/david/Documentos/TouchDriver_2024_09_19/bin/Touch_HeadlessSetup"
+    touch_driver_bin = os.environ.get(
+        "TOUCH_DRIVER_BIN_DIR",
+        os.path.expanduser("~/.local/share/geomagic/bin")
+    )
+    setup_path = os.path.join(touch_driver_bin, "Touch_HeadlessSetup")
     
     if not os.path.exists(setup_path):
         print(f"Error: No se encontró el ejecutable de calibración en {setup_path}")

@@ -7,7 +7,11 @@ from launch.actions import ExecuteProcess
 
 
 def generate_launch_description():
-    touch_driver_path = os.path.expanduser('~/Documentos/TouchDriver_2024_09_19/bin/Touch_HeadlessSetup')
+    touch_driver_bin = os.environ.get(
+        "TOUCH_DRIVER_BIN_DIR",
+        os.path.expanduser("~/.local/share/geomagic/bin")
+    )
+    touch_driver_path = os.path.join(touch_driver_bin, "Touch_HeadlessSetup")
     calibrate = ExecuteProcess(
         cmd=[touch_driver_path, 'auto=phantom1'],
         shell=False,

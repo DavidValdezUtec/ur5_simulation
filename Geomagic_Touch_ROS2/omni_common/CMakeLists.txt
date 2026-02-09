@@ -105,14 +105,25 @@ install(
   DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
-install(
-  PROGRAMS
-    include/${PROJECT_NAME}/bin/Touch_HeadlessSetup
-    include/${PROJECT_NAME}/bin/TouchCheckup
-    include/${PROJECT_NAME}/bin/Touch_AdvancedConfig
-  
-  DESTINATION share/${PROJECT_NAME}/omni_common/bin
+set(TOUCH_TOOLS
+  include/${PROJECT_NAME}/bin/Touch_HeadlessSetup
+  include/${PROJECT_NAME}/bin/TouchCheckup
+  include/${PROJECT_NAME}/bin/Touch_AdvancedConfig
 )
+set(TOUCH_TOOLS_EXISTING "")
+foreach(TOUCH_TOOL IN LISTS TOUCH_TOOLS)
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${TOUCH_TOOL}")
+    list(APPEND TOUCH_TOOLS_EXISTING "${TOUCH_TOOL}")
+  endif()
+endforeach()
+
+if(TOUCH_TOOLS_EXISTING)
+  install(
+    PROGRAMS
+      ${TOUCH_TOOLS_EXISTING}
+    DESTINATION share/${PROJECT_NAME}/omni_common/bin
+  )
+endif()
 
 
 if(BUILD_TESTING)

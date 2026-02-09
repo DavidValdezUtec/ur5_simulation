@@ -78,8 +78,41 @@ cd "$TEMP_DRIVER_DIR"
 # Descargar e instalar los drivers de Open Haptic
 curl -L -o TouchDriver_2024_09_19.tgz https://s3.us-east-1.amazonaws.com/dl.3dsystems.com/binaries/Sensable/Linux/TouchDriver_2024_09_19.tgz
 tar -xzvf TouchDriver_2024_09_19.tgz
-cd Touch_Driver_2024_09_19
+cd TouchDriver_2024_09_19
+set +e
 sudo bash install_haptic_driver
+INSTALL_HAPTIC_STATUS=$?
+set -e
+
+# En Distrobox, udevadm puede fallar aunque los archivos se copien correctamente.
+LIB_PHANTOM_IO=/usr/lib/libPhantomIOLib42.so
+LIB_PHANTOM_MANAGER=/usr/lib/libPhantomManagerLite.so
+UDEV_RULES_DIR=/etc/udev/rules.d
+DRIVER_RULES_DIR="$TEMP_DRIVER_DIR/TouchDriver_2024_09_19/rules.d"
+RULES_REQUIRED=0
+RULES_INSTALLED=0
+
+if [[ -d "$DRIVER_RULES_DIR" ]]; then
+    for rule_path in "$DRIVER_RULES_DIR"/*.rules; do
+        [[ -e "$rule_path" ]] || continue
+        RULES_REQUIRED=$((RULES_REQUIRED + 1))
+        rule_name=$(basename "$rule_path")
+        if [[ -f "$UDEV_RULES_DIR/$rule_name" ]]; then
+            RULES_INSTALLED=$((RULES_INSTALLED + 1))
+        fi
+    done
+fi
+
+if [[ -f "$LIB_PHANTOM_IO" && -f "$LIB_PHANTOM_MANAGER" ]] && [[ $RULES_REQUIRED -eq 0 || $RULES_INSTALLED -eq $RULES_REQUIRED ]]; then
+    info "Drivers detectados en el sistema. Continuando la instalación."
+else
+    if [[ $INSTALL_HAPTIC_STATUS -ne 0 ]]; then
+        echo "ERROR: El instalador de Geomagic Touch falló y no se encontraron los archivos esperados."
+        exit 1
+    fi
+    echo "ERROR: No se encontraron los archivos esperados tras instalar los drivers."
+    exit 1
+fi
 cd ..
 
 # Descargar e instalar OpenHaptics Developer Edition
@@ -92,10 +125,18 @@ read -p "Presiona Enter para iniciar la instalación de OpenHaptics..."
 sudo ./install
 cd ..
 
-# Copiar los binarios de calibración a omni_common
-info "Copiando binarios de calibración a omni_common/include..."
-mkdir -p ~/tesis_ws/src/ur5_simulation/Geomagic_Touch_ROS2/omni_common/include/bin
-cp -r "$TEMP_DRIVER_DIR"/Touch_Driver_2024_09_19/bin/* ~/tesis_ws/src/ur5_simulation/Geomagic_Touch_ROS2/omni_common/include/bin/
+# Copiar los binarios de calibración a una ruta local del usuario
+info "Copiando binarios de calibración a ~/.local/share/geomagic/bin..."
+LOCAL_TOUCH_BIN_DIR="$HOME/.local/share/geomagic/bin"
+DRIVER_BIN_DIR="$TEMP_DRIVER_DIR/TouchDriver_2024_09_19/bin"
+mkdir -p "$LOCAL_TOUCH_BIN_DIR"
+
+if compgen -G "$DRIVER_BIN_DIR/*" > /dev/null; then
+    install -m 0755 "$DRIVER_BIN_DIR"/* "$LOCAL_TOUCH_BIN_DIR/"
+else
+    echo "ERROR: No se encontraron binarios en $DRIVER_BIN_DIR"
+    exit 1
+fi
 
 
 # Limpiar los archivos descargados
