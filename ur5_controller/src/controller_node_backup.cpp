@@ -8,8 +8,7 @@
 
 // Mensajes
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <trajectory_msgs/msg/joint_trajectory.hpp>
-#include <trajectory_msgs/msg/joint_trajectory_point.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <omni_msgs/msg/omni_button_event.hpp>
 #include <omni_msgs/msg/omni_state.hpp>
@@ -27,6 +26,7 @@
 #include <fstream>
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <cmath>
@@ -110,9 +110,9 @@ public:
 
 Eigen::Vector3d trayectoria_geomagic(Eigen::Vector3d x_init, Eigen::Vector3d r_init,Eigen::Vector3d r_actual, double escala){
     Eigen::Vector3d x_des = Eigen::Vector3d::Zero();
-    x_des[0] = (r_actual[1]-r_init[1])*escala + x_init[0];
-    x_des[1] = (x_init[1]- (r_actual[0]-r_init[0])*escala);
-    x_des[2] = (r_actual[2]-r_init[2])*escala + x_init[2];
+    x_des[0] = x_init[0] + (r_actual[1]-r_init[1])*escala;
+    x_des[1] = x_init[1] - (r_actual[0]-r_init[0])*escala;
+    x_des[2] = x_init[2] + (r_actual[2]-r_init[2])*escala;
     return x_des;
 };
 
@@ -154,12 +154,11 @@ std::string get_file_path(const std::string& package_name, const std::string& re
 class UR5IKNode : public rclcpp::Node
 {
 public:
-    UR5IKNode() : Node("ur5_ik_node", rclcpp::NodeOptions()
-                                                                    .allow_undeclared_parameters(true)
-                                                                    .automatically_declare_parameters_from_overrides(true))
-    {
+  UR5IKNode() : Node("ur5_ik_node")
+  {
     // 1. Declarar parámetros
     this->declare_parameter<std::string>("control_topic", config_.control_topic);
+    this->declare_parameter<bool>("geomagic", config_.use_geomagic);
     this->declare_parameter<std::string>("ur", config_.ur_model);
     this->declare_parameter<std::string>("nmspace", config_.nmspace);
     this->declare_parameter<std::string>("urdf_path", "");
@@ -179,6 +178,7 @@ public:
     this->declare_parameter<double>("traj_c0", config_.traj_c0);
     this->declare_parameter<int>("traj_mode", config_.traj_mode);
     this->declare_parameter<std::string>("controller_type", config_.controller);
+    ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 125.0); // 125Hz para estabilidad
     map_pos_ = {static_cast<int>(this->declare_parameter<int>("map_x", 2)),
                 static_cast<int>(this->declare_parameter<int>("map_y", 0)),
                 static_cast<int>(this->declare_parameter<int>("map_z", 1))};
@@ -195,6 +195,7 @@ public:
 
     // 2. Obtener parámetros y guardarlos en la struct de configuración
     this->get_parameter("control_topic", config_.control_topic);
+    this->get_parameter("geomagic", config_.use_geomagic);
     this->get_parameter("ur", config_.ur_model);
     this->get_parameter("nmspace", config_.nmspace);
     this->get_parameter("use_ur5_pos_init", config_.use_ur5_pos_init);
@@ -223,30 +224,6 @@ public:
     std::string urdf_param;
     std::string geomagic_topic;
     std::string geomagic_button_topic;
-    // Leer 'geomagic' como bool o string de manera robusta
-    bool geomagic_flag = false;
-    {
-        auto plist = this->get_node_parameters_interface()->get_parameters(std::vector<std::string>{"geomagic"});
-        if (!plist.empty()) {
-            const auto &p = plist.front();
-            switch (p.get_type()) {
-                case rclcpp::ParameterType::PARAMETER_BOOL:
-                    geomagic_flag = p.as_bool();
-                    break;
-                case rclcpp::ParameterType::PARAMETER_STRING: {
-                    auto s = p.as_string();
-                    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
-                    geomagic_flag = (s == std::string("true") || s == std::string("1") || s == std::string("yes") || s == std::string("on"));
-                    break;
-                }
-                default:
-                    RCLCPP_WARN(this->get_logger(), "Parametro 'geomagic' con tipo no soportado, usando false.");
-                    geomagic_flag = false;
-                    break;
-            }
-        }
-    }
-    config_.use_geomagic = geomagic_flag;
 
     this->get_parameter("geomagic_button_topic", geomagic_button_topic);
     this->get_parameter("geomagic_topic", geomagic_topic);
@@ -268,7 +245,7 @@ public:
     RCLCPP_INFO(this->get_logger(), "Publicando en el tópico de control: '%s'", c_topic.c_str());
     RCLCPP_INFO(this->get_logger(), "Usando modelo UR: '%s'", config_.ur_model.c_str());
     RCLCPP_INFO(this->get_logger(), "Usando URDF en: '%s'", config_.urdf_path.c_str());
-    joint_trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(c_topic, 10);
+    joint_position_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(c_topic, 10);
     joint_states_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(joint_states_topic, 10, std::bind(&UR5IKNode::update_joint_positions, this, std::placeholders::_1));
     RCLCPP_INFO(this->get_logger(), "Suscrito a joint_states: '%s'", joint_states_topic.c_str());
     // Suscripción de respaldo al tópico global en caso de que el driver no use namespace
@@ -308,12 +285,183 @@ public:
         init_csv_logger();
     }
 
-    timer_ = this->create_wall_timer(std::chrono::milliseconds(1), std::bind(&UR5IKNode::control_loop, this));
+    // Callback para parámetros dinámicos (aplica cambios en caliente)
+    params_cb_handle_ = this->add_on_set_parameters_callback(
+        std::bind(&UR5IKNode::on_parameters_set, this, std::placeholders::_1));
+
+    timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(1000.0 / ctrl_hz_)), std::bind(&UR5IKNode::control_loop, this));
   }
 
 private:
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr params_cb_handle_;
+    std::mutex dynamic_params_mutex_;
+
+    rcl_interfaces::msg::SetParametersResult on_parameters_set(const std::vector<rclcpp::Parameter>& params) {
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = true;
+        result.reason = "";
+
+        // Copias locales para aplicar todo de forma consistente
+        Eigen::Vector3i new_map_pos = map_pos_;
+        Eigen::Vector3d new_sign_pos = sign_pos_;
+        Eigen::Vector3i new_map_rot = map_rot_;
+        Eigen::Vector3d new_sign_rot = sign_rot_;
+
+        Eigen::Vector3d new_traj_A = config_.traj_A;
+        double new_traj_wn = config_.traj_wn;
+        double new_traj_c0 = config_.traj_c0;
+        int new_traj_mode = config_.traj_mode;
+        std::string new_controller = config_.controller;
+
+        auto reject = [&](const std::string& why) {
+            result.successful = false;
+            result.reason = why;
+        };
+
+        auto validate_map_idx = [&](int v, const std::string& name) {
+            if (v < 0 || v > 2) {
+                reject(name + " debe estar en [0,2]");
+                return false;
+            }
+            return true;
+        };
+        auto validate_sign = [&](double v, const std::string& name) {
+            if (!(v == 1.0 || v == -1.0)) {
+                reject(name + " debe ser 1.0 o -1.0");
+                return false;
+            }
+            return true;
+        };
+
+        for (const auto& p : params) {
+            const auto& name = p.get_name();
+
+            // --- Mapeo de posición ---
+            if (name == "map_x") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_x debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_pos.x() = v;
+            } else if (name == "map_y") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_y debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_pos.y() = v;
+            } else if (name == "map_z") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_z debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_pos.z() = v;
+            } else if (name == "sign_x") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_x debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_pos.x() = v;
+            } else if (name == "sign_y") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_y debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_pos.y() = v;
+            } else if (name == "sign_z") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_z debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_pos.z() = v;
+
+            // --- Mapeo de rotación ---
+            } else if (name == "map_roll") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_roll debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_rot.x() = v;
+            } else if (name == "map_pitch") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_pitch debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_rot.y() = v;
+            } else if (name == "map_yaw") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_yaw debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                if (!validate_map_idx(v, name)) break;
+                new_map_rot.z() = v;
+            } else if (name == "sign_roll") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_roll debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_rot.x() = v;
+            } else if (name == "sign_pitch") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_pitch debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_rot.y() = v;
+            } else if (name == "sign_yaw") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_yaw debe ser double"); break; }
+                double v = p.as_double();
+                if (!validate_sign(v, name)) break;
+                new_sign_rot.z() = v;
+
+            // --- Trayectoria automática ---
+            } else if (name == "traj_A") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE_ARRAY) { reject("traj_A debe ser double[]"); break; }
+                auto v = p.as_double_array();
+                if (v.size() != 3) { reject("traj_A debe tener tamaño 3"); break; }
+                new_traj_A = Eigen::Vector3d(v[0], v[1], v[2]);
+            } else if (name == "traj_wn") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("traj_wn debe ser double"); break; }
+                new_traj_wn = p.as_double();
+            } else if (name == "traj_c0") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("traj_c0 debe ser double"); break; }
+                new_traj_c0 = p.as_double();
+            } else if (name == "traj_mode") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("traj_mode debe ser int"); break; }
+                int v = static_cast<int>(p.as_int());
+                // En este archivo sólo existen modos 1 y 2 (el 3 está comentado/eliminado)
+                if (v != 1 && v != 2) { reject("traj_mode debe ser 1 o 2"); break; }
+                new_traj_mode = v;
+
+            // --- Controlador ---
+            } else if (name == "controller_type") {
+                if (p.get_type() != rclcpp::ParameterType::PARAMETER_STRING) { reject("controller_type debe ser string"); break; }
+                auto v = p.as_string();
+                if (!(v == "QP" || v == "IMP" || v == "SLD")) {
+                    reject("controller_type debe ser 'QP', 'IMP' o 'SLD'");
+                    break;
+                }
+                new_controller = v;
+            }
+        }
+
+        if (!result.successful) {
+            return result;
+        }
+
+        {
+            std::scoped_lock<std::mutex> lock(dynamic_params_mutex_);
+            map_pos_ = new_map_pos;
+            sign_pos_ = new_sign_pos;
+            map_rot_ = new_map_rot;
+            sign_rot_ = new_sign_rot;
+            config_.traj_A = new_traj_A;
+            config_.traj_wn = new_traj_wn;
+            config_.traj_c0 = new_traj_c0;
+            config_.traj_mode = new_traj_mode;
+            config_.controller = new_controller;
+        }
+
+        RCLCPP_INFO(this->get_logger(),
+                    "Parametros actualizados: map_pos=[%d,%d,%d] sign_pos=[%.0f,%.0f,%.0f] map_rot=[%d,%d,%d] sign_rot=[%.0f,%.0f,%.0f] traj_mode=%d controller=%s",
+                    map_pos_.x(), map_pos_.y(), map_pos_.z(),
+                    sign_pos_.x(), sign_pos_.y(), sign_pos_.z(),
+                    map_rot_.x(), map_rot_.y(), map_rot_.z(),
+                    sign_rot_.x(), sign_rot_.y(), sign_rot_.z(),
+                    config_.traj_mode,
+                    config_.controller.c_str());
+
+        return result;
+    }
+
     // Suscriptores y publicadores
-    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr joint_position_pub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_global_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr geomagic_pose_sub_;
@@ -358,6 +506,8 @@ private:
 
     Eigen::Vector3d sign_pos_, sign_rot_;
     Eigen::Vector3i map_pos_, map_rot_;
+    double ctrl_hz_;
+
 
     // ---- Movimiento inicial tipo ur5_pos ----
     // (Variables trasladadas a config_)
@@ -493,23 +643,17 @@ private:
         csv_file_ << std::endl;
     }
 
-    // Publica una sola vez una trayectoria a q_target_ similar al nodo ur5_pos
+    // Publica el objetivo articular a forward_position_controller
     void publish_initial_joint_position() {
         if (config_.q_target.size() != 6) {
             RCLCPP_ERROR(this->get_logger(), "q_target debe tener 6 elementos, tiene %zu", config_.q_target.size());
             return;
         }
-        std::string prefix = config_.nmspace.empty() ? std::string("") : (config_.nmspace + std::string("_"));
-        trajectory_msgs::msg::JointTrajectory traj;
-        traj.joint_names = {prefix + "shoulder_pan_joint", prefix + "shoulder_lift_joint", prefix + "elbow_joint",
-                            prefix + "wrist_1_joint", prefix + "wrist_2_joint", prefix + "wrist_3_joint"};
-        trajectory_msgs::msg::JointTrajectoryPoint pt;
-        pt.positions = config_.q_target;
-        pt.time_from_start = rclcpp::Duration::from_seconds(config_.q_target_time);
-        RCLCPP_INFO(this->get_logger(), "Target: %f, %f, %f, %f, %f, %f", config_.q_target[0], config_.q_target[1], config_.q_target[2], config_.q_target[3], config_.q_target[4], config_.q_target[5]);
-        traj.points.push_back(pt);
-        joint_trajectory_pub_->publish(traj);
-        RCLCPP_INFO(this->get_logger(), "Movimiento inicial publicado (ur5_pos-like) en %0.2fs", config_.q_target_time);
+        auto msg = std_msgs::msg::Float64MultiArray();
+        msg.data = config_.q_target;
+        RCLCPP_INFO(this->get_logger(), "Publicando objetivo articular: %f, %f, %f, %f, %f, %f", 
+                    config_.q_target[0], config_.q_target[1], config_.q_target[2], config_.q_target[3], config_.q_target[4], config_.q_target[5]);
+        joint_position_pub_->publish(msg);
     }
 
     // Tick periódico: publica mientras no detecte movimiento respecto a baseline
@@ -557,8 +701,11 @@ private:
                 pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
                 pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
                 const auto& frame_now = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
+
                 cartesian_state_.position_initial = frame_now.translation();
+                cartesian_state_.rotation_matrix_initial = frame_now.rotation();
                 cartesian_state_.orientation_initial = Eigen::Quaterniond(frame_now.rotation());
+                
                 RCLCPP_INFO(this->get_logger(), "x_init y R_init reconfigurados a la pose actual antes de iniciar trayectoria.");
                 trajectory_start_time_ = this->now();
                 trajectory_active_ = true;
@@ -698,7 +845,9 @@ private:
         pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
         pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
         const auto& frame_placement_now = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
+
         cartesian_state_.position = frame_placement_now.translation();
+        cartesian_state_.rotation_matrix = frame_placement_now.rotation();
         cartesian_state_.orientation = Eigen::Quaterniond(frame_placement_now.rotation());
 
         // Si estamos en modo ur5_pos y aún no hay baseline, capturarla cuando llegan los primeros joints
@@ -713,16 +862,11 @@ private:
             RCLCPP_INFO(this->get_logger(), "Capturando la pose inicial actual del robot...");
             
             robot_state_.q_init = robot_state_.q;
-            
-            pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q_init);
-            pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
-
-            const auto& frame_placement = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
-            cartesian_state_.position_initial = frame_placement.translation();
-            cartesian_state_.orientation_initial = Eigen::Quaterniond(frame_placement.rotation());
-            // Inicializar medición actual también
-            cartesian_state_.position = cartesian_state_.position_initial;
-            cartesian_state_.orientation = cartesian_state_.orientation_initial;
+            // Ya tenemos medición cartesiana actual en cartesian_state_ (actualizada más arriba
+            // mediante forwardKinematics con q), por lo que podemos reutilizarla para inicial.
+            cartesian_state_.position_initial = cartesian_state_.position;
+            cartesian_state_.rotation_matrix_initial = cartesian_state_.rotation_matrix;
+            cartesian_state_.orientation_initial = cartesian_state_.orientation;
 
             pose_inicial_capturada_ = true;
             posicion_inicial_alcanzada_ = true;
@@ -770,8 +914,6 @@ private:
         haptic_state_.velocity_last = haptic_state_.velocity;
         
 
-
-
     }
 
     void button_callback(const omni_msgs::msg::OmniButtonEvent::SharedPtr msg){
@@ -795,6 +937,20 @@ private:
     
     void control_loop() {
         auto loop_t0 = std::chrono::steady_clock::now();
+
+        // Copiar parámetros dinámicos a locales (para aplicar cambios en caliente)
+        Eigen::Vector3i map_pos_local;
+        Eigen::Vector3d sign_pos_local;
+        Eigen::Vector3i map_rot_local;
+        Eigen::Vector3d sign_rot_local;
+        {
+            std::scoped_lock<std::mutex> lock(dynamic_params_mutex_);
+            map_pos_local = map_pos_;
+            sign_pos_local = sign_pos_;
+            map_rot_local = map_rot_;
+            sign_rot_local = sign_rot_;
+        }
+
         if (!pose_inicial_capturada_ || !posicion_inicial_alcanzada_) {
             return;
         }
@@ -804,25 +960,41 @@ private:
         }
         // Rama geomagic: seguir referencia del háptico
         if (config_.use_geomagic) {
+            cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial;
 
-            Eigen::Quaterniond dif_orientacion_haptic = haptic_state_.orientation * haptic_state_.orientation_initial.inverse();
+            Eigen::Quaterniond dif_orientacion_haptic = haptic_state_.orientation_initial.inverse() * haptic_state_.orientation;
             Eigen::AngleAxisd angle_axis(dif_orientacion_haptic);
+            Eigen::Vector3d axis_raw =  angle_axis.axis() * angle_axis.angle();
             double escala = 0.5; // factor de orientación
-            dif_orientacion_haptic = Eigen::Quaterniond(Eigen::AngleAxisd(escala * angle_axis.angle(), angle_axis.axis()));
+            Eigen::Vector3d axis_map;
+            for(int i=0; i<3; i++) axis_map(i) = axis_raw(map_rot_local(i)) * sign_rot_local(i) * escala;
+            if (axis_map.norm() > 1e-6){
+                Eigen::Matrix3d R_delta = Eigen::AngleAxisd(axis_map.norm(), axis_map.normalized()).toRotationMatrix();
+                cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial * R_delta;
+            }
+            
+            // dif_orientacion_haptic = Eigen::Quaterniond(Eigen::AngleAxisd(escala * angle_axis.angle(), angle_axis.axis()));
+            // cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
 
-            cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
             RCLCPP_INFO(this->get_logger(), "Dif orientación háptico (eje): [%.3f, %.3f, %.3f]",
                         dif_orientacion_haptic.vec().x(), dif_orientacion_haptic.vec().y(), dif_orientacion_haptic.vec().z());
-            cartesian_state_.position_desired = trayectoria_geomagic(
-                cartesian_state_.position_initial, haptic_state_.position_initial, haptic_state_.position, 2.5);
+            
+            for(int i=0; i<3; i++){
+                cartesian_state_.position_desired(i) = cartesian_state_.position_initial(i) +
+                    (haptic_state_.position(map_pos_local(i)) - haptic_state_.position_initial(map_pos_local(i))) * sign_pos_local(i)*2.5;     
+            }
+            
+
+            
+            // cartesian_state_.position_desired = trayectoria_geomagic(
+            // cartesian_state_.position_initial, haptic_state_.position_initial, haptic_state_.position, 2.5);
+
             cartesian_state_.velocity = haptic_state_.velocity * 2.5; // escala de velocidad
             cartesian_state_.angular_velocity = haptic_state_.angular_velocity; // escala de velocidad
             cartesian_state_.acceleration = haptic_state_.acceleration * 2.5; // escala de aceleración
                 
             
         } else {
-
-            
 
             // Rama automática: generar trayectoria paramétrica
             if (!trajectory_active_) {
@@ -843,11 +1015,12 @@ private:
             cartesian_state_.velocity = st.velocity;
             cartesian_state_.angular_velocity = Eigen::Vector4d::Zero(); // sin rot
             cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
+            cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial;
             cartesian_state_.acceleration = st.acceleration;
             cartesian_state_.angular_acceleration = Eigen::Vector3d::Zero();
 
             //x_des << -0.03, 0.7, 0.1;
-            // Mantener orientación constante
+            // Mantener orientación constanteluego agregalo al cmakelist
             cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
             std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
             std::cout<<"vel_des: "<<cartesian_state_.velocity.transpose()<<std::endl;
@@ -862,6 +1035,7 @@ private:
         std::cout << cartesian_state_.position.transpose() << std::endl;
         Eigen::Matrix3d R_meas = frame_meas.rotation();
         cartesian_state_.orientation = Eigen::Quaterniond(R_meas);
+
         Eigen::Matrix3d R_des = cartesian_state_.orientation_desired.toRotationMatrix();
         Eigen::Matrix3d R_err = R_meas.transpose() * R_des;
         double e_R_angle = Eigen::AngleAxisd(R_err).angle();
@@ -877,12 +1051,12 @@ private:
 
         if (config_.controller == "QP") {
 
-            robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP(
+            robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP2(
                 robot_state_.q,
                 cartesian_state_.position_desired,
-                cartesian_state_.orientation_desired,
+                cartesian_state_.rotation_matrix_desired,
                 600,
-                0.1
+                ctrl_hz_
             );}
         else if (config_.controller == "IMP") {
             Kp << 1850,1850,1850,500,500,500,500;
@@ -908,7 +1082,7 @@ private:
                 cartesian_state_.position_desired,
                 cartesian_state_.orientation_desired,
                 600,
-                0.1
+                ctrl_hz_
             );}
         last_ik_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::steady_clock::now() - ik_t0)
@@ -941,18 +1115,10 @@ private:
             robot_state_.q_solution[0], robot_state_.q_solution[1], robot_state_.q_solution[2], robot_state_.q_solution[3], robot_state_.q_solution[4], robot_state_.q_solution[5]);    
         // --------------------------------------------------------------------------------
         
-        std::string prefix = config_.nmspace.empty() ? "" : (config_.nmspace + "_");
-
-        auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
-        trajectory_msg.joint_names = {prefix + "shoulder_pan_joint", prefix + "shoulder_lift_joint", prefix + "elbow_joint",
-                                        prefix + "wrist_1_joint", prefix + "wrist_2_joint", prefix + "wrist_3_joint"};
-        auto point = trajectory_msgs::msg::JointTrajectoryPoint();
-        
-        point.positions.assign(robot_state_.q_solution.data(), robot_state_.q_solution.data() + robot_state_.q_solution.size());
-
-        point.time_from_start = rclcpp::Duration::from_seconds(config_.control_loop_time);
-        trajectory_msg.points.push_back(point);
-        joint_trajectory_pub_->publish(trajectory_msg);
+        // Publicar setpoint de posición directumente
+        auto position_msg = std_msgs::msg::Float64MultiArray();
+        position_msg.data.assign(robot_state_.q_solution.data(), robot_state_.q_solution.data() + robot_state_.q_solution.size());
+        joint_position_pub_->publish(position_msg);
 
         // Tiempo total del ciclo (hasta después de publicar)
         last_loop_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(

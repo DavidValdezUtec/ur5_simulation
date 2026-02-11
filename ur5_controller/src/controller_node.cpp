@@ -1063,7 +1063,7 @@ private:
                 cartesian_state_.position_desired,
                 cartesian_state_.rotation_matrix_desired,
                 600,
-                0.1
+                ctrl_hz_
             );}
         else if (config_.controller == "IMP") {
             Kp << 1850,1850,1850,500,500,500,500;
@@ -1089,7 +1089,7 @@ private:
                 cartesian_state_.position_desired,
                 cartesian_state_.orientation_desired,
                 600,
-                0.1
+                ctrl_hz_
             );}
         last_ik_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::steady_clock::now() - ik_t0)
