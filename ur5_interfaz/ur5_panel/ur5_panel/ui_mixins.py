@@ -311,7 +311,9 @@ class UIMixin:
         r1_adv_buttons_layout = QVBoxLayout()
         r1_adv_buttons_layout.addWidget(QLabel("Robot IP"))
         self.r1_IP_input = QLineEdit(); self.r1_IP_input.setText("192.168.1.1")
+        self.r1_TCP_input = QLineEdit(); self.r1_TCP_input.setText("50002")
         r1_adv_buttons_layout.addWidget(self.r1_IP_input)
+        r1_adv_buttons_layout.addWidget(self.r1_TCP_input)
         
         self.r1_adv_widget.setLayout(r1_adv_buttons_layout)
         self.setup_config_connections('r1')
@@ -345,10 +347,12 @@ class UIMixin:
             lambda text, r_id=robot_id: self.update_config(r_id, 'rot_z', text)
         )
         # La IP del robot 2 no está en la pestaña avanzada, necesita un manejo especial o mover el widget
-        if hasattr(self, f"{robot_id}_IP_input"):
-            getattr(self, f"{robot_id}_IP_input").textChanged.connect(
-                lambda text, r_id=robot_id: self.update_config(r_id, 'robot_ip', text)
-            )
+        getattr(self, f"{robot_id}_IP_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'robot_ip', text)
+        )
+        getattr(self, f"{robot_id}_TCP_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'script_sender_port', text)
+        )
 
     def update_config(self, robot_id, key, value):
         """Actualiza una clave en el diccionario de configuración del robot especificado."""
@@ -416,7 +420,9 @@ class UIMixin:
         r2_adv_buttons_layout = QVBoxLayout()
         r2_adv_buttons_layout.addWidget(QLabel("Robot IP"))
         self.r2_IP_input = QLineEdit(); self.r2_IP_input.setText("192.168.1.2")
+        self.r2_TCP_input = QLineEdit(); self.r2_TCP_input.setText("50012")
         r2_adv_buttons_layout.addWidget(self.r2_IP_input)
+        r2_adv_buttons_layout.addWidget(self.r2_TCP_input)
         self.r2_adv_widget.setLayout(r2_adv_buttons_layout)
         self.setup_config_connections('r2')
         

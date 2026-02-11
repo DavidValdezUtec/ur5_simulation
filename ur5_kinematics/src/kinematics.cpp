@@ -191,7 +191,8 @@ Eigen::VectorXd UR5Kinematics::inverseKinematicsQP(
         if (nrm > dq_max_norm) {
             dq *= (dq_max_norm / nrm);
         }
-        q.noalias() += alpha_eff * dq;
+        
+        q.noalias() += dq;//alpha_eff * dq;
         for (int j = 0; j < q.size(); ++j) {
             if (q[j] > joint_limit) q[j] = joint_limit;
             else if (q[j] < -joint_limit) q[j] = -joint_limit;
@@ -214,8 +215,9 @@ Eigen::VectorXd UR5Kinematics::inverseKinematicsQP2(
     Eigen::VectorXd q = q_initial;
     const double joint_limit = PI;
     const double dq_max_norm = 0.5; // límite de paso por iteración
+    Eigen::VectorXd dq_externo = Eigen::VectorXd::Zero(q.size());
     pinocchio::SE3 desired_pose(desired_orient, desired_pos);
-    const int iter_cap = std::min(max_iterations, 15);
+    const int iter_cap = std::min(max_iterations, 150);
     const double alpha_eff = std::max(0.1, std::min(alpha, 1.0));
 
     for (int i = 0; i < iter_cap; ++i) {
@@ -224,6 +226,8 @@ Eigen::VectorXd UR5Kinematics::inverseKinematicsQP2(
 
         const Eigen::Matrix<double, 6, 1> error = computePoseError2(desired_pose);
         if (error.norm() < 1e-4) {
+            std::cout << "dq: " << dq_externo.transpose() << " norm: " << dq_externo.norm() << std::endl;
+            std::cout << "Convergencia alcanzada en " << i << " iteraciones." << std::endl;
             return q;
         }
 
@@ -236,15 +240,25 @@ Eigen::VectorXd UR5Kinematics::inverseKinematicsQP2(
 
         Eigen::VectorXd dq = solveQPIK(J, error, W_p, W_o);
         const double nrm = dq.norm();
+        dq_externo = dq; // Para logging o análisis externo
+        //std::cout << "dq_nom" << dq.transpose() << " norm: " << nrm << std::endl;
         if (nrm > dq_max_norm) {
             dq *= (dq_max_norm / nrm);
         }
-        q.noalias() += alpha_eff * dq;
+        double dt = 1.0/alpha_eff;
+        double max_step = 2.5*dt;
+        double max_dq = dq.cwiseAbs().maxCoeff();
+            if (max_dq > max_step) {
+                dq *= (max_step / max_dq);
+            }
+        
+        q.noalias() += dq;//alpha_eff * dq;
         for (int j = 0; j < q.size(); ++j) {
             if (q[j] > joint_limit) q[j] = joint_limit;
             else if (q[j] < -joint_limit) q[j] = -joint_limit;
         }
     }
+    std::cout << "dq_limite: " << dq_externo.transpose() << " norm: " << dq_externo.norm() << std::endl;
     return q;
 }
 

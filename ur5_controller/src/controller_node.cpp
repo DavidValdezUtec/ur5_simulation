@@ -179,6 +179,7 @@ public:
     this->declare_parameter<double>("traj_c0", config_.traj_c0);
     this->declare_parameter<int>("traj_mode", config_.traj_mode);
     this->declare_parameter<std::string>("controller_type", config_.controller);
+    ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 125.0); // 125Hz para estabilidad
     map_pos_ = {static_cast<int>(this->declare_parameter<int>("map_x", 2)),
                 static_cast<int>(this->declare_parameter<int>("map_y", 0)),
                 static_cast<int>(this->declare_parameter<int>("map_z", 1))};
@@ -289,7 +290,7 @@ public:
     params_cb_handle_ = this->add_on_set_parameters_callback(
         std::bind(&UR5IKNode::on_parameters_set, this, std::placeholders::_1));
 
-    timer_ = this->create_wall_timer(std::chrono::milliseconds(1), std::bind(&UR5IKNode::control_loop, this));
+    timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(1000.0 / ctrl_hz_)), std::bind(&UR5IKNode::control_loop, this));
   }
 
 private:
@@ -506,6 +507,8 @@ private:
 
     Eigen::Vector3d sign_pos_, sign_rot_;
     Eigen::Vector3i map_pos_, map_rot_;
+    double ctrl_hz_;
+
 
     // ---- Movimiento inicial tipo ur5_pos ----
     // (Variables trasladadas a config_)
@@ -1128,7 +1131,8 @@ private:
         
         point.positions.assign(robot_state_.q_solution.data(), robot_state_.q_solution.data() + robot_state_.q_solution.size());
 
-        point.time_from_start = rclcpp::Duration::from_seconds(config_.control_loop_time);
+        //point.time_from_start = rclcpp::Duration::from_seconds(config_.control_loop_time);
+        point.time_from_start = rclcpp::Duration::from_seconds(0.1);
         trajectory_msg.points.push_back(point);
         joint_trajectory_pub_->publish(trajectory_msg);
 
