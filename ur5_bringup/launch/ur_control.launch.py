@@ -520,7 +520,8 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "initial_joint_controller",
-            default_value="scaled_joint_trajectory_controller",
+            default_value="forward_position_controller",
+            #default_value="scaled_joint_trajectory_controller",
             choices=[
                 "scaled_joint_trajectory_controller",
                 "joint_trajectory_controller",
@@ -685,3 +686,22 @@ def generate_launch_description():
     )
 
     return LaunchDescription(declared_arguments + [OpaqueFunction(function=launch_setup)])
+
+
+# ros2 control switch_controllers --controller-manager /r1/controller_manager --activate forward_position_controller --deactivate scaled_joint_trajectory_controller &&  ros2 run ur5_controller controller_backup --ros-args \
+#   -p control_topic:="/forward_position_controller/commands" \
+#   -p ur:="ur5e"
+#   -p nmspace:="r1" \
+#   -p geomagic:="true" \
+#   -p geomagic_topic:="/phantom1/pose" \
+#   -p geomagic_button_topic:="/phantom1/button" \
+#   -p csv_log_enable:="true" \
+#   -p traj_mode:=1 \
+#   -p q_target:="[-1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0]" \
+#   -p map_x:=1 -p map_y:=0 -p map_z:=2 \
+#   -p sign_x:=-1.0 -p sign_y:=1.0 -p sign_z:=1.0 \
+#   -p map_roll:=0 -p map_pitch:=1 -p map_yaw:=2 \
+#   -p sign_roll:=-1.0 -p sign_pitch:=1.0 -p sign_yaw:=1.0
+
+
+#   ros2 control switch_controllers --controller-manager /r1/controller_manager --deactivate forward_position_controller --activate scaled_joint_trajectory_controller &&   ros2 run ur5_controller controller_node --ros-args   -p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory"   -p ur:="ur5e"   -p nmspace:="r1"   -p geomagic:="true"   -p geomagic_topic:="/phantom1/pose"   -p geomagic_button_topic:="/phantom1/button"   -p csv_log_enable:="true"   -p traj_mode:=1   -p q_target:="[-1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0]"   -p map_x:=1   -p map_y:=0   -p map_z:=2   -p sign_x:=-1.0   -p sign_y:=1.0   -p sign_z:=1.0   -p map_roll:=0   -p map_pitch:=1   -p map_yaw:=2   -p sign_roll:=-1.0   -p sign_pitch:=1.0   -p sign_yaw:=1.0
