@@ -356,7 +356,18 @@ class InterfazRviz(QMainWindow, UIMixin):
         elif index == 2:
             print("  → Modo Cartesian activo")
         
-    
+    def cambiar_controller_topic(self, robot_id):
+        
+        process = subprocess.Popen(
+                    ['ros2', 'control', 'switch_controllers', '--controller-manager', f'/{robot_id}/controller_manager', 
+                     '--deactivate', f'/{robot_id}/forward_position_controller', 
+                     '--activate', f'/{robot_id}/scaled_joint_trajectory_controller'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    preexec_fn=os.setsid  # Crear nuevo grupo de procesos
+                )
+        self.launch_processes['single_haptic'] = process
+        print(f"Haptic launch iniciado (PID: {process.pid})")
         
     def buscar_dispositivos(self):
         #apagar nodos hápticos antes de buscar

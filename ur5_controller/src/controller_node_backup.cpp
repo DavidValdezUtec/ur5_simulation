@@ -178,7 +178,7 @@ public:
     this->declare_parameter<double>("traj_c0", config_.traj_c0);
     this->declare_parameter<int>("traj_mode", config_.traj_mode);
     this->declare_parameter<std::string>("controller_type", config_.controller);
-    ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 125.0); // 125Hz para estabilidad
+    ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 500.0); // 125Hz para estabilidad
     map_pos_ = {static_cast<int>(this->declare_parameter<int>("map_x", 2)),
                 static_cast<int>(this->declare_parameter<int>("map_y", 0)),
                 static_cast<int>(this->declare_parameter<int>("map_z", 1))};
@@ -475,6 +475,11 @@ private:
     NodeConfig config_;
     PinocchioResources pinocchio_;
     // ------------------------------------
+
+    // Filtro simple para comandos articulares
+    Eigen::VectorXd q_cmd_filtered_ = Eigen::VectorXd::Zero(6);
+    bool q_cmd_initialized_ = false;
+    double q_cmd_alpha_ = 0.2; // 0-1, mas alto = menos filtrado
 
     // Banderas de estado
     bool pose_inicial_capturada_ = false;
@@ -1115,9 +1120,17 @@ private:
             robot_state_.q_solution[0], robot_state_.q_solution[1], robot_state_.q_solution[2], robot_state_.q_solution[3], robot_state_.q_solution[4], robot_state_.q_solution[5]);    
         // --------------------------------------------------------------------------------
         
-        // Publicar setpoint de posición directumente
+        // Filtrar setpoint antes de publicar
+        if (!q_cmd_initialized_) {
+            q_cmd_filtered_ = robot_state_.q_solution;
+            q_cmd_initialized_ = true;
+        } else {
+            q_cmd_filtered_ = q_cmd_alpha_ * robot_state_.q_solution + (1.0 - q_cmd_alpha_) * q_cmd_filtered_;
+        }
+
+        // Publicar setpoint de posición directamente
         auto position_msg = std_msgs::msg::Float64MultiArray();
-        position_msg.data.assign(robot_state_.q_solution.data(), robot_state_.q_solution.data() + robot_state_.q_solution.size());
+        position_msg.data.assign(q_cmd_filtered_.data(), q_cmd_filtered_.data() + q_cmd_filtered_.size());
         joint_position_pub_->publish(position_msg);
 
         // Tiempo total del ciclo (hasta después de publicar)

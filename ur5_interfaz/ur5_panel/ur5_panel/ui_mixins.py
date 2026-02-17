@@ -212,6 +212,7 @@ class UIMixin:
         self.r1_CD_widget = QWidget()
         self.r1_IK_widget = QWidget()
         self.r2_controller_widget = QWidget()
+        self.r2_controller_adv_widget = QWidget()
         self.r2_CD_widget = QWidget()
         self.r2_IK_widget = QWidget()
         
@@ -346,7 +347,6 @@ class UIMixin:
         getattr(self, f"{robot_id}_rz_input").textChanged.connect(
             lambda text, r_id=robot_id: self.update_config(r_id, 'rot_z', text)
         )
-        # La IP del robot 2 no está en la pestaña avanzada, necesita un manejo especial o mover el widget
         getattr(self, f"{robot_id}_IP_input").textChanged.connect(
             lambda text, r_id=robot_id: self.update_config(r_id, 'robot_ip', text)
         )
@@ -546,8 +546,9 @@ class UIMixin:
         #inputs de Controller
         self.r1_control_mode_input = QComboBox()
         self.r1_control_mode_input.addItems(self.control_mode_r1)
-        trayectories = QComboBox()
-        trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
+        self.r1_trayectories = QComboBox()
+        self.r1_trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
+        self.r1_controles = QComboBox(); self.r1_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
         
         r1_mode_layout = QGridLayout()
         r1_adv_mode_layout = QGridLayout()
@@ -568,10 +569,17 @@ class UIMixin:
         
         
         r1_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
-        r1_mode_layout.addWidget(self.r1_control_mode_input, 0, 1)            
-        r1_mode_layout.addWidget(trayectories, 1, 1)
+        r1_mode_layout.addWidget(self.r1_control_mode_input, 0, 1)        
+            
+        if self.r1_control_mode_input.currentText() == "Trayectoria":
+            r1_mode_layout.addWidget(self.r1_trayectories, 1, 1)
+        else:
+            r1_mode_layout.addWidget(self.r1_controles, 1, 1)
+            
         r1_mode_layout.addWidget(self.r1_checkbox_safe_trayectory, 1, 0)
         r1_mode_layout.addWidget(botones_widget, 2, 0, 1, 2)
+        
+        self.cambiar_widget_controller("r1")
 
         self.r1_linear_widget = self._create_mapping_matrix(
             key="r1_linear",
@@ -586,8 +594,7 @@ class UIMixin:
         self.r1_linear_map_groups = self._mapping_matrices["r1_linear"]["groups"]
         self.r1_linear_map_radios = self._mapping_matrices["r1_linear"]["radios"]
         self.r1_linear_seleccion_actual = self._mapping_matrices["r1_linear"]["selection"]
-        r1_adv_mode_layout.addWidget(self.r1_linear_widget, 5, 0, 1, 2)
-
+        
         self.r1_rot_widget = self._create_mapping_matrix(
             key="r1_rot",
             title="Movimiento Rotacional",
@@ -600,6 +607,8 @@ class UIMixin:
         self.r1_rot_map_groups = self._mapping_matrices["r1_rot"]["groups"]
         self.r1_rot_map_radios = self._mapping_matrices["r1_rot"]["radios"]
         self.r1_rot_seleccion_actual = self._mapping_matrices["r1_rot"]["selection"]
+        
+        r1_adv_mode_layout.addWidget(self.r1_linear_widget, 5, 0, 1, 2)
         r1_adv_mode_layout.addWidget(self.r1_rot_widget, 6, 0, 1, 2)
         
         
@@ -613,12 +622,42 @@ class UIMixin:
 
     def set_r2_controller(self):
         self.r2_controller_layout.addTab(self.r2_controller_widget, "Controller")
+        self.r2_controller_layout.addTab(self.r2_controller_adv_widget, "Advanced")
         #inputs de Controller
         self.r2_control_mode_input = QComboBox()
         self.r2_control_mode_input.addItems(self.control_mode_r2)
+        self.r2_trayectories = QComboBox()
+        self.r2_trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
+        self.r2_controles = QComboBox(); self.r2_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
+        
         r2_mode_layout = QGridLayout()
+        r2_adv_mode_layout = QGridLayout()
+        
+        self.r2_checkbox_safe_trayectory = QCheckBox("Save Trajectory")
+        self.r2_checkbox_safe_trayectory.setChecked(True)
+        
+        botones_layout = QHBoxLayout()
+        botones_widget = QWidget(); botones_widget.setLayout(botones_layout)
+        boton_start_controller = QPushButton("Start Controller")
+        boton_start_controller.clicked.connect(lambda: self.start_controller("r2","ur5e"))
+        boton_reload_controller = QPushButton(self.icon_reload, "")
+        boton_reload_controller.setToolTip("Reload Controller Configuration")
+        boton_reload_controller.setFixedSize(30,30)
+        botones_layout.addWidget(boton_start_controller)
+        botones_layout.addWidget(boton_reload_controller)
+        
         r2_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
-        r2_mode_layout.addWidget(self.r2_control_mode_input, 0, 1)
+        r2_mode_layout.addWidget(self.r2_control_mode_input, 0, 1) 
+        
+        if self.r2_control_mode_input.currentText() == "Trayectoria" :
+            r2_mode_layout.addWidget(self.r2_trayectories, 1, 1) 
+        else:
+            r2_mode_layout.addWidget(self.r2_controles, 1, 1)
+            
+        r2_mode_layout.addWidget(self.r2_checkbox_safe_trayectory, 1, 0)
+        r2_mode_layout.addWidget(botones_widget, 2, 0, 1, 2)
+        
+        self.cambiar_widget_controller("r2")
 
         self.r2_linear_widget = self._create_mapping_matrix(
             key="r2_linear",
@@ -632,7 +671,7 @@ class UIMixin:
         self.r2_linear_map_groups = self._mapping_matrices["r2_linear"]["groups"]
         self.r2_linear_map_radios = self._mapping_matrices["r2_linear"]["radios"]
         self.r2_linear_seleccion_actual = self._mapping_matrices["r2_linear"]["selection"]
-        r2_mode_layout.addWidget(self.r2_linear_widget, 5, 0, 1, 2)
+        
 
         self.r2_rot_widget = self._create_mapping_matrix(
             key="r2_rot",
@@ -645,20 +684,41 @@ class UIMixin:
         self.r2_rot_invert_checks = self._mapping_matrices["r2_rot"]["invert_checks"]
         self.r2_rot_map_groups = self._mapping_matrices["r2_rot"]["groups"]
         self.r2_rot_map_radios = self._mapping_matrices["r2_rot"]["radios"]
-        self.r2_rot_seleccion_actual = self._mapping_matrices["r2_rot"]["selection"]
-        r2_mode_layout.addWidget(self.r2_rot_widget, 6, 0, 1, 2)
+        self.r2_rot_seleccion_actual = self._mapping_matrices["r2_rot"]["selection"]        
+            
+           
+        r2_adv_mode_layout.addWidget(self.r2_linear_widget, 5, 0, 1, 2)
+        r2_adv_mode_layout.addWidget(self.r2_rot_widget, 6, 0, 1, 2)
 
         self.r2_controller_widget.setLayout(r2_mode_layout)
+        self.r2_controller_adv_widget.setLayout(r2_adv_mode_layout)
         
     def setup_control_config_connections(self, robot_id):
         getattr(self, f"{robot_id}_control_mode_input").currentTextChanged.connect(
-            lambda text, r_id=robot_id: self.update_control_config(r_id, 'control_mode', text)
+            lambda text, r_id=robot_id: self.update_control_config(r_id, 'geomagic', "true" if text == "Geomagic" else "false")
         )
         
     def update_control_config(self, robot_id, key, value):
+        config = getattr(self, f"{robot_id}_control_config")
+        if key in config:
+            config[key] = value
+            print(f"{robot_id.upper()} Control Config updated: {key} = {value}") # Opcional: para depuración
         pass
     
     
+    def cambiar_widget_controller(self, robot_id):
+        getattr(self, f"{robot_id}_control_mode_input").currentTextChanged.connect(
+            lambda text, r_id=robot_id: self.widget_controller_changed(r_id, text) #text = Teleoperation o Trayectoria
+        )
+    
+    def widget_controller_changed(self, robot_id, new_mode):        
+        if new_mode == self.control_mode_r1[0]: #new_mode = "Teleoperation"
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(1, 1).widget().setParent(None) # Elimina el widget actual en esa posición
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_controles"), 1, 1)
+        elif new_mode == self.control_mode_r1[1]:
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(1, 1).widget().setParent(None) # Elimina el widget actual en esa posición
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_trayectories"), 1, 1)
+            
     def set_controller_menu(self):
         self.robots_controller_layout.addWidget(self.r1_controller_layout)
         self.robots_controller_layout.addWidget(self.r2_controller_layout)
