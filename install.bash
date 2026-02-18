@@ -29,10 +29,13 @@ cd ~/tesis_ws
 
 
 # --- 2. Instalación de ROS 2 Humble ---
-info "Instalando ROS 2 Humble y herramientas de desarrollo..."
+if [ -f "/opt/ros/humble/setup.bash" ]; then
+    info "ROS 2 Humble ya está instalado. Omitiendo instalación."
+else
+    info "Instalando ROS 2 Humble y herramientas de desarrollo..."
 
-# Configurar la codificación de caracteres a UTF-8
-sudo apt update && sudo apt install -y locales
+    # Configurar la codificación de caracteres a UTF-8
+    sudo apt update && sudo apt install -y locales
 sudo locale-gen es_ES es_ES.UTF-8
 sudo update-locale LC_ALL=es_ES.UTF-8 LANG=es_ES.UTF-8
 export LANG=es_ES.UTF-8
@@ -67,6 +70,7 @@ fi
 
 # Cargar la configuración de ROS 2 para la sesión actual
 source /opt/ros/humble/setup.bash
+fi
 
 # --- 3. Instalación de Drivers de Geomagic Touch ---
 info "Instalando drivers de Geomagic Touch..."
