@@ -183,8 +183,14 @@ public:
     this->declare_parameter<std::string>("controller_type", config_.controller);
     this->declare_parameter<std::vector<double>>("Kp", {1850.0, 1850.0, 1850.0, 500.0, 500.0, 500.0, 5000.0});
     this->declare_parameter<std::vector<double>>("Kd", {10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0});
+    this->declare_parameter<std::vector<double>>("lambda",{0.5,0.5,0.5,0.5,0.5,0.5});
+    this->declare_parameter<std::vector<double>>("k",{50.0, 50.0, 50.0, 50.0, 50.0, 50.0});
+    this->declare_parameter<std::vector<double>>("k2",{10.0, 10.0, 10.0, 10.0, 10.0, 10.0});
+    config_.alpha = this->declare_parameter<double>("alpha", 0.01);
+    config_.damping_factor = this->declare_parameter<double>("damping_factor", 0.01);
+    config_.dt = this->declare_parameter<double>("dt", 0.01);
 
-    ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 500.0); // 125Hz para estabilidad
+    config_.ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 500.0); // 125Hz para estabilidad
     max_joint_step_rad_ = this->declare_parameter<double>("max_joint_step_rad", 0.05); // Paso máximo por ciclo
     large_error_threshold_rad_ = this->declare_parameter<double>("large_error_threshold_rad", 0.15); // Umbral error grande
     map_pos_ = {static_cast<int>(this->declare_parameter<int>("map_x", 2)),
@@ -200,6 +206,8 @@ public:
     sign_rot_ = {this->declare_parameter<double>("sign_roll", 1.0),
                     this->declare_parameter<double>("sign_pitch", 1.0),
                     this->declare_parameter<double>("sign_yaw", 1.0)};
+
+
 
     // 2. Obtener parámetros y guardarlos en la struct de configuración
     this->get_parameter("control_topic", config_.control_topic);
@@ -251,8 +259,38 @@ public:
         RCLCPP_WARN(this->get_logger(), "Parametro Kd debe tener tamaño 7. Usando valores por defecto.");
         config_.Kd << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
     }
+    std::vector<double> param_lambda;
+    this->get_parameter("lambda", param_lambda);
+    if (param_lambda.size() == 6) {
+        for (int i = 0; i < 6; ++i) {
+            config_.lambda(i) = param_lambda[i];
+        }
+    } else {
+        RCLCPP_WARN(this->get_logger(), "Parametro lambda debe tener tamaño 6. Usando valores por defecto.");
+        config_.lambda << 0.5, 0.5, 0.5, 0.5, 0.5, 0.5;
+    }
+    std::vector<double> param_k;
+    this->get_parameter("k", param_k);
+    if (param_k.size() == 6) {
+        for (int i = 0; i < 6; ++i) {
+            config_.k(i) = param_k[i];
+        }
+    } else {
+        RCLCPP_WARN(this->get_logger(), "Parametro k debe tener tamaño 6. Usando valores por defecto.");
+        config_.k << 50.0, 50.0, 50.0, 50.0, 50.0, 50.0;
+    }
+    std::vector<double> param_k2;
+    this->get_parameter("k2", param_k2);
+    if (param_k2.size() == 6) {
+        for (int i = 0; i < 6; ++i) {
+            config_.k2(i) = param_k2[i];
+        }
+    } else {
+        RCLCPP_WARN(this->get_logger(), "Parametro k2 debe tener tamaño 6. Usando valores por defecto.");
+        config_.k2 << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
+    }
     
-    
+    this->get_parameter("alpha", config_.alpha);
     
     
     std::string urdf_param;
@@ -307,7 +345,7 @@ public:
             step_count_ = 0;
             step_total_ = 0;
             init_move_timer_ = this->create_wall_timer(
-                std::chrono::milliseconds(static_cast<int>(1000.0 / ctrl_hz_)),  // 10 Hz (cada 100ms)
+                std::chrono::milliseconds(static_cast<int>(1000.0 / config_.ctrl_hz_)),  // 10 Hz (cada 100ms)
                 std::bind(&UR5IKNode::init_move_tick, this)
             );
             RCLCPP_INFO(this->get_logger(), "Modo ur5_pos activo: publicando objetivo hasta detectar movimiento (umbral %.3f rad)", move_detect_threshold_);
@@ -328,7 +366,7 @@ public:
         std::bind(&UR5IKNode::on_parameters_set, this, std::placeholders::_1));
 
     last_successful_publish_ = std::chrono::steady_clock::now();
-    timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(1000.0 / ctrl_hz_)), std::bind(&UR5IKNode::control_loop, this));
+    timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(1000.0 / config_.ctrl_hz_)), std::bind(&UR5IKNode::control_loop, this));
   }
 
 private:
@@ -567,7 +605,6 @@ private:
 
     Eigen::Vector3d sign_pos_, sign_rot_;
     Eigen::Vector3i map_pos_, map_rot_;
-    double ctrl_hz_;
 
 
     // ---- Movimiento inicial tipo ur5_pos ----
@@ -1174,7 +1211,7 @@ private:
                     cartesian_state_.position_desired,
                     cartesian_state_.rotation_matrix_desired,
                     600,
-                    ctrl_hz_
+                    config_.ctrl_hz_
                 );
             }
             else if (config_.controller == "IMP") {
@@ -1190,12 +1227,12 @@ private:
                     config_.dt);
             }
             else if (config_.controller == "SLD") {                
-                Eigen::Matrix<double, 6, 1> lambda = {0.1, 0.1, 0.1, 0.1, 0.1, 0.1};
-                Eigen::Matrix<double, 6, 1> k = {50.0, 50.0, 50.0, 50.0, 50.0, 50.0};
-                Eigen::Matrix<double, 6, 1> k2 = {10.0, 10.0, 10.0, 10.0, 10.0, 10.0};
-                double alpha = 0.01;
-                double damping_factor = 0.01;
-                double dt = 0.01;
+                // Eigen::Matrix<double, 6, 1> lambda = {0.1, 0.1, 0.1, 0.1, 0.1, 0.1};
+                // Eigen::Matrix<double, 6, 1> k = {50.0, 50.0, 50.0, 50.0, 50.0, 50.0};
+                // Eigen::Matrix<double, 6, 1> k2 = {10.0, 10.0, 10.0, 10.0, 10.0, 10.0};
+                // double alpha = 0.01;
+                // double damping_factor = 0.01;
+                // double dt = 0.01;
                 robot_state_.q_solution = sliding_controller_->calculateControlCommand(
                     robot_state_.q,
                     robot_state_.qd,
@@ -1221,7 +1258,7 @@ private:
                     cartesian_state_.position_desired,
                     cartesian_state_.rotation_matrix_desired,
                     600,
-                    ctrl_hz_
+                    config_.ctrl_hz_
                 );
             }
         
