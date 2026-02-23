@@ -119,7 +119,7 @@ Eigen::VectorXd UR5Sliding::calculateControlCommand(
     J_previous_ = J;
 
 
-
+    std::cout<<"Control deslizante calculado: q = " << q_desired.transpose() << std::endl;
     return q_desired;
 }
 

@@ -197,6 +197,7 @@ Eigen::VectorXd UR5Kinematics::inverseKinematicsQP(
             if (q[j] > joint_limit) q[j] = joint_limit;
             else if (q[j] < -joint_limit) q[j] = -joint_limit;
         }
+        
     }
     return q;
 }
@@ -213,7 +214,7 @@ Eigen::VectorXd UR5Kinematics::inverseKinematicsQP2(
 {
     // Versión simplificada: única tarea cartesiana con OSQP, sin nivel secundario
     Eigen::VectorXd q = q_initial;
-    const double joint_limit = PI;
+    const double joint_limit = 2*PI;
     const double dq_max_norm = 0.5; // límite de paso por iteración
     Eigen::VectorXd dq_externo = Eigen::VectorXd::Zero(q.size());
     pinocchio::SE3 desired_pose(desired_orient, desired_pos);

@@ -8,8 +8,7 @@
 
 // Mensajes
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <trajectory_msgs/msg/joint_trajectory.hpp>
-#include <trajectory_msgs/msg/joint_trajectory_point.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <omni_msgs/msg/omni_button_event.hpp>
 #include <omni_msgs/msg/omni_state.hpp>
@@ -102,7 +101,7 @@ public:
             state.acceleration.x() = -0.3 * (c0 * c0) * exp_neg_c0_t;
             state.acceleration.y() = 0.1 * (c0 * c0) * exp_neg_c0_t;
             state.acceleration.z() = 0.1 * (c0 * c0) * exp_neg_c0_t;
-        }
+        } 
         // grafica == 3 eliminado
 
         return state;
@@ -152,6 +151,9 @@ std::string get_file_path(const std::string& package_name, const std::string& re
 }
 
 
+
+
+
 class UR5IKNode : public rclcpp::Node
 {
 public:
@@ -179,7 +181,12 @@ public:
     this->declare_parameter<double>("traj_c0", config_.traj_c0);
     this->declare_parameter<int>("traj_mode", config_.traj_mode);
     this->declare_parameter<std::string>("controller_type", config_.controller);
-    ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 125.0); // 125Hz para estabilidad
+    this->declare_parameter<std::vector<double>>("Kp", {1850.0, 1850.0, 1850.0, 500.0, 500.0, 500.0, 5000.0});
+    this->declare_parameter<std::vector<double>>("Kd", {10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0});
+
+    ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 500.0); // 125Hz para estabilidad
+    max_joint_step_rad_ = this->declare_parameter<double>("max_joint_step_rad", 0.05); // Paso máximo por ciclo
+    large_error_threshold_rad_ = this->declare_parameter<double>("large_error_threshold_rad", 0.15); // Umbral error grande
     map_pos_ = {static_cast<int>(this->declare_parameter<int>("map_x", 2)),
                 static_cast<int>(this->declare_parameter<int>("map_y", 0)),
                 static_cast<int>(this->declare_parameter<int>("map_z", 1))};
@@ -222,6 +229,32 @@ public:
         config_.traj_mode = 1;
     }
     
+    // Obtener parámetros de control
+    std::vector<double> Kp_param;
+    this->get_parameter("Kp", Kp_param);
+    if (Kp_param.size() == 7) {
+        for (int i = 0; i < 7; ++i) {
+            config_.Kp(i) = Kp_param[i];
+        }
+    } else {
+        RCLCPP_WARN(this->get_logger(), "Parametro Kp debe tener tamaño 7. Usando valores por defecto.");
+        config_.Kp << 1850.0, 1850.0, 1850.0, 500.0, 500.0, 500.0, 500.0;
+    }
+    
+    std::vector<double> Kd_param;
+    this->get_parameter("Kd", Kd_param);
+    if (Kd_param.size() == 7) {
+        for (int i = 0; i < 7; ++i) {
+            config_.Kd(i) = Kd_param[i];
+        }
+    } else {
+        RCLCPP_WARN(this->get_logger(), "Parametro Kd debe tener tamaño 7. Usando valores por defecto.");
+        config_.Kd << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
+    }
+    
+    
+    
+    
     std::string urdf_param;
     std::string geomagic_topic;
     std::string geomagic_button_topic;
@@ -239,6 +272,7 @@ public:
     initializeUR5(pinocchio_, config_.urdf_path);
     kinematics_solver_ = std::make_unique<UR5Kinematics>(config_.urdf_path);
     impedance_controller_ = std::make_unique<UR5Impedance>(config_.urdf_path);
+    sliding_controller_ = std::make_unique<UR5Sliding>(config_.urdf_path);
     std::string c_topic = "/" + config_.nmspace + config_.control_topic;
     std::string joint_states_topic = config_.nmspace.empty() ? std::string("/joint_states")
                                                             : std::string("/") + config_.nmspace + std::string("/joint_states");
@@ -246,7 +280,7 @@ public:
     RCLCPP_INFO(this->get_logger(), "Publicando en el tópico de control: '%s'", c_topic.c_str());
     RCLCPP_INFO(this->get_logger(), "Usando modelo UR: '%s'", config_.ur_model.c_str());
     RCLCPP_INFO(this->get_logger(), "Usando URDF en: '%s'", config_.urdf_path.c_str());
-    joint_trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(c_topic, 10);
+    joint_position_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(c_topic, 10);
     joint_states_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(joint_states_topic, 10, std::bind(&UR5IKNode::update_joint_positions, this, std::placeholders::_1));
     RCLCPP_INFO(this->get_logger(), "Suscrito a joint_states: '%s'", joint_states_topic.c_str());
     // Suscripción de respaldo al tópico global en caso de que el driver no use namespace
@@ -264,13 +298,16 @@ public:
     }
     else {
         RCLCPP_INFO(this->get_logger(), "Modo Geomagic deshabilitado. Seguimiento de la trayectoria predefinida.");
+        RCLCPP_INFO(this->get_logger(), "Controlador seleccionado: '%s'", config_.controller.c_str());
         // Programar movimiento inicial tipo ur5_pos si está habilitado
         if (config_.use_ur5_pos_init) {
             init_move_active_ = true;            // activar modo publicación hasta detectar movimiento
             init_baseline_set_ = false;          // baseline de joints se tomará al recibir JointState
-            // Publicar periódicamente hasta detectar movimiento
+            step_publishing_initialized_ = false; // resetear estado de pasos para nueva secuencia
+            step_count_ = 0;
+            step_total_ = 0;
             init_move_timer_ = this->create_wall_timer(
-                std::chrono::milliseconds(100),  // 10 Hz
+                std::chrono::milliseconds(static_cast<int>(1000.0 / ctrl_hz_)),  // 10 Hz (cada 100ms)
                 std::bind(&UR5IKNode::init_move_tick, this)
             );
             RCLCPP_INFO(this->get_logger(), "Modo ur5_pos activo: publicando objetivo hasta detectar movimiento (umbral %.3f rad)", move_detect_threshold_);
@@ -290,6 +327,7 @@ public:
     params_cb_handle_ = this->add_on_set_parameters_callback(
         std::bind(&UR5IKNode::on_parameters_set, this, std::placeholders::_1));
 
+    last_successful_publish_ = std::chrono::steady_clock::now();
     timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(1000.0 / ctrl_hz_)), std::bind(&UR5IKNode::control_loop, this));
   }
 
@@ -462,7 +500,7 @@ private:
     }
 
     // Suscriptores y publicadores
-    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr joint_position_pub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_global_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr geomagic_pose_sub_;
@@ -477,6 +515,18 @@ private:
     PinocchioResources pinocchio_;
     // ------------------------------------
 
+    // Filtro simple para comandos articulares
+    Eigen::VectorXd q_cmd_filtered_ = Eigen::VectorXd::Zero(6);
+    bool q_cmd_initialized_ = false;
+    double q_cmd_alpha_ = 0.2; // 0-1, mas alto = menos filtrado
+    
+    // Interpolación adaptativa para comandos alejados
+    Eigen::VectorXd q_target_interpolated_ = Eigen::VectorXd::Zero(6);
+    Eigen::VectorXd q_solution_prev_ = Eigen::VectorXd::Zero(6);  // Solución IK anterior
+    double max_joint_step_rad_ = 0.05; // Paso máximo por ciclo (ajustable según ctrl_hz_)
+    double large_error_threshold_rad_ = 0.15; // Umbral para detectar error grande
+    double max_ik_change_threshold_rad_ = 0.10; // Umbral para detectar cambio brusco en solución IK
+
     // Banderas de estado
     bool pose_inicial_capturada_ = false;
     bool posicion_inicial_alcanzada_ = false;
@@ -486,6 +536,7 @@ private:
 
     std::unique_ptr<UR5Kinematics> kinematics_solver_;
     std::unique_ptr<UR5Impedance> impedance_controller_;
+    std::unique_ptr<UR5Sliding> sliding_controller_;
    
 
     // ---- Mapeo robusto de joints por nombre ----
@@ -504,6 +555,15 @@ private:
     // Métricas de tiempo por ciclo
     double last_ik_ms_ {0.0};
     double last_loop_ms_ {0.0};
+    
+    // === Watchdog para detectar delays y desconexiones ===
+    std::chrono::steady_clock::time_point last_successful_publish_;
+    int consecutive_loop_delays_ = 0;
+    int consecutive_publish_failures_ = 0;
+    static constexpr int MAX_CONSECUTIVE_DELAYS = 3;  // Advertencia después de 3 ciclos lentos
+    static constexpr int MAX_CONSECUTIVE_FAILURES = 10; // Error crítico después de 10 fallos
+    bool watchdog_enabled_ = true;
+    double loop_timeout_ms_ = 10.0; // Alerta si ciclo tarda más de 10ms (debería ser 2ms a 500Hz)
 
     Eigen::Vector3d sign_pos_, sign_rot_;
     Eigen::Vector3i map_pos_, map_rot_;
@@ -523,14 +583,17 @@ private:
     double reach_threshold_rad_ = 0.020;     // rad, condición de cercanía a q_target
     int reach_count_ = 0;                    // conteo de comprobaciones consecutivas en umbral
     int reach_count_required_ = 5;           // número de comprobaciones consecutivas para confirmar llegada
+    // ---- Control de pasos para movimiento inicial ----
+    bool step_publishing_initialized_ = false;  // saber si ya inicializamos el proceso de pasos
+    std::vector<double> step_error_{0.0,0.0,0.0,0.0,0.0,0.0};  // error actual por joint
+    std::vector<double> step_q_{0.0,0.0,0.0,0.0,0.0,0.0};      // posición siendo pasada
+    int step_count_ = 0;                        // número de pasos ya publicados
+    int step_total_ = 0;                        // número total de pasos necesarios
     // ---- Trayectoria automática sin geomagic ----
     // (Parámetros de trayectoria ahora en config_)
     bool trajectory_active_ {false};
     rclcpp::Time trajectory_start_time_ {};
     double t_traj_ = 0.0; // Tiempo para la trayectoria, independiente de dt
-
-    Eigen::Matrix<double, 7, 1> Kp;
-    Eigen::Matrix<double, 7, 1> Kd;
 
     static std::string get_home_dir() {
         const char* home = std::getenv("HOME");
@@ -588,7 +651,6 @@ private:
         << ",e_R_angle"
         << ",pos_err_x,pos_err_y,pos_err_z"
         << ",ori_err_axis_x,ori_err_axis_y,ori_err_axis_z,ori_err_angle"
-        << ",control_loop_time"
         << ",ik_ms,loop_ms"
         << std::endl;
 
@@ -635,8 +697,6 @@ private:
     csv_file_ << "," << pos_err.x() << "," << pos_err.y() << "," << pos_err.z();
     // Error de orientación (eje normalizado y ángulo)
     csv_file_ << "," << ori_err_axis.x() << "," << ori_err_axis.y() << "," << ori_err_axis.z() << "," << ori_err_angle;
-    // control_loop_time
-        csv_file_ << "," << config_.control_loop_time;
 
         // métricas de tiempos
         csv_file_ << "," << ik_ms << "," << loop_ms;
@@ -644,23 +704,70 @@ private:
         csv_file_ << std::endl;
     }
 
-    // Publica una sola vez una trayectoria a q_target_ similar al nodo ur5_pos
+    // Publica el objetivo articular a forward_position_controller (UN PASO cada 100ms)
     void publish_initial_joint_position() {
         if (config_.q_target.size() != 6) {
             RCLCPP_ERROR(this->get_logger(), "q_target debe tener 6 elementos, tiene %zu", config_.q_target.size());
             return;
         }
-        std::string prefix = config_.nmspace.empty() ? std::string("") : (config_.nmspace + std::string("_"));
-        trajectory_msgs::msg::JointTrajectory traj;
-        traj.joint_names = {prefix + "shoulder_pan_joint", prefix + "shoulder_lift_joint", prefix + "elbow_joint",
-                            prefix + "wrist_1_joint", prefix + "wrist_2_joint", prefix + "wrist_3_joint"};
-        trajectory_msgs::msg::JointTrajectoryPoint pt;
-        pt.positions = config_.q_target;
-        pt.time_from_start = rclcpp::Duration::from_seconds(config_.q_target_time);
-        RCLCPP_INFO(this->get_logger(), "Target: %f, %f, %f, %f, %f, %f", config_.q_target[0], config_.q_target[1], config_.q_target[2], config_.q_target[3], config_.q_target[4], config_.q_target[5]);
-        traj.points.push_back(pt);
-        joint_trajectory_pub_->publish(traj);
-        RCLCPP_INFO(this->get_logger(), "Movimiento inicial publicado (ur5_pos-like) en %0.2fs", config_.q_target_time);
+        
+        // === INICIALIZACIÓN (primera llamada) ===
+        if (!step_publishing_initialized_) {
+            // Usar posición actual del robot como punto de inicio
+            std::vector<double> robot_q(robot_state_.q.data(), robot_state_.q.data() + 6);
+            step_q_ = robot_q;
+            std::cout << "Posición actual del robot (baseline): [";
+            for (size_t i = 0; i < 6; ++i) {
+                std::cout << robot_q[i];
+                if (i < 5) std::cout << ", ";
+            }
+            std::cout << "]" << std::endl;
+            
+            step_count_ = 0;
+            
+            // Calcular error elemento por elemento desde la posición actual (baseline)
+            double max_error = 0.0;
+            for (size_t i = 0; i < 6; ++i) {
+                step_error_[i] = config_.q_target[i] - step_q_[i];
+                max_error = std::max(max_error, std::abs(step_error_[i]));
+            }
+            
+            // Redondear y calcular número total de pasos necesarios
+            max_error = std::round(max_error * 1000.0) / 1000.0;
+            step_total_ = static_cast<int>(std::ceil(max_error / 0.001));
+            
+            RCLCPP_INFO(this->get_logger(), "Publicación de pasos INICIADA: %d pasos totales (máx error: %.3f rad)", 
+                        step_total_, max_error);
+            
+            step_publishing_initialized_ = true;
+        }
+        
+        // === PUBLICACIÓN DE UN SOLO PASO ===
+        if (step_count_ < step_total_) {
+            // Actualizar posición para este paso
+            for (size_t j = 0; j < 6; ++j) {
+                if (std::abs(step_error_[j]) > 0.001) {
+                    // Avanzar 0.001 rad en la dirección del error
+                    step_q_[j] = step_q_[j] + 0.001 * std::copysign(1.0, step_error_[j]);
+                    step_error_[j] -= 0.001 * std::copysign(1.0, step_error_[j]);
+                }
+                else if (std::abs(step_error_[j]) > 1e-6) {
+                    // Último paso: fijar exactamente al objetivo
+                    step_q_[j] = config_.q_target[j];
+                    step_error_[j] = 0.0;
+                }
+            }
+            
+            // Publicar este paso
+            auto msg = std_msgs::msg::Float64MultiArray();
+            msg.data = step_q_;
+            step_count_++;
+            
+            RCLCPP_INFO(this->get_logger(), "Publicando objetivo articular [paso %d/%d]: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]", 
+                        step_count_, step_total_,
+                        step_q_[0], step_q_[1], step_q_[2], step_q_[3], step_q_[4], step_q_[5]);
+            joint_position_pub_->publish(msg);
+        }
     }
 
     // Tick periódico: publica mientras no detecte movimiento respecto a baseline
@@ -672,8 +779,10 @@ private:
             if (last_joint_state_ && joint_map_initialized_) {
                 for (int i = 0; i < 6; ++i) q_baseline_[i] = robot_state_.q[i];
                 init_baseline_set_ = true;
-                RCLCPP_INFO(this->get_logger(), "Baseline articular capturada para detección de movimiento.");
+                RCLCPP_INFO(this->get_logger(), "Baseline articular capturada para detección de movimiento: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]",
+                           q_baseline_[0], q_baseline_[1], q_baseline_[2], q_baseline_[3], q_baseline_[4], q_baseline_[5]);
             }
+            return; // NO publicar hasta tener baseline
         }
 
         // Detectar inicio de movimiento respecto a baseline
@@ -700,6 +809,7 @@ private:
 
         if (reach_count_ >= reach_count_required_) {
             init_move_active_ = false;
+            step_publishing_initialized_ = false;  // resetear estado de pasos para próxima secuencia
             if (init_move_timer_) init_move_timer_->cancel();
             RCLCPP_INFO(this->get_logger(), "Objetivo articular alcanzado (|e|_max < %.3f rad por %d ciclos).", reach_threshold_rad_, reach_count_required_);
             // Activar trayectoria automática desde t = 0
@@ -944,29 +1054,31 @@ private:
     
     void control_loop() {
         auto loop_t0 = std::chrono::steady_clock::now();
+        
+        try {
+            // Copiar parámetros dinámicos a locales (para aplicar cambios en caliente)
+            Eigen::Vector3i map_pos_local;
+            Eigen::Vector3d sign_pos_local;
+            Eigen::Vector3i map_rot_local;
+            Eigen::Vector3d sign_rot_local;
+            {
+                std::scoped_lock<std::mutex> lock(dynamic_params_mutex_);
+                map_pos_local = map_pos_;
+                sign_pos_local = sign_pos_;
+                map_rot_local = map_rot_;
+                sign_rot_local = sign_rot_;
+            }
 
-        // Copiar parámetros dinámicos a locales (para aplicar cambios en caliente)
-        Eigen::Vector3i map_pos_local;
-        Eigen::Vector3d sign_pos_local;
-        Eigen::Vector3i map_rot_local;
-        Eigen::Vector3d sign_rot_local;
-        {
-            std::scoped_lock<std::mutex> lock(dynamic_params_mutex_);
-            map_pos_local = map_pos_;
-            sign_pos_local = sign_pos_;
-            map_rot_local = map_rot_;
-            sign_rot_local = sign_rot_;
-        }
-
-        if (!pose_inicial_capturada_ || !posicion_inicial_alcanzada_) {
-            return;
-        }
-        if (config_.use_geomagic && capturar_pose_inicial_haptico_) {
-            RCLCPP_WARN(this->get_logger(), "Esperando a que se capture la pose inicial del Geomagic. Presione el botón gris.");
-            return;
-        }
-        // Rama geomagic: seguir referencia del háptico
-        if (config_.use_geomagic) {
+            if (!pose_inicial_capturada_ || !posicion_inicial_alcanzada_) {
+                return;
+            }
+            if (config_.use_geomagic && capturar_pose_inicial_haptico_) {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                    "Esperando a que se capture la pose inicial del Geomagic. Presione el botón gris.");
+                return;
+            }
+            // Rama geomagic: seguir referencia del háptico
+            if (config_.use_geomagic) {
             cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial;
 
             Eigen::Quaterniond dif_orientacion_haptic = haptic_state_.orientation_initial.inverse() * haptic_state_.orientation;
@@ -983,7 +1095,7 @@ private:
             // dif_orientacion_haptic = Eigen::Quaterniond(Eigen::AngleAxisd(escala * angle_axis.angle(), angle_axis.axis()));
             // cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
 
-            RCLCPP_INFO(this->get_logger(), "Dif orientación háptico (eje): [%.3f, %.3f, %.3f]",
+            RCLCPP_DEBUG(this->get_logger(), "Dif orientación háptico (eje): [%.3f, %.3f, %.3f]",
                         dif_orientacion_haptic.vec().x(), dif_orientacion_haptic.vec().y(), dif_orientacion_haptic.vec().z());
             
             for(int i=0; i<3; i++){
@@ -1008,7 +1120,6 @@ private:
                 // Aún no activada (esperando fin de movimiento inicial)
                 return;
             }
-            double t_elapsed = (this->now() - trajectory_start_time_).seconds();
             auto st = TrajectoryGenerator::calculate(
                 cartesian_state_.position_initial,
                 config_.traj_A,
@@ -1027,144 +1138,248 @@ private:
             cartesian_state_.angular_acceleration = Eigen::Vector3d::Zero();
 
             //x_des << -0.03, 0.7, 0.1;
-            // Mantener orientación constante
+            // Mantener orientación constanteluego agregalo al cmakelist
             cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
-            std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
-            std::cout<<"vel_des: "<<cartesian_state_.velocity.transpose()<<std::endl;
+            RCLCPP_DEBUG(this->get_logger(), "x_des: [%.3f, %.3f, %.3f]",
+                cartesian_state_.position_desired.x(), cartesian_state_.position_desired.y(), cartesian_state_.position_desired.z());
+            RCLCPP_DEBUG(this->get_logger(), "vel_des: [%.3f, %.3f, %.3f]",
+                cartesian_state_.velocity.x(), cartesian_state_.velocity.y(), cartesian_state_.velocity.z());
         }
         t_traj_ += 0.01;
-        // Medición cartesiana actual (para logging y control si fuera necesario)
-        pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
-        pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
+            // Medición cartesiana actual (para logging y control si fuera necesario)
+            pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
+            pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
 
-        const auto& frame_meas = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
-        cartesian_state_.position = frame_meas.translation();
-        std::cout << cartesian_state_.position.transpose() << std::endl;
+            const auto& frame_meas = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
+            cartesian_state_.position = frame_meas.translation();
+            RCLCPP_DEBUG(this->get_logger(), "x_meas: [%.3f, %.3f, %.3f]",
+                cartesian_state_.position.x(), cartesian_state_.position.y(), cartesian_state_.position.z());
         Eigen::Matrix3d R_meas = frame_meas.rotation();
         cartesian_state_.orientation = Eigen::Quaterniond(R_meas);
 
-        Eigen::Matrix3d R_des = cartesian_state_.orientation_desired.toRotationMatrix();
-        Eigen::Matrix3d R_err = R_meas.transpose() * R_des;
-        double e_R_angle = Eigen::AngleAxisd(R_err).angle();
-        // Quaterniones y Euler (roll-pitch-yaw) deseados y medidos
-        Eigen::Quaterniond q_des = cartesian_state_.orientation_desired;
-        Eigen::Quaterniond q_meas(R_meas);
-        Eigen::Vector3d euler_des = R_des.eulerAngles(0, 1, 2); // RPY
-        Eigen::Vector3d euler_meas = R_meas.eulerAngles(0, 1, 2); // RPY
+            Eigen::Matrix3d R_des = cartesian_state_.orientation_desired.toRotationMatrix();
+            Eigen::Matrix3d R_err = R_meas.transpose() * R_des;
+            double e_R_angle = Eigen::AngleAxisd(R_err).angle();
+            // Quaterniones y Euler (roll-pitch-yaw) deseados y medidos
+            Eigen::Quaterniond q_des = cartesian_state_.orientation_desired;
+            Eigen::Quaterniond q_meas(R_meas);
+            Eigen::Vector3d euler_des = R_des.eulerAngles(0, 1, 2); // RPY
+            Eigen::Vector3d euler_meas = R_meas.eulerAngles(0, 1, 2); // RPY
 
-        auto ik_t0 = std::chrono::steady_clock::now();
-        //std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
-        //std::cout<<"vel_des: "<<haptic_state_.velocity.transpose()<<std::endl;
+            auto ik_t0 = std::chrono::steady_clock::now();
 
-        if (config_.controller == "QP") {
+            if (config_.controller == "QP") {
+                robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP2(
+                    robot_state_.q,
+                    cartesian_state_.position_desired,
+                    cartesian_state_.rotation_matrix_desired,
+                    600,
+                    ctrl_hz_
+                );
+            }
+            else if (config_.controller == "IMP") {
+                robot_state_.q_solution = impedance_controller_->calculateControlCommand(
+                    robot_state_.q,
+                    robot_state_.qd,
+                    cartesian_state_.position_desired,
+                    cartesian_state_.orientation_desired,
+                    cartesian_state_.velocity,
+                    cartesian_state_.acceleration,
+                    config_.Kp,
+                    config_.Kd,
+                    config_.dt);
+            }
+            else if (config_.controller == "SLD") {                
+                Eigen::Matrix<double, 6, 1> lambda = {0.1, 0.1, 0.1, 0.1, 0.1, 0.1};
+                Eigen::Matrix<double, 6, 1> k = {50.0, 50.0, 50.0, 50.0, 50.0, 50.0};
+                Eigen::Matrix<double, 6, 1> k2 = {10.0, 10.0, 10.0, 10.0, 10.0, 10.0};
+                double alpha = 0.01;
+                double damping_factor = 0.01;
+                double dt = 0.01;
+                robot_state_.q_solution = sliding_controller_->calculateControlCommand(
+                    robot_state_.q,
+                    robot_state_.qd,
+                    cartesian_state_.position_desired,
+                    cartesian_state_.rotation_matrix_desired,
+                    cartesian_state_.velocity,
+                    Eigen::Vector3d::Zero(), // desired_vel_ori (no control de velocidad angular en este ejemplo)
+                    cartesian_state_.acceleration,
+                    Eigen::Vector3d::Zero(), // desired_acc_ori
+                    config_.lambda,
+                    config_.k,
+                    config_.k2,
+                    config_.alpha,
+                    config_.damping_factor,
+                    config_.dt);
+            }
+            else {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                    "Controlador desconocido: %s. Usando QP.", config_.controller.c_str());
+                config_.controller = "QP";
+                robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP2(
+                    robot_state_.q,
+                    cartesian_state_.position_desired,
+                    cartesian_state_.rotation_matrix_desired,
+                    600,
+                    ctrl_hz_
+                );
+            }
+        
+            last_ik_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                               std::chrono::steady_clock::now() - ik_t0)
+                               .count() / 1000.0;
+            RCLCPP_INFO(this->get_logger(), "Tiempo IK: %.3f ms", last_ik_ms_);
 
-            robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP2(
-                robot_state_.q,
-                cartesian_state_.position_desired,
-                cartesian_state_.rotation_matrix_desired,
-                600,
-                ctrl_hz_
-            );}
-        else if (config_.controller == "IMP") {
-            Kp << 1850,1850,1850,500,500,500,500;
-            Kd << 10,10,10,10,10,10,10;
-            robot_state_.q_solution = impedance_controller_->calculateControlCommand(
-                robot_state_.q,
-                robot_state_.qd,
-                cartesian_state_.position_desired,
-                cartesian_state_.orientation_desired,
-                cartesian_state_.velocity,
-                cartesian_state_.acceleration,
-                Kp,
-                Kd,
-                0.01);
-            //std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
-
-        } else if (config_.controller == "SLD") {
-            return;
-        } else {
-            config_.controller = "QP";
-            robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP(
-                robot_state_.q,
-                cartesian_state_.position_desired,
-                cartesian_state_.orientation_desired,
-                600,
-                ctrl_hz_
-            );}
-        last_ik_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(
-                           std::chrono::steady_clock::now() - ik_t0)
-                           .count() / 1000.0;
-
-        if ((robot_state_.q - robot_state_.q_solution).norm() < 0.001) {       // si la diferencia entre la posición inicial y la solución es muy pequeña, se usa la posición actual
-            robot_state_.q_solution = robot_state_.q;
-            config_.control_loop_time = std::max(0.01, config_.control_loop_time - 0.005); // Decrecer tiempo cuando está cerca del objetivo
-        } else {
-            // Calcular si nos acercamos o alejamos del objetivo
-            static Eigen::VectorXd previous_error = Eigen::VectorXd::Zero(6);
-            Eigen::VectorXd current_error = robot_state_.q - robot_state_.q_solution;
-            double current_error_norm = current_error.norm();
-            double previous_error_norm = previous_error.norm();
+            // === INTERPOLACIÓN ADAPTATIVA PARA COMANDOS ALEJADOS ===
+            // Inicializar target interpolado en el primer ciclo
+            if (!q_cmd_initialized_) {
+                q_target_interpolated_ = robot_state_.q;
+                q_solution_prev_ = robot_state_.q_solution;
+            }
             
-            // Si el error actual es menor que el anterior, nos acercamos (signo negativo)
-            // Si el error actual es mayor que el anterior, nos alejamos (signo positivo)
-            double error_change = current_error_norm - previous_error_norm;
+            // Detectar cambios bruscos en la solución IK (operador movió háptico nuevamente)
+            Eigen::VectorXd ik_change = robot_state_.q_solution - q_solution_prev_;
+            double max_ik_change = ik_change.cwiseAbs().maxCoeff();
+            bool ik_changed_abruptly = (max_ik_change > max_ik_change_threshold_rad_);
             
-            // Ajustar el tiempo de control: incrementar si nos alejamos, decrecer si nos acercamos
-            config_.control_loop_time += 0.001 * error_change;
-            config_.control_loop_time = std::max(0.01, std::min(0.1, config_.control_loop_time)); // Limitar entre 0.01 y 1.0 segundos
+            // Calcular error entre posición actual y solución IK
+            Eigen::VectorXd q_error = robot_state_.q_solution - robot_state_.q;
+            double max_error = q_error.cwiseAbs().maxCoeff();
             
-            previous_error = current_error;
-            std::cout << "Error norm: " << current_error_norm << ", Error change: " << error_change << ", Tiempo de control: " << config_.control_loop_time << std::endl;
-        }
-        RCLCPP_INFO(this->get_logger(), "q_actual: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f", 
-            robot_state_.q[0], robot_state_.q[1], robot_state_.q[2], robot_state_.q[3], robot_state_.q[4], robot_state_.q[5]);
-        RCLCPP_INFO(this->get_logger(), "q_solution: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f", 
-            robot_state_.q_solution[0], robot_state_.q_solution[1], robot_state_.q_solution[2], robot_state_.q_solution[3], robot_state_.q_solution[4], robot_state_.q_solution[5]);    
+            // Si hay un error grande (movimiento brusco del háptico)
+            if (max_error > large_error_threshold_rad_) {
+                // Si la solución IK cambió drásticamente, reiniciar interpolación
+                if (ik_changed_abruptly) {
+                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 500,
+                        "Cambio brusco en solución IK detectado (%.3f rad). Reiniciando interpolación.",
+                        max_ik_change);
+                    q_target_interpolated_ = robot_state_.q;  // Reiniciar desde posición actual
+                } else {
+                    // Interpolar gradualmente hacia la solución alejada
+                    Eigen::VectorXd direction = (robot_state_.q_solution - q_target_interpolated_).normalized();
+                    double remaining_distance = (robot_state_.q_solution - q_target_interpolated_).norm();
+                    
+                    // Avanzar un paso limitado hacia el objetivo
+                    double step_size = std::min(max_joint_step_rad_, remaining_distance);
+                    q_target_interpolated_ += direction * step_size;
+                    
+                    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 500,
+                        "Error articular grande detectado: %.3f rad. Interpolando suavemente (restante: %.3f rad)",
+                        max_error, remaining_distance);
+                }
+            } else {
+                // Error pequeño: seguir normalmente la solución IK
+                q_target_interpolated_ = robot_state_.q_solution;
+            }
+            
+            // Guardar solución IK actual para próximo ciclo
+            q_solution_prev_ = robot_state_.q_solution;
+            RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                "q_actual: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]", 
+                robot_state_.q[0], robot_state_.q[1], robot_state_.q[2], robot_state_.q[3], robot_state_.q[4], robot_state_.q[5]);
+            RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                "q_solution: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]", 
+                robot_state_.q_solution[0], robot_state_.q_solution[1], robot_state_.q_solution[2], robot_state_.q_solution[3], robot_state_.q_solution[4], robot_state_.q_solution[5]);    
         // --------------------------------------------------------------------------------
         
-        std::string prefix = config_.nmspace.empty() ? "" : (config_.nmspace + "_");
+            // Filtro pasabajo sobre el target interpolado (no sobre q_solution directamente)
+            if (!q_cmd_initialized_) {
+                q_cmd_filtered_ = q_target_interpolated_;
+                q_cmd_initialized_ = true;
+            } else {
+                q_cmd_filtered_ = q_cmd_alpha_ * q_target_interpolated_ + (1.0 - q_cmd_alpha_) * q_cmd_filtered_;
+            }
 
-        auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
-        trajectory_msg.joint_names = {prefix + "shoulder_pan_joint", prefix + "shoulder_lift_joint", prefix + "elbow_joint",
-                                        prefix + "wrist_1_joint", prefix + "wrist_2_joint", prefix + "wrist_3_joint"};
-        auto point = trajectory_msgs::msg::JointTrajectoryPoint();
-        
-        point.positions.assign(robot_state_.q_solution.data(), robot_state_.q_solution.data() + robot_state_.q_solution.size());
+            // === PUBLICACIÓN CON GARANTÍA ===
+            // Siempre publicar para mantener heartbeat con el driver
+            try {
+                auto position_msg = std_msgs::msg::Float64MultiArray();
+                position_msg.data.assign(q_cmd_filtered_.data(), q_cmd_filtered_.data() + q_cmd_filtered_.size());
+                joint_position_pub_->publish(position_msg);
+                
+                // Registro exitoso de publicación
+                consecutive_publish_failures_ = 0;
+                last_successful_publish_ = std::chrono::steady_clock::now();
+            } catch (const std::exception& e) {
+                consecutive_publish_failures_++;
+                RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                    "Error publicando comando de posición: %s (fallos consecutivos: %d)",
+                    e.what(), consecutive_publish_failures_);
+                
+                if (consecutive_publish_failures_ >= MAX_CONSECUTIVE_FAILURES) {
+                    RCLCPP_FATAL(this->get_logger(),
+                        "Demasiados fallos consecutivos de publicación (%d). Revisar conexión ethernet.",
+                        consecutive_publish_failures_);
+                }
+            }
 
-        //point.time_from_start = rclcpp::Duration::from_seconds(config_.control_loop_time);
-        point.time_from_start = rclcpp::Duration::from_seconds(0.1);
-        trajectory_msg.points.push_back(point);
-        joint_trajectory_pub_->publish(trajectory_msg);
+            // Tiempo total del ciclo (hasta después de publicar)
+            last_loop_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - loop_t0)
+                        .count() / 1000.0;
 
-        // Tiempo total del ciclo (hasta después de publicar)
-        last_loop_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::steady_clock::now() - loop_t0)
-                    .count() / 1000.0;
+            // === WATCHDOG: Detectar delays del loop ===
+            if (last_loop_ms_ > loop_timeout_ms_) {
+                consecutive_loop_delays_++;
+                if (consecutive_loop_delays_ >= MAX_CONSECUTIVE_DELAYS) {
+                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                        "Loop lento detectado: %.2f ms (esperado <2ms a 500Hz). Fallos consecutivos: %d. "
+                        "Posible causa: IK solver, FK, logging CSV, o saturación de CPU.",
+                        last_loop_ms_, consecutive_loop_delays_);
+                }
+            } else {
+                consecutive_loop_delays_ = 0;
+            }
 
-        // Mostrar en terminal con throttling para no saturar
-        // RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
-        //             "ik_ms: %.3f | loop_ms: %.3f", last_ik_ms_, last_loop_ms_);
-        std::cout << "ik_ms: " << last_ik_ms_ << " | loop_ms: " << last_loop_ms_ << std::endl;
+            // === Logging de timeout ===
+            auto now = std::chrono::steady_clock::now();
+            double ms_since_last_publish = std::chrono::duration<double, std::milli>(
+                now - last_successful_publish_).count();
+            if (ms_since_last_publish > 100.0) {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                    "ADVERTENCIA: %.0f ms sin publicación exitosa. Driver UR podría desconectarse.",
+                    ms_since_last_publish);
+            }
 
-        // Logging CSV
-        if (config_.csv_enabled) {
-            rclcpp::Time now_ros = this->now();
-            double t = (now_ros - start_time_).seconds();
-            double dt = (now_ros - last_log_time_).seconds();
-            last_log_time_ = now_ros;
-            // Calcular errores cartesianos
-            Eigen::Vector3d pos_err = cartesian_state_.position_desired - cartesian_state_.position; // error de posición
-            std::cout<<"pos_err: "<<pos_err.transpose()<<std::endl;
-            // Para orientación: quaternion de error (desired * meas^{-1})
-            Eigen::Quaterniond q_err = q_des * cartesian_state_.orientation.inverse();
-            Eigen::AngleAxisd aa(q_err);
-            Eigen::Vector3d ori_axis = aa.axis();
-            double ori_angle = aa.angle();
-            write_csv_row(t, dt, cartesian_state_.position_desired, cartesian_state_.position, q_des, cartesian_state_.orientation, euler_des, euler_meas, e_R_angle,
-                          pos_err, ori_axis, ori_angle,
-                          last_ik_ms_, last_loop_ms_);
+            RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                "[Control Loop] ik: %.3f ms | loop: %.3f ms | publish: OK",
+                last_ik_ms_, last_loop_ms_);
+
+            // Logging CSV (sin bloqueo, en thread de fondo ideal)
+            if (config_.csv_enabled) {
+                try {
+                    rclcpp::Time now_ros = this->now();
+                    double t = (now_ros - start_time_).seconds();
+                    double dt = (now_ros - last_log_time_).seconds();
+                    last_log_time_ = now_ros;
+                    // Calcular errores cartesianos
+                    Eigen::Vector3d pos_err = cartesian_state_.position_desired - cartesian_state_.position; // error de posición
+                    RCLCPP_DEBUG(this->get_logger(), "pos_err: [%.3f, %.3f, %.3f]", pos_err.x(), pos_err.y(), pos_err.z());
+                    // Para orientación: quaternion de error (desired * meas^{-1})
+                    Eigen::Quaterniond q_err = q_des * cartesian_state_.orientation.inverse();
+                    Eigen::AngleAxisd aa(q_err);
+                    Eigen::Vector3d ori_axis = aa.axis();
+                    double ori_angle = aa.angle();
+                    write_csv_row(t, dt, cartesian_state_.position_desired, cartesian_state_.position, q_des, cartesian_state_.orientation, euler_des, euler_meas, e_R_angle,
+                                  pos_err, ori_axis, ori_angle,
+                                  last_ik_ms_, last_loop_ms_);
+                } catch (const std::exception& e) {
+                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                        "Error escribiendo CSV: %s", e.what());
+                }
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(this->get_logger(),
+                "Excepción en control_loop: %s. Continuando con último comando válido.", e.what());
+            // Intentar publicar última posición conocida para mantener conexión
+            try {
+                auto position_msg = std_msgs::msg::Float64MultiArray();
+                position_msg.data.assign(q_cmd_filtered_.data(), q_cmd_filtered_.data() + q_cmd_filtered_.size());
+                joint_position_pub_->publish(position_msg);
+            } catch (...) {
+                RCLCPP_ERROR(this->get_logger(), "No se puede publicar comando. Desconexión probable.");
+            }
         }
-
     }
 };
 

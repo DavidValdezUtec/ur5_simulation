@@ -72,9 +72,9 @@ class UIMixin:
             "rot_y": "0.0",
             "rot_z": "0.0",
         }
-        2
+        
         self.r1_control_config = {
-            "control_topic": "/scaled_joint_trajectory_controller/joint_trajectory",
+            "control_topic": "/forward_position_controller/commands",
             "ur":"ur5e",
             "nmspace":"r1",
             "geomagic":"false",
@@ -96,7 +96,7 @@ class UIMixin:
             "sign_yaw":"1.0",            
         }
         self.r2_control_config = {
-            "control_topic": "/scaled_joint_trajectory_controller/joint_trajectory",
+            "control_topic": "/forward_position_controller/commands",
             "ur":"ur5e",
             "nmspace":"r2",
             "geomagic":"false",
@@ -549,6 +549,9 @@ class UIMixin:
         self.r1_trayectories = QComboBox()
         self.r1_trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
         self.r1_controles = QComboBox(); self.r1_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
+        self.r1_q_target = QLineEdit(); self.r1_q_target.setInputMask("[000.00, 000.00, 000.00, 000.00, 000.00, 000.00]")
+        
+        
         
         r1_mode_layout = QGridLayout()
         r1_adv_mode_layout = QGridLayout()
@@ -573,11 +576,14 @@ class UIMixin:
             
         if self.r1_control_mode_input.currentText() == "Trayectoria":
             r1_mode_layout.addWidget(self.r1_trayectories, 1, 1)
+            r1_mode_layout.addWidget(QLabel("Q Target:"), 2, 0)
+            r1_mode_layout.addWidget(self.r1_q_target, 2, 1)
         else:
             r1_mode_layout.addWidget(self.r1_controles, 1, 1)
+            r1_mode_layout.addWidget(QLabel(""), 2, 0); r1_mode_layout.addWidget(QLabel(""), 2, 1) # Espaciadores para mantener el diseño
             
         r1_mode_layout.addWidget(self.r1_checkbox_safe_trayectory, 1, 0)
-        r1_mode_layout.addWidget(botones_widget, 2, 0, 1, 2)
+        r1_mode_layout.addWidget(botones_widget, 3, 0, 1, 2)
         
         self.cambiar_widget_controller("r1")
 
@@ -615,7 +621,7 @@ class UIMixin:
         
         self.r1_controller_widget.setLayout(r1_mode_layout)
         self.r1_controller_adv_widget.setLayout(r1_adv_mode_layout)
-        
+        self.setup_control_config_connections("r1")
         
         
         #inputs de Cartesian
@@ -629,6 +635,9 @@ class UIMixin:
         self.r2_trayectories = QComboBox()
         self.r2_trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
         self.r2_controles = QComboBox(); self.r2_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
+        self.r2_q_target = QLineEdit(); self.r2_q_target.setInputMask("[000.00, 000.00, 000.00, 000.00, 000.00, 000.00]")
+        
+        
         
         r2_mode_layout = QGridLayout()
         r2_adv_mode_layout = QGridLayout()
@@ -651,11 +660,14 @@ class UIMixin:
         
         if self.r2_control_mode_input.currentText() == "Trayectoria" :
             r2_mode_layout.addWidget(self.r2_trayectories, 1, 1) 
+            r2_mode_layout.addWidget(QLabel("Q Target:"), 2, 0)
+            r2_mode_layout.addWidget(self.r2_q_target, 2, 1)
         else:
             r2_mode_layout.addWidget(self.r2_controles, 1, 1)
+            r2_mode_layout.addWidget(QLabel(""), 2, 0); r2_mode_layout.addWidget(QLabel(""), 2, 1) # Espaciadores para mantener el diseño
             
         r2_mode_layout.addWidget(self.r2_checkbox_safe_trayectory, 1, 0)
-        r2_mode_layout.addWidget(botones_widget, 2, 0, 1, 2)
+        r2_mode_layout.addWidget(botones_widget, 3, 0, 1, 2)
         
         self.cambiar_widget_controller("r2")
 
@@ -695,8 +707,12 @@ class UIMixin:
         
     def setup_control_config_connections(self, robot_id):
         getattr(self, f"{robot_id}_control_mode_input").currentTextChanged.connect(
-            lambda text, r_id=robot_id: self.update_control_config(r_id, 'geomagic', "true" if text == "Geomagic" else "false")
+            lambda text, r_id=robot_id: self.update_control_config(r_id, 'geomagic', "true" if text == "Teleoperation" else "false")
         )
+        getattr(self, f"{robot_id}_trayectories").currentTextChanged.connect(
+            lambda text, r_id=robot_id: self.update_control_config(r_id, 'traj_mode', 0 if text=="Curva Helicoidal" else (1 if text == "Linea Recta" else 2) )
+        )
+        
         
     def update_control_config(self, robot_id, key, value):
         config = getattr(self, f"{robot_id}_control_config")
@@ -715,9 +731,18 @@ class UIMixin:
         if new_mode == self.control_mode_r1[0]: #new_mode = "Teleoperation"
             getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(1, 1).widget().setParent(None) # Elimina el widget actual en esa posición
             getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_controles"), 1, 1)
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 0).widget().setParent(None) # Elimina el widget de "Save Trajectory"
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 1).widget().setParent(None) # Elimina el widget de botones
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 2, 0) # Espaciador para mantener el diseño
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 2, 1) # Espaciador para mantener el diseño
+            
         elif new_mode == self.control_mode_r1[1]:
             getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(1, 1).widget().setParent(None) # Elimina el widget actual en esa posición
             getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_trayectories"), 1, 1)
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 0).widget().setParent(None) # Elimina el widget de "Save Trajectory"
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 1).widget().setParent(None) # Elimina el widget de botones
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel("Q Target"), 2, 0) # Espaciador para mantener el diseño
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_q_target"), 2, 1)
             
     def set_controller_menu(self):
         self.robots_controller_layout.addWidget(self.r1_controller_layout)

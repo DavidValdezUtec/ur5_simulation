@@ -8,7 +8,8 @@
 
 // Mensajes
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <std_msgs/msg/float64_multi_array.hpp>
+#include <trajectory_msgs/msg/joint_trajectory.hpp>
+#include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <omni_msgs/msg/omni_button_event.hpp>
 #include <omni_msgs/msg/omni_state.hpp>
@@ -178,7 +179,7 @@ public:
     this->declare_parameter<double>("traj_c0", config_.traj_c0);
     this->declare_parameter<int>("traj_mode", config_.traj_mode);
     this->declare_parameter<std::string>("controller_type", config_.controller);
-    ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 500.0); // 125Hz para estabilidad
+    ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 125.0); // 125Hz para estabilidad
     map_pos_ = {static_cast<int>(this->declare_parameter<int>("map_x", 2)),
                 static_cast<int>(this->declare_parameter<int>("map_y", 0)),
                 static_cast<int>(this->declare_parameter<int>("map_z", 1))};
@@ -245,7 +246,7 @@ public:
     RCLCPP_INFO(this->get_logger(), "Publicando en el tópico de control: '%s'", c_topic.c_str());
     RCLCPP_INFO(this->get_logger(), "Usando modelo UR: '%s'", config_.ur_model.c_str());
     RCLCPP_INFO(this->get_logger(), "Usando URDF en: '%s'", config_.urdf_path.c_str());
-    joint_position_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(c_topic, 10);
+    joint_trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(c_topic, 10);
     joint_states_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(joint_states_topic, 10, std::bind(&UR5IKNode::update_joint_positions, this, std::placeholders::_1));
     RCLCPP_INFO(this->get_logger(), "Suscrito a joint_states: '%s'", joint_states_topic.c_str());
     // Suscripción de respaldo al tópico global en caso de que el driver no use namespace
@@ -461,7 +462,7 @@ private:
     }
 
     // Suscriptores y publicadores
-    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr joint_position_pub_;
+    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_global_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr geomagic_pose_sub_;
@@ -475,11 +476,6 @@ private:
     NodeConfig config_;
     PinocchioResources pinocchio_;
     // ------------------------------------
-
-    // Filtro simple para comandos articulares
-    Eigen::VectorXd q_cmd_filtered_ = Eigen::VectorXd::Zero(6);
-    bool q_cmd_initialized_ = false;
-    double q_cmd_alpha_ = 0.2; // 0-1, mas alto = menos filtrado
 
     // Banderas de estado
     bool pose_inicial_capturada_ = false;
@@ -648,17 +644,23 @@ private:
         csv_file_ << std::endl;
     }
 
-    // Publica el objetivo articular a forward_position_controller
+    // Publica una sola vez una trayectoria a q_target_ similar al nodo ur5_pos
     void publish_initial_joint_position() {
         if (config_.q_target.size() != 6) {
             RCLCPP_ERROR(this->get_logger(), "q_target debe tener 6 elementos, tiene %zu", config_.q_target.size());
             return;
         }
-        auto msg = std_msgs::msg::Float64MultiArray();
-        msg.data = config_.q_target;
-        RCLCPP_INFO(this->get_logger(), "Publicando objetivo articular: %f, %f, %f, %f, %f, %f", 
-                    config_.q_target[0], config_.q_target[1], config_.q_target[2], config_.q_target[3], config_.q_target[4], config_.q_target[5]);
-        joint_position_pub_->publish(msg);
+        std::string prefix = config_.nmspace.empty() ? std::string("") : (config_.nmspace + std::string("_"));
+        trajectory_msgs::msg::JointTrajectory traj;
+        traj.joint_names = {prefix + "shoulder_pan_joint", prefix + "shoulder_lift_joint", prefix + "elbow_joint",
+                            prefix + "wrist_1_joint", prefix + "wrist_2_joint", prefix + "wrist_3_joint"};
+        trajectory_msgs::msg::JointTrajectoryPoint pt;
+        pt.positions = config_.q_target;
+        pt.time_from_start = rclcpp::Duration::from_seconds(config_.q_target_time);
+        RCLCPP_INFO(this->get_logger(), "Target: %f, %f, %f, %f, %f, %f", config_.q_target[0], config_.q_target[1], config_.q_target[2], config_.q_target[3], config_.q_target[4], config_.q_target[5]);
+        traj.points.push_back(pt);
+        joint_trajectory_pub_->publish(traj);
+        RCLCPP_INFO(this->get_logger(), "Movimiento inicial publicado (ur5_pos-like) en %0.2fs", config_.q_target_time);
     }
 
     // Tick periódico: publica mientras no detecte movimiento respecto a baseline
@@ -1025,7 +1027,7 @@ private:
             cartesian_state_.angular_acceleration = Eigen::Vector3d::Zero();
 
             //x_des << -0.03, 0.7, 0.1;
-            // Mantener orientación constanteluego agregalo al cmakelist
+            // Mantener orientación constante
             cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
             std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
             std::cout<<"vel_des: "<<cartesian_state_.velocity.transpose()<<std::endl;
@@ -1120,18 +1122,19 @@ private:
             robot_state_.q_solution[0], robot_state_.q_solution[1], robot_state_.q_solution[2], robot_state_.q_solution[3], robot_state_.q_solution[4], robot_state_.q_solution[5]);    
         // --------------------------------------------------------------------------------
         
-        // Filtrar setpoint antes de publicar
-        if (!q_cmd_initialized_) {
-            q_cmd_filtered_ = robot_state_.q_solution;
-            q_cmd_initialized_ = true;
-        } else {
-            q_cmd_filtered_ = q_cmd_alpha_ * robot_state_.q_solution + (1.0 - q_cmd_alpha_) * q_cmd_filtered_;
-        }
+        std::string prefix = config_.nmspace.empty() ? "" : (config_.nmspace + "_");
 
-        // Publicar setpoint de posición directamente
-        auto position_msg = std_msgs::msg::Float64MultiArray();
-        position_msg.data.assign(q_cmd_filtered_.data(), q_cmd_filtered_.data() + q_cmd_filtered_.size());
-        joint_position_pub_->publish(position_msg);
+        auto trajectory_msg = trajectory_msgs::msg::JointTrajectory();
+        trajectory_msg.joint_names = {prefix + "shoulder_pan_joint", prefix + "shoulder_lift_joint", prefix + "elbow_joint",
+                                        prefix + "wrist_1_joint", prefix + "wrist_2_joint", prefix + "wrist_3_joint"};
+        auto point = trajectory_msgs::msg::JointTrajectoryPoint();
+        
+        point.positions.assign(robot_state_.q_solution.data(), robot_state_.q_solution.data() + robot_state_.q_solution.size());
+
+        //point.time_from_start = rclcpp::Duration::from_seconds(config_.control_loop_time);
+        point.time_from_start = rclcpp::Duration::from_seconds(0.1);
+        trajectory_msg.points.push_back(point);
+        joint_trajectory_pub_->publish(trajectory_msg);
 
         // Tiempo total del ciclo (hasta después de publicar)
         last_loop_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(

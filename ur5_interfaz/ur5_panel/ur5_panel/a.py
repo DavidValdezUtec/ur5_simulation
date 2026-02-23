@@ -1,89 +1,112 @@
-import sys
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QGroupBox, QRadioButton, QLabel)
+from PyQt5.QtWidgets import QWidget, QGridLayout, QDoubleSpinBox, QLabel, QSlider
+from PyQt5.QtCore import Qt
+import math
 
-class MatrizSeleccion(QWidget):
+class RobotConfigWidget(QWidget):
     def __init__(self):
         super().__init__()
+        self.in_degrees = True  # True = grados, False = radianes
+        self.joints = []
+        self.sliders = []
         
-        # Configuración de la matriz
-        self.num_filas = 3
-        self.num_cols = 3
+        # Layout principal
+        main_layout = QGridLayout(self)
         
-        # Matriz para guardar referencias a los botones: self.botones[fila][col]
-        self.botones = [] 
+        # Switch de cambio de unidad de grados a radianes
+        switch_layout = QGridLayout()
+        switch_layout.addWidget(QLabel("Degrees"), 0, 0)
+        switch_layout.addWidget(QLabel("Radians"), 0, 1)
+        self.unit_switch = QSlider()
+        self.unit_switch.setOrientation(Qt.Horizontal)
+        self.unit_switch.setRange(0, 1)
+        self.unit_switch.setValue(0)  # Default a grados
+        self.unit_switch.sliderMoved.connect(self._on_unit_switch_changed)
+        switch_layout.addWidget(self.unit_switch, 1, 0, 1, 2)
         
-        # Estado interno: índice de la columna seleccionada para cada fila.
-        # Inicializamos en diagonal (0, 1, 2) para que empiece sin conflictos.
-        self.seleccion_actual = [i for i in range(self.num_filas)]
-
-        self.init_ui()
-
-    def init_ui(self):
-        layout_principal = QVBoxLayout()
+        main_layout.addLayout(switch_layout, 0, 0, 1, 3)
         
-        # Crear las 3 filas
-        for i in range(self.num_filas):
-            grupo = QGroupBox()
-            layout_grupo = QHBoxLayout()
-            botones_fila = []
+        # Widgets de los valores articulares
+        for i in range(6):
+            label = QLabel(f"Joint {i+1}:")
+            # Slider
+            slider = QSlider()
+            slider.setOrientation(Qt.Horizontal)
+            slider.setRange(-180, 180)
+            slider.setValue(0)
+            slider.valueChanged.connect(lambda value, idx=i: self._sync_spin_from_slider(idx))
             
-            for j in range(self.num_cols):
-                radio = QRadioButton()
-                
-                # Marcar si coincide con el estado inicial
-                if self.seleccion_actual[i] == j:
-                    radio.setChecked(True)
-                
-                # Conectar la señal 'clicked'. Usamos lambda para pasar fila y col.
-                # IMPORTANTE: Usar 'clicked' y no 'toggled' evita bucles recursivos
-                # cuando cambiamos los botones por código.
-                radio.clicked.connect(lambda checked, r=i, c=j: self.manejar_clic(r, c))
-                
-                layout_grupo.addWidget(radio)
-                botones_fila.append(radio)
+            # SpinBox
+            spin = QDoubleSpinBox()
+            spin.setRange(-180.0, 180.0)  # Definir límites físicos
+            spin.setSuffix(" °")           # Ayuda visual
+            spin.setDecimals(2)            # Precisión
+            spin.valueChanged.connect(lambda value, idx=i: self._sync_slider_from_spin(idx))
             
-            grupo.setLayout(layout_grupo)
-            layout_principal.addWidget(grupo)
-            self.botones.append(botones_fila)
-
-        self.setLayout(layout_principal)
-        self.setWindowTitle('Matriz de Selección Única')
-        self.resize(400, 300)
-
-    def manejar_clic(self, fila_clicada, nueva_columna):
-        # 1. Identificar qué columna tenía esta fila ANTES del cambio
-        columna_antigua = self.seleccion_actual[fila_clicada]
-        
-        # Si el usuario clicó la que ya estaba seleccionada, no hacemos nada
-        if columna_antigua == nueva_columna:
-            return
-
-        # 2. Buscar si hay otra fila que ya tenga la 'nueva_columna' (Conflicto)
-        fila_en_conflicto = -1
-        for r in range(self.num_filas):
-            if r != fila_clicada and self.seleccion_actual[r] == nueva_columna:
-                fila_en_conflicto = r
-                break
-        
-        # 3. Lógica de Intercambio
-        if fila_en_conflicto != -1:
-            # La fila en conflicto toma la columna antigua de la fila clicada
-            print(f"Conflicto en Fila {fila_en_conflicto+1}. Intercambiando a Columna {columna_antigua+1}")
+            main_layout.addWidget(label, i+1, 0)
+            main_layout.addWidget(slider, i+1, 1)
+            main_layout.addWidget(spin, i+1, 2)
             
-            # Actualizamos la UI de la fila conflictiva
-            self.botones[fila_en_conflicto][columna_antigua].setChecked(True)
-            # Actualizamos el estado interno de la fila conflictiva
-            self.seleccion_actual[fila_en_conflicto] = columna_antigua
+            self.joints.append(spin)
+            self.sliders.append(slider)
 
-        # 4. Actualizar el estado interno de la fila clicada
-        # (La UI ya se actualizó sola al hacer clic)
-        self.seleccion_actual[fila_clicada] = nueva_columna
+    def _on_unit_switch_changed(self):
+        """Cambia el sistema de unidades cuando se mueve el switch"""
+        self.in_degrees = self.unit_switch.value() == 0
         
-        print(f"Estado actual: {self.seleccion_actual}")
+        # Actualizar sufijo y rango de los spinboxes
+        for spin, slider in zip(self.joints, self.sliders):
+            current_value = spin.value()
+            
+            if self.in_degrees:
+                # Convertir a grados (si estaba en radianes)
+                spin.setSuffix(" °")
+                spin.setRange(-180.0, 180.0)
+                # No necesita conversión porque ya tiene grados guardados
+            else:
+                # Convertir a radianes
+                spin.setSuffix(" rad")
+                spin.setRange(-math.pi, math.pi)
+                # Convertir valor actual a radianes
+                spin.blockSignals(True)
+                spin.setValue(math.radians(current_value))
+                spin.blockSignals(False)
 
-if __name__ == '__main__':
+    def _sync_spin_from_slider(self, idx):
+        """Sincroniza el spinbox con el slider"""
+        self.joints[idx].blockSignals(True)
+        self.joints[idx].setValue(self.sliders[idx].value())
+        self.joints[idx].blockSignals(False)
+
+    def _sync_slider_from_spin(self, idx):
+        """Sincroniza el slider con el spinbox"""
+        self.sliders[idx].blockSignals(True)
+        self.sliders[idx].setValue(int(self.joints[idx].value()))
+        self.sliders[idx].blockSignals(False)
+
+    def get_values(self):
+        """Retorna una lista con los valores actuales siempre en radianes"""
+        values = []
+        for spin in self.joints:
+            value = spin.value()
+            if self.in_degrees:
+                # Convertir de grados a radianes
+                value = math.radians(value)
+            values.append(value)
+        return values
+
+class window_example(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.robot_config = RobotConfigWidget()
+        layout = QGridLayout(self)
+        layout.addWidget(self.robot_config, 0, 0)
+
+if __name__ == "__main__":
+    from PyQt5.QtWidgets import QApplication
+    import sys
+
     app = QApplication(sys.argv)
-    ex = MatrizSeleccion()
-    ex.show()
+    window = window_example()
+    window.show()
     sys.exit(app.exec_())
+        

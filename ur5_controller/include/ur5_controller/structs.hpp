@@ -116,6 +116,14 @@ struct NodeConfig
   bool csv_enabled = false;                 // Activar log CSV
   std::string csv_path = "";               // Directorio destino (se completa si vacío)
   std::string csv_prefix = "ur5_log";       // Prefijo de nombre de archivo
+  Eigen::Matrix<double, 7, 1> Kp = Eigen::Matrix<double, 7, 1>::Constant(100.0); // Ganancias proporcionales para control PD
+  Eigen::Matrix<double, 7, 1> Kd = Eigen::Matrix<double, 7, 1>::Constant(10.0);  // Ganancias derivativas para control PD
+  Eigen::Matrix<double, 6, 1> lambda = Eigen::Matrix<double, 6, 1>::Constant(0.5); // Ganancias de control (para QP)
+  Eigen::Matrix<double, 6, 1> k = {50.0, 50.0, 50.0, 50.0, 50.0, 50.0};
+  Eigen::Matrix<double, 6, 1> k2 = {10.0, 10.0, 10.0, 10.0, 10.0, 10.0};
+  double alpha = 0.01;
+  double damping_factor = 0.01;
+  double dt = 0.01;
 };
 
 // Recursos de Pinocchio
