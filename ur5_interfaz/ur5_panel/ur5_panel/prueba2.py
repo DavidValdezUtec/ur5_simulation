@@ -81,6 +81,7 @@ class InterfazRviz(QMainWindow, UIMixin):
             'camera': None,
             'robots': None
         }
+        self.robots_running = False
         
         # Inicializar ROS2 para el nodo de la cámara
         if not rclpy.ok():
@@ -305,43 +306,93 @@ class InterfazRviz(QMainWindow, UIMixin):
 
 
     '''    
-    def start_controller(self, robot_number,robot_type):
-        """Inicia el nodo controlador para el robot 1 con los parámetros de la interfaz"""
-        print("[R1 Controller] Iniciando nodo controlador para Robot 1...")
+    def start_controller(self, robot_id):
+        """Inicia el nodo controlador con los parámetros de la interfaz"""
+        print(f"[R{robot_id} Controller] Iniciando nodo controlador para Robot {robot_id}...")
+        
+        control_config = getattr(self, f"{robot_id}_control_config")
         
         # Construir comando con parámetros desde la interfaz
+        # IMPORTANTE: -p y el parámetro deben ser argumentos separados
         command = [
             'ros2', 'run', 'ur5_controller', 'controller_node',
             '--ros-args',
-            f'-p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory"',
-            f'-p ur:="{self.r1_type_input.currentText()}"',
-            f'-p nmspace:="r1"',
-            f'-p geomagic:="{"true" if self.haptic1_ready else "false"}"',
-            f'-p geomagic_topic:="{"phantom1" if robot_number == 1 else "phantom2"}/pose"',
-            f'-p geomagic_button_topic:="{"/phantom1/button" if robot_number == 1 else "/phantom2/button"}"',
-            f'-p csv_log_enable:="true"',
-            f'-p traj_mode:={self.r1_controller_layout.currentIndex()}',
-            f'-p q_target:="[{self.r1_joint1_input.text()}, {self.r1_joint2_input.text()}, {self.r1_joint3_input.text()}, {self.r1_joint4_input.text()}, {self.r1_joint5_input.text()}, {self.r1_joint6_input.text()}]"',
-            f'-p map_x:={self.r1_map_x_input.currentIndex()}',
-            f'-p map_y:={self.r1_map_y_input.currentIndex()}',
-            f'-p map_z:={self.r1_map_z_input.currentIndex()}',
-            f'-p sign_x:={self.r1_sign_x_input.value()}',
-            f'-p sign_y:={self.r1_sign_y_input.value()}',
-            f'-p sign_z:={self.r1_sign_z_input.value()}',
-            f'-p map_roll:={self.r1_map_roll_input.currentIndex()}',
-            f'-p map_pitch:={self.r1_map_pitch_input.currentIndex()}',
-            f'-p map_yaw:={self.r1_map_yaw_input.currentIndex()}',
-            f'-p sign_roll:={self.r1_sign_roll_input.value()}',
-            f'-p sign_pitch:={self.r1_sign_pitch_input.value()}',
-            f'-p sign_yaw:={self.r1_sign_yaw_input.value()}'
+            '-p', 'control_topic:=/forward_position_controller/commands',
+            '-p', f'ur:={control_config["ur"]}',
+            '-p', f'nmspace:={robot_id}',
+            '-p', f'geomagic:={control_config["geomagic"]}',
+            '-p', f'geomagic_topic:={"phantom1" if robot_id == "r1" else "phantom2"}/pose',
+            '-p', f'geomagic_button_topic:={"/phantom1/button" if robot_id == "r1" else "/phantom2/button"}',
+            '-p', 'csv_log_enable:=true',
+            '-p', f'traj_mode:={int(control_config["traj_mode"])}',
+            '-p', f'q_target:=[{getattr(self, f"{robot_id}_q_target").text()}]',
+            '-p', f'map_x:={float(control_config["map_x"])}',
+            '-p', f'map_y:={float(control_config["map_y"])}',
+            '-p', f'map_z:={float(control_config["map_z"])}',
+            '-p', f'sign_x:={float(control_config["sign_x"])}',
+            '-p', f'sign_y:={float(control_config["sign_y"])}',
+            '-p', f'sign_z:={float(control_config["sign_z"])}',
+            '-p', f'map_roll:={float(control_config["map_roll"])}',
+            '-p', f'map_pitch:={float(control_config["map_pitch"])}',
+            '-p', f'map_yaw:={float(control_config["map_yaw"])}',
+            '-p', f'sign_roll:={float(control_config["sign_roll"])}',
+            '-p', f'sign_pitch:={float(control_config["sign_pitch"])}',
+            '-p', f'sign_yaw:={float(control_config["sign_yaw"])}'
         ]
         
         try:
-            # Lanzar el proceso del controlador
-            self.r1_controller_process = subprocess.Popen(command)
+            print(f"[{robot_id} Controller] Comando: {' '.join(command)}")
+            # Lanzar el proceso del controlador en su propio grupo
+            controller_process = subprocess.Popen(
+                command,
+                preexec_fn=os.setsid
+            )
+            setattr(self, f'{robot_id}_controller_process', controller_process)
         except Exception as e:
-            print(f"[R1 Controller] Error al iniciar el nodo controlador: {e}")
+            print(f"[{robot_id} Controller] Error al iniciar el nodo controlador: {e}")
     
+    
+    def stop_controller(self, robot_id):
+        """Detiene el nodo controlador del robot especificado"""
+        controller_process = getattr(self, f'{robot_id}_controller_process', None)
+        if controller_process is None:
+            print(f"[{robot_id} Controller] No hay proceso de controlador activo para detener.")
+            return
+
+        print(f"[{robot_id} Controller] Deteniendo nodo controlador...")
+        try:
+            pgid = os.getpgid(controller_process.pid)
+
+            # Intento 1: SIGINT (Ctrl+C)
+            os.killpg(pgid, signal.SIGINT)
+            try:
+                controller_process.wait(timeout=5)
+                print(f"[{robot_id} Controller] Nodo controlador detenido correctamente.")
+                setattr(self, f'{robot_id}_controller_process', None)
+                return
+            except subprocess.TimeoutExpired:
+                print(f"[{robot_id} Controller] No respondió a SIGINT, enviando SIGTERM...")
+
+            # Intento 2: SIGTERM
+            os.killpg(pgid, signal.SIGTERM)
+            try:
+                controller_process.wait(timeout=5)
+                print(f"[{robot_id} Controller] Nodo controlador detenido con SIGTERM.")
+                setattr(self, f'{robot_id}_controller_process', None)
+                return
+            except subprocess.TimeoutExpired:
+                print(f"[{robot_id} Controller] No respondió a SIGTERM, forzando cierre...")
+
+            # Intento 3: SIGKILL
+            os.killpg(pgid, signal.SIGKILL)
+            controller_process.wait(timeout=2)
+            print(f"[{robot_id} Controller] Nodo controlador terminado forzosamente.")
+        except ProcessLookupError:
+            print(f"[{robot_id} Controller] El proceso ya no existe.")
+        except Exception as e:
+            print(f"[{robot_id} Controller] Error al detener el nodo controlador: {e}")
+        finally:
+            setattr(self, f'{robot_id}_controller_process', None)
     
     def on_r1_controller_tab_changed(self, index):
         """Se ejecuta cuando el usuario cambia de pestaña en el controlador del robot 1"""
@@ -544,7 +595,10 @@ class InterfazRviz(QMainWindow, UIMixin):
             f'r2_type:={self.r2_config["ur_type"]}',
             f'use_fake_hardware_r1:={self.r1_config["use_fake_hardware"]}',
             f'use_fake_hardware_r2:={self.r2_config["use_fake_hardware"]}',
-            f''
+            f'r1_IP:={self.r1_config["robot_ip"]}',
+            f'r2_IP:={self.r2_config["robot_ip"]}',
+            f'r1_TCP_port:={self.r1_config["script_sender_port"]}',
+            f'r2_TCP_port:={self.r2_config["script_sender_port"]}',
             # Posiciones y orientaciones desde inputs   
             f'r1_x_pos:={self.r1_config["pos_x"]}',
             f'r1_y_pos:={self.r1_config["pos_y"]}',
@@ -572,6 +626,7 @@ class InterfazRviz(QMainWindow, UIMixin):
                 stderr=subprocess.PIPE,
                 preexec_fn=os.setsid
             )
+            self.robots_running = True
             print(f"[Robots] Proceso lanzado (PID: {self.launch_processes['robots'].pid})")
             
             # Iniciar timer para verificar tópicos periódicamente

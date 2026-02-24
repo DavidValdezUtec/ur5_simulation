@@ -193,16 +193,16 @@ public:
     config_.ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 500.0); // 125Hz para estabilidad
     max_joint_step_rad_ = this->declare_parameter<double>("max_joint_step_rad", 0.05); // Paso máximo por ciclo
     large_error_threshold_rad_ = this->declare_parameter<double>("large_error_threshold_rad", 0.15); // Umbral error grande
-    map_pos_ = {static_cast<int>(this->declare_parameter<int>("map_x", 2)),
-                static_cast<int>(this->declare_parameter<int>("map_y", 0)),
-                static_cast<int>(this->declare_parameter<int>("map_z", 1))};
+    map_pos_ = {static_cast<int>(this->declare_parameter<double>("map_x", 2.0)),
+                static_cast<int>(this->declare_parameter<double>("map_y", 0.0)),
+                static_cast<int>(this->declare_parameter<double>("map_z", 1.0))};
     sign_pos_ = {this->declare_parameter<double>("sign_x", -1.0),
                     this->declare_parameter<double>("sign_y", -1.0),
                     this->declare_parameter<double>("sign_z", 1.0)};
 
-    map_rot_ = {static_cast<int>(this->declare_parameter<int>("map_roll", 2)),
-                static_cast<int>(this->declare_parameter<int>("map_pitch", 0)),
-                static_cast<int>(this->declare_parameter<int>("map_yaw", 1))};
+    map_rot_ = {static_cast<int>(this->declare_parameter<double>("map_roll", 2.0)),
+                static_cast<int>(this->declare_parameter<double>("map_pitch", 0.0)),
+                static_cast<int>(this->declare_parameter<double>("map_yaw", 1.0))};
     sign_rot_ = {this->declare_parameter<double>("sign_roll", 1.0),
                     this->declare_parameter<double>("sign_pitch", 1.0),
                     this->declare_parameter<double>("sign_yaw", 1.0)};
@@ -770,8 +770,8 @@ private:
             }
             
             // Redondear y calcular número total de pasos necesarios
-            max_error = std::round(max_error * 1000.0) / 1000.0;
-            step_total_ = static_cast<int>(std::ceil(max_error / 0.001));
+            max_error = std::round(max_error * 100000.0) / 100000.0;
+            step_total_ = static_cast<int>(std::ceil(max_error / 0.00001));
             
             RCLCPP_INFO(this->get_logger(), "Publicación de pasos INICIADA: %d pasos totales (máx error: %.3f rad)", 
                         step_total_, max_error);
@@ -1182,7 +1182,7 @@ private:
             RCLCPP_DEBUG(this->get_logger(), "vel_des: [%.3f, %.3f, %.3f]",
                 cartesian_state_.velocity.x(), cartesian_state_.velocity.y(), cartesian_state_.velocity.z());
         }
-        t_traj_ += 0.01;
+        t_traj_ += 0.005; // t_step = 0.005
             // Medición cartesiana actual (para logging y control si fuera necesario)
             pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
             pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);

@@ -80,7 +80,7 @@ class UIMixin:
             "geomagic":"false",
             "geomagic_topic":"/phantom1/pose",
             "csv_log_enable":"true",
-            "traj_mode":"0",
+            "traj_mode":"1",
             "q_target":"[-1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0]",
             "map_x":"0",
             "map_y":"1",
@@ -102,7 +102,7 @@ class UIMixin:
             "geomagic":"false",
             "geomagic_topic":"/phantom2/pose",
             "csv_log_enable":"true",
-            "traj_mode":"0",
+            "traj_mode":"1",
             "q_target":"[1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0]",
             "map_x":"0",
             "map_y":"1",
@@ -318,51 +318,8 @@ class UIMixin:
         
         self.r1_adv_widget.setLayout(r1_adv_buttons_layout)
         self.setup_config_connections('r1')
-           
-    def setup_config_connections(self, robot_id):
-        """Conecta los widgets de configuración de un robot a los métodos de actualización."""
-        config = getattr(self, f"{robot_id}_config")
-        
-        getattr(self, f"{robot_id}_type_input").currentTextChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'ur_type', text)
-        )
-        getattr(self, f"{robot_id}_mode_input").currentTextChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'use_fake_hardware', 'true' if text == 'Simulation' else 'false')
-        )
-        getattr(self, f"{robot_id}_x_input").textChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'pos_x', text)
-        )
-        getattr(self, f"{robot_id}_y_input").textChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'pos_y', text)
-        )
-        getattr(self, f"{robot_id}_z_input").textChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'pos_z', text)
-        )
-        getattr(self, f"{robot_id}_rx_input").textChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'rot_x', text)
-        )
-        getattr(self, f"{robot_id}_ry_input").textChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'rot_y', text)
-        )
-        getattr(self, f"{robot_id}_rz_input").textChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'rot_z', text)
-        )
-        getattr(self, f"{robot_id}_IP_input").textChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'robot_ip', text)
-        )
-        getattr(self, f"{robot_id}_TCP_input").textChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'script_sender_port', text)
-        )
-
-    def update_config(self, robot_id, key, value):
-        """Actualiza una clave en el diccionario de configuración del robot especificado."""
-        config = getattr(self, f"{robot_id}_config")
-        if key in config:
-            config[key] = value
-            print(f"{robot_id.upper()} Config updated: {key} = {value}") # Opcional: para depuración
-        else:
-            print(f"Warning: La clave '{key}' no existe en {robot_id}_config.")
-
+    
+    
     def set_r2_menu(self):        
         
         self.r2_layout.addTab(self.r2_widget, "Robot 2")
@@ -425,7 +382,51 @@ class UIMixin:
         r2_adv_buttons_layout.addWidget(self.r2_TCP_input)
         self.r2_adv_widget.setLayout(r2_adv_buttons_layout)
         self.setup_config_connections('r2')
+           
+    def setup_config_connections(self, robot_id):
+        """Conecta los widgets de configuración de un robot a los métodos de actualización."""
+        config = getattr(self, f"{robot_id}_config")
         
+        getattr(self, f"{robot_id}_type_input").currentTextChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'ur_type', text)
+        )
+        getattr(self, f"{robot_id}_mode_input").currentTextChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'use_fake_hardware', 'true' if text == 'Simulation' else 'false')
+        )
+        getattr(self, f"{robot_id}_x_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'pos_x', text)
+        )
+        getattr(self, f"{robot_id}_y_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'pos_y', text)
+        )
+        getattr(self, f"{robot_id}_z_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'pos_z', text)
+        )
+        getattr(self, f"{robot_id}_rx_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'rot_x', text)
+        )
+        getattr(self, f"{robot_id}_ry_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'rot_y', text)
+        )
+        getattr(self, f"{robot_id}_rz_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'rot_z', text)
+        )
+        getattr(self, f"{robot_id}_IP_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'robot_ip', text)
+        )
+        getattr(self, f"{robot_id}_TCP_input").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_config(r_id, 'script_sender_port', text)
+        )
+
+    def update_config(self, robot_id, key, value):
+        """Actualiza una clave en el diccionario de configuración del robot especificado."""
+        config = getattr(self, f"{robot_id}_config")
+        if key in config:
+            config[key] = value
+            print(f"{robot_id.upper()} Config updated: {key} = {value}") # Opcional: para depuración
+        else:
+            print(f"Warning: La clave '{key}' no existe en {robot_id}_config.")
+    
     def set_robot_menu(self):
         self.robots_layout.addWidget(self.r1_layout)
         self.robots_layout.addWidget(self.r2_layout)
@@ -535,7 +536,7 @@ class UIMixin:
         selection[fila_clicada] = nueva_columna
     
     def set_r1_controller(self):
-        
+        self.r1_control_config["ur"] = self.r1_config["ur_type"]  # Asegurar que el tipo de robot esté sincronizado
         self.r1_controller_layout.addTab(self.r1_controller_widget,"Control")
         self.r1_controller_layout.addTab(self.r1_controller_adv_widget,"Advanced")
         
@@ -549,7 +550,7 @@ class UIMixin:
         self.r1_trayectories = QComboBox()
         self.r1_trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
         self.r1_controles = QComboBox(); self.r1_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
-        self.r1_q_target = QLineEdit(); self.r1_q_target.setInputMask("[000.00, 000.00, 000.00, 000.00, 000.00, 000.00]")
+        self.r1_q_target = QLineEdit(); self.r1_q_target.setText("-1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0")
         
         
         
@@ -563,29 +564,32 @@ class UIMixin:
         botones_layout = QHBoxLayout()
         botones_widget = QWidget(); botones_widget.setLayout(botones_layout)
         boton_start_controller = QPushButton("Start Controller")
-        boton_start_controller.clicked.connect(lambda: self.start_controller("r1","ur5e"))
-        boton_reload_controller = QPushButton(self.icon_reload, "")
-        boton_reload_controller.setToolTip("Reload Controller Configuration")
-        boton_reload_controller.setFixedSize(30,30)
+        boton_detener_controller = QPushButton("Stop Controller")
+        boton_start_controller.clicked.connect(lambda: self.start_controller("r1"))
+        boton_detener_controller.clicked.connect(lambda: self.stop_controller("r1"))
+        
         botones_layout.addWidget(boton_start_controller)
-        botones_layout.addWidget(boton_reload_controller)
+        botones_layout.addWidget(boton_detener_controller)
         
         
         r1_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
         r1_mode_layout.addWidget(self.r1_control_mode_input, 0, 1)        
             
         if self.r1_control_mode_input.currentText() == "Trayectoria":
-            r1_mode_layout.addWidget(self.r1_trayectories, 1, 1)
-            r1_mode_layout.addWidget(QLabel("Q Target:"), 2, 0)
-            r1_mode_layout.addWidget(self.r1_q_target, 2, 1)
+            r1_mode_layout.addWidget(QLabel("Trajectory Type:"), 2, 0)
+            r1_mode_layout.addWidget(self.r1_trayectories, 2, 1)
+            r1_mode_layout.addWidget(QLabel("Q Target:"), 3, 0)
+            r1_mode_layout.addWidget(self.r1_q_target, 3, 1)
         else:
-            r1_mode_layout.addWidget(self.r1_controles, 1, 1)
             r1_mode_layout.addWidget(QLabel(""), 2, 0); r1_mode_layout.addWidget(QLabel(""), 2, 1) # Espaciadores para mantener el diseño
+            r1_mode_layout.addWidget(QLabel(""), 3, 0); r1_mode_layout.addWidget(QLabel(""), 3, 1) # Espaciadores para mantener el diseño
+            
             
         r1_mode_layout.addWidget(self.r1_checkbox_safe_trayectory, 1, 0)
-        r1_mode_layout.addWidget(botones_widget, 3, 0, 1, 2)
+        r1_mode_layout.addWidget(self.r1_controles, 1, 1)
+        r1_mode_layout.addWidget(botones_widget, 5, 0, 1, 2)
         
-        self.cambiar_widget_controller("r1")
+        
 
         self.r1_linear_widget = self._create_mapping_matrix(
             key="r1_linear",
@@ -621,12 +625,15 @@ class UIMixin:
         
         self.r1_controller_widget.setLayout(r1_mode_layout)
         self.r1_controller_adv_widget.setLayout(r1_adv_mode_layout)
+        
+        self.cambiar_widget_controller("r1")
         self.setup_control_config_connections("r1")
         
         
         #inputs de Cartesian
 
     def set_r2_controller(self):
+        self.r2_control_config["ur"] = self.r2_config["ur_type"]  # Asegurar que el tipo de robot esté sincronizado
         self.r2_controller_layout.addTab(self.r2_controller_widget, "Controller")
         self.r2_controller_layout.addTab(self.r2_controller_adv_widget, "Advanced")
         #inputs de Controller
@@ -635,7 +642,7 @@ class UIMixin:
         self.r2_trayectories = QComboBox()
         self.r2_trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
         self.r2_controles = QComboBox(); self.r2_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
-        self.r2_q_target = QLineEdit(); self.r2_q_target.setInputMask("[000.00, 000.00, 000.00, 000.00, 000.00, 000.00]")
+        self.r2_q_target = QLineEdit(); self.r2_q_target.setText("1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0")
         
         
         
@@ -648,28 +655,30 @@ class UIMixin:
         botones_layout = QHBoxLayout()
         botones_widget = QWidget(); botones_widget.setLayout(botones_layout)
         boton_start_controller = QPushButton("Start Controller")
-        boton_start_controller.clicked.connect(lambda: self.start_controller("r2","ur5e"))
-        boton_reload_controller = QPushButton(self.icon_reload, "")
-        boton_reload_controller.setToolTip("Reload Controller Configuration")
-        boton_reload_controller.setFixedSize(30,30)
+        boton_start_controller.clicked.connect(lambda: self.start_controller("r2"))
+        boton_stop_controller = QPushButton("Stop Controller")
+        boton_stop_controller.clicked.connect(lambda: self.stop_controller("r2"))
+        
         botones_layout.addWidget(boton_start_controller)
-        botones_layout.addWidget(boton_reload_controller)
+        botones_layout.addWidget(boton_stop_controller)
         
         r2_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
         r2_mode_layout.addWidget(self.r2_control_mode_input, 0, 1) 
         
         if self.r2_control_mode_input.currentText() == "Trayectoria" :
-            r2_mode_layout.addWidget(self.r2_trayectories, 1, 1) 
-            r2_mode_layout.addWidget(QLabel("Q Target:"), 2, 0)
-            r2_mode_layout.addWidget(self.r2_q_target, 2, 1)
-        else:
-            r2_mode_layout.addWidget(self.r2_controles, 1, 1)
+            r2_mode_layout.addWidget(QLabel("Trajectory Type:"), 2, 0)
+            r2_mode_layout.addWidget(self.r2_trayectories, 2, 1) 
+            r2_mode_layout.addWidget(QLabel("Q Target:"), 3, 0)
+            r2_mode_layout.addWidget(self.r2_q_target, 3, 1)
+        else:            
             r2_mode_layout.addWidget(QLabel(""), 2, 0); r2_mode_layout.addWidget(QLabel(""), 2, 1) # Espaciadores para mantener el diseño
+            r2_mode_layout.addWidget(QLabel(""), 3, 0); r2_mode_layout.addWidget(QLabel(""), 3, 1) # Espaciadores para mantener el diseño
             
         r2_mode_layout.addWidget(self.r2_checkbox_safe_trayectory, 1, 0)
-        r2_mode_layout.addWidget(botones_widget, 3, 0, 1, 2)
+        r2_mode_layout.addWidget(self.r2_controles, 1, 1)
+        r2_mode_layout.addWidget(botones_widget, 5, 0, 1, 2)
         
-        self.cambiar_widget_controller("r2")
+        
 
         self.r2_linear_widget = self._create_mapping_matrix(
             key="r2_linear",
@@ -704,14 +713,43 @@ class UIMixin:
 
         self.r2_controller_widget.setLayout(r2_mode_layout)
         self.r2_controller_adv_widget.setLayout(r2_adv_mode_layout)
+        self.cambiar_widget_controller("r2")
+        self.setup_control_config_connections("r2")
         
     def setup_control_config_connections(self, robot_id):
         getattr(self, f"{robot_id}_control_mode_input").currentTextChanged.connect(
             lambda text, r_id=robot_id: self.update_control_config(r_id, 'geomagic', "true" if text == "Teleoperation" else "false")
         )
         getattr(self, f"{robot_id}_trayectories").currentTextChanged.connect(
-            lambda text, r_id=robot_id: self.update_control_config(r_id, 'traj_mode', 0 if text=="Curva Helicoidal" else (1 if text == "Linea Recta" else 2) )
+            lambda text, r_id=robot_id: self.update_control_config(r_id, 'traj_mode', 1.0 if text=="Curva Helicoidal" else (2.0 if text == "Linea Recta" else 3) )
         )
+        
+        linear_data = self._mapping_matrices.get(f"{robot_id}_linear")
+        if linear_data:
+            for i, checkbox in enumerate(linear_data["invert_checks"]):
+                checkbox.stateChanged.connect(
+                    lambda state, r_id=robot_id, idx=i: self.on_linear_invert_changed(r_id, idx, state)
+                )
+            
+            for i, radio in enumerate(linear_data["radios"]):
+                for j, rb in enumerate(radio):
+                    rb.clicked.connect(
+                        lambda checked, r_id=robot_id, row=i, col=j: self.on_linear_mapping_changed(r_id, row, col)
+                    )
+        
+        # Conectar señales de mapeo rotacional
+        rot_data = self._mapping_matrices.get(f"{robot_id}_rot")
+        if rot_data:
+            for i, checkbox in enumerate(rot_data["invert_checks"]):
+                checkbox.stateChanged.connect(
+                    lambda state, r_id=robot_id, idx=i: self.on_rot_invert_changed(r_id, idx, state)
+            )
+            for i, radio in enumerate(rot_data["radios"]):
+                for j, rb in enumerate(radio):
+                    rb.clicked.connect(
+                        lambda checked, r_id=robot_id, row=i, col=j: self.on_rot_mapping_changed(r_id, row, col)
+                    )
+        
         
         
     def update_control_config(self, robot_id, key, value):
@@ -721,6 +759,47 @@ class UIMixin:
             print(f"{robot_id.upper()} Control Config updated: {key} = {value}") # Opcional: para depuración
         pass
     
+    def on_linear_mapping_changed(self, robot_id, row_idx, col_idx):
+        config = getattr(self, f"{robot_id}_control_config")
+        linear_data = self._mapping_matrices.get(f"{robot_id}_linear")
+        if linear_data:
+            lista = ["x","y","z"]
+            # Actualizar todos los mapeos
+            for i, col in enumerate(linear_data["selection"]):
+                config[f"map_{lista[i]}"] = str(col)
+            print(f"Linear mapping updated for {robot_id}: map_x={linear_data['selection'][0]}, map_y={linear_data['selection'][1]}, map_z={linear_data['selection'][2]}")
+    
+    def on_rot_mapping_changed(self, robot_id, row_idx, col_idx):
+        config = getattr(self, f"{robot_id}_control_config")
+        rot_data = self._mapping_matrices.get(f"{robot_id}_rot")
+        if rot_data:
+            lista = ["roll", "pitch", "yaw"]
+            # Actualizar todos los mapeos
+            for i, col in enumerate(rot_data["selection"]):
+                config[f"map_{lista[i]}"] = str(col)
+            print(f"Rotational mapping updated for {robot_id}: map_roll={rot_data['selection'][0]}, map_pitch={rot_data['selection'][1]}, map_yaw={rot_data['selection'][2]}")
+    
+    def on_linear_invert_changed(self, robot_id, idx, state):
+        linear_data = self._mapping_matrices.get(f"{robot_id}_linear")
+        if linear_data:
+            keys = ["sign_x", "sign_y", "sign_z"]
+            # Actualizar todos los signos
+            for i, checkbox in enumerate(linear_data["invert_checks"]):
+                sign = -1.0 if checkbox.isChecked() else 1.0
+                self.update_control_config(robot_id, keys[i], str(sign))
+            print(f"Linear signs updated for {robot_id}: x={getattr(self, f'{robot_id}_control_config')['sign_x']}, y={getattr(self, f'{robot_id}_control_config')['sign_y']}, z={getattr(self, f'{robot_id}_control_config')['sign_z']}")
+
+    def on_rot_invert_changed(self, robot_id, idx, state):
+        rot_data = self._mapping_matrices.get(f"{robot_id}_rot")
+        if rot_data:
+            keys = ["sign_roll", "sign_pitch", "sign_yaw"]
+            # Actualizar todos los signos
+            for i, checkbox in enumerate(rot_data["invert_checks"]):
+                sign = -1.0 if checkbox.isChecked() else 1.0
+                self.update_control_config(robot_id, keys[i], str(sign))
+            print(f"Rotational signs updated for {robot_id}: roll={getattr(self, f'{robot_id}_control_config')['sign_roll']}, pitch={getattr(self, f'{robot_id}_control_config')['sign_pitch']}, yaw={getattr(self, f'{robot_id}_control_config')['sign_yaw']}")
+    
+    
     
     def cambiar_widget_controller(self, robot_id):
         getattr(self, f"{robot_id}_control_mode_input").currentTextChanged.connect(
@@ -729,20 +808,21 @@ class UIMixin:
     
     def widget_controller_changed(self, robot_id, new_mode):        
         if new_mode == self.control_mode_r1[0]: #new_mode = "Teleoperation"
-            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(1, 1).widget().setParent(None) # Elimina el widget actual en esa posición
-            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_controles"), 1, 1)
-            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 0).widget().setParent(None) # Elimina el widget de "Save Trajectory"
-            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 1).widget().setParent(None) # Elimina el widget de botones
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 1).widget().setParent(None) # Elimina el widget actual en esa posición
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 0).widget().setParent(None) # Elimina el widget de "Save Trajectory"
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 1).widget().setParent(None) # Elimina el widget de botones
             getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 2, 0) # Espaciador para mantener el diseño
             getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 2, 1) # Espaciador para mantener el diseño
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 3, 0) # Espaciador para mantener el diseño
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 3, 1) # Espaciador para mantener el diseño
             
         elif new_mode == self.control_mode_r1[1]:
-            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(1, 1).widget().setParent(None) # Elimina el widget actual en esa posición
-            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_trayectories"), 1, 1)
-            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 0).widget().setParent(None) # Elimina el widget de "Save Trajectory"
-            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 1).widget().setParent(None) # Elimina el widget de botones
-            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel("Q Target"), 2, 0) # Espaciador para mantener el diseño
-            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_q_target"), 2, 1)
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 1).widget().setParent(None) # Elimina el widget actual en esa posición
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_trayectories"), 2, 1)
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 0).widget().setParent(None) # Elimina el widget de "Save Trajectory"
+            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 1).widget().setParent(None) # Elimina el widget de botones
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel("Q Target"), 3, 0) # Espaciador para mantener el diseño
+            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_q_target"), 3, 1)
             
     def set_controller_menu(self):
         self.robots_controller_layout.addWidget(self.r1_controller_layout)
