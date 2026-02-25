@@ -77,7 +77,7 @@ class UIMixin:
             "control_topic": "/forward_position_controller/commands",
             "ur":"ur5e",
             "nmspace":"r1",
-            "geomagic":"false",
+            "geomagic":"true",
             "geomagic_topic":"/phantom1/pose",
             "csv_log_enable":"true",
             "traj_mode":"1",
@@ -94,12 +94,16 @@ class UIMixin:
             "sign_roll":"1.0",
             "sign_pitch":"1.0",
             "sign_yaw":"1.0",            
+            "controller_type":"QP",
+            "lambda":"[20.0,20.0,20.0,20.0,20.0,20.0]",
+            "k":"[60.0,60.0,60.0,60.0,60.0,60.0,60.0]",
+            "alpha":"10.0" 
         }
         self.r2_control_config = {
             "control_topic": "/forward_position_controller/commands",
             "ur":"ur5e",
             "nmspace":"r2",
-            "geomagic":"false",
+            "geomagic":"true",
             "geomagic_topic":"/phantom2/pose",
             "csv_log_enable":"true",
             "traj_mode":"1",
@@ -115,7 +119,11 @@ class UIMixin:
             "map_yaw":"0",
             "sign_roll":"1.0",
             "sign_pitch":"1.0",
-            "sign_yaw":"1.0",            
+            "sign_yaw":"1.0",                
+            "controller_type":"QP",
+            "lambda":"[20.0,20.0,20.0,20.0,20.0,20.0]",
+            "k":"[60.0,60.0,60.0,60.0,60.0,60.0,60.0]",
+            "alpha":"10.0"     
         }
         
         
@@ -722,6 +730,9 @@ class UIMixin:
         )
         getattr(self, f"{robot_id}_trayectories").currentTextChanged.connect(
             lambda text, r_id=robot_id: self.update_control_config(r_id, 'traj_mode', 1.0 if text=="Curva Helicoidal" else (2.0 if text == "Linea Recta" else 3) )
+        )
+        getattr(self,f"{robot_id}_controles").currentTextChanged.connect(
+            lambda text, r_id=robot_id: self.update_control_config(r_id,'controller_type', "QP" if text=="Optimizador" else ("SLD" if text == "Sliding" else "IMP"))
         )
         
         linear_data = self._mapping_matrices.get(f"{robot_id}_linear")
