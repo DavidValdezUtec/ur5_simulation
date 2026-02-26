@@ -19,6 +19,7 @@ struct RobotState
   Eigen::VectorXd qd = Eigen::VectorXd::Zero(6);     // Velocidades articulares actuales
   Eigen::VectorXd q_init = Eigen::VectorXd::Zero(6); // Posiciones articulares iniciales
   Eigen::VectorXd q_solution = Eigen::VectorXd::Zero(6); // Solución del controlador
+  Eigen::VectorXd u_control = Eigen::VectorXd::Zero(6); // Esfuerzo de control calculado (si se usa control de torque)
 };
 
 // Estado Cartesiano del efector final

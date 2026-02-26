@@ -238,7 +238,8 @@ public:
     // Inicializar Pinocchio
     initializeUR5(pinocchio_, config_.urdf_path);
     kinematics_solver_ = std::make_unique<UR5Kinematics>(config_.urdf_path);
-    impedance_controller_ = std::make_unique<UR5Impedance>(config_.urdf_path);
+    impedance_controller_ = std::make_unique<ur5_impedance::UR5Impedance>(config_.urdf_path);
+    sliding_controller_ = std::make_unique<ur5_sliding::UR5Sliding>(config_.urdf_path);
     std::string c_topic = "/" + config_.nmspace + config_.control_topic;
     std::string joint_states_topic = config_.nmspace.empty() ? std::string("/joint_states")
                                                             : std::string("/") + config_.nmspace + std::string("/joint_states");
@@ -485,7 +486,8 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
 
     std::unique_ptr<UR5Kinematics> kinematics_solver_;
-    std::unique_ptr<UR5Impedance> impedance_controller_;
+    std::unique_ptr<ur5_impedance::UR5Impedance> impedance_controller_;
+    std::unique_ptr<ur5_sliding::UR5Sliding> sliding_controller_;
    
 
     // ---- Mapeo robusto de joints por nombre ----
@@ -1077,11 +1079,25 @@ private:
                 cartesian_state_.acceleration,
                 Kp,
                 Kd,
-                0.01);
+                0.01).q_desired;
             //std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
 
         } else if (config_.controller == "SLD") {
-            return;
+            robot_state_.q_solution = sliding_controller_->calculateControlCommand(
+                    robot_state_.q,
+                    robot_state_.qd,
+                    cartesian_state_.position_desired,
+                    cartesian_state_.rotation_matrix_desired,
+                    cartesian_state_.velocity,
+                    Eigen::Vector3d::Zero(), // desired_vel_ori (no control de velocidad angular en este ejemplo)
+                    cartesian_state_.acceleration,
+                    Eigen::Vector3d::Zero(), // desired_acc_ori
+                    config_.lambda,
+                    config_.k,
+                    config_.k2,
+                    config_.alpha,
+                    config_.damping_factor,
+                    config_.dt).q_desired;
         } else {
             config_.controller = "QP";
             robot_state_.q_solution = kinematics_solver_->inverseKinematicsQP(

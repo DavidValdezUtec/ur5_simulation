@@ -1,5 +1,7 @@
 #include "ur5_sliding/sliding.hpp"
 
+namespace ur5_sliding {
+
 UR5Sliding::UR5Sliding(const std::string& urdf_path) {
     model_ = std::make_unique<pinocchio::Model>();
     pinocchio::urdf::buildModel(urdf_path, *model_);
@@ -18,7 +20,7 @@ UR5Sliding::UR5Sliding(const std::string& urdf_path) {
     std::cout << "Modelo de control deslizante cargado correctamente." << std::endl;
 }
 
-Eigen::VectorXd UR5Sliding::calculateControlCommand(
+ControlOutput UR5Sliding::calculateControlCommand(
     const Eigen::VectorXd& q,
     const Eigen::VectorXd& dq,
     const Eigen::Vector3d& desired_pos,
@@ -118,9 +120,15 @@ Eigen::VectorXd UR5Sliding::calculateControlCommand(
     // Actualizar Jacobiano previo para la próxima iteración
     J_previous_ = J;
 
-
     std::cout<<"Control deslizante calculado: q = " << q_desired.transpose() << std::endl;
-    return q_desired;
+    
+    // Crear y retornar estructura de salida
+    ControlOutput output;
+    output.q_desired = q_desired;
+    output.tau = tau;
+    output.q_ddot_desired = q_ddot_desired;
+    
+    return output;
 }
 
 Eigen::Matrix<double, 6, 1> UR5Sliding::computePoseError(
@@ -177,3 +185,5 @@ Eigen::MatrixXd UR5Sliding::computeJacobianDerivative(
                                             pinocchio::LOCAL_WORLD_ALIGNED, J_dot);
     return J_dot;
 }
+
+}  // namespace ur5_sliding

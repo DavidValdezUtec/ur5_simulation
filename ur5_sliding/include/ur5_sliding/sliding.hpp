@@ -21,6 +21,17 @@
 
 #define PI 3.14159265358979323846
 
+namespace ur5_sliding {
+
+/**
+ * @brief Estructura para almacenar la salida del control
+ */
+struct ControlOutput {
+    Eigen::VectorXd q_desired;      ///< Posiciones articulares deseadas [6x1]
+    Eigen::VectorXd tau;             ///< Pares de control calculados [6x1]
+    Eigen::VectorXd q_ddot_desired;  ///< Aceleraciones articulares deseadas [6x1]
+};
+
 /**
  * @brief Clase para control por modo deslizante (Sliding Mode Control) del UR5
  * 
@@ -53,9 +64,9 @@ public:
      * @param damping_factor Factor de amortiguamiento para la pseudoinversa (default: 0.05)
      * @param dt Paso de tiempo para integración [s]
      * 
-     * @return Par motor calculado (tau) [6x1]
+     * @return ControlOutput con q_desired, tau y q_ddot_desired
      */
-    Eigen::VectorXd calculateControlCommand(
+    ControlOutput calculateControlCommand(
         const Eigen::VectorXd& q,
         const Eigen::VectorXd& dq,
         const Eigen::Vector3d& desired_pos,
@@ -118,5 +129,7 @@ private:
     
     Eigen::MatrixXd J_previous_;  ///< Jacobiano previo para calcular derivada
 };
+
+}  // namespace ur5_sliding
 
 #endif // UR5_SLIDING_HPP

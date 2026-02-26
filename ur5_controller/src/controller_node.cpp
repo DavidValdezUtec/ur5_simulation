@@ -309,8 +309,8 @@ public:
     // Inicializar Pinocchio
     initializeUR5(pinocchio_, config_.urdf_path);
     kinematics_solver_ = std::make_unique<UR5Kinematics>(config_.urdf_path);
-    impedance_controller_ = std::make_unique<UR5Impedance>(config_.urdf_path);
-    sliding_controller_ = std::make_unique<UR5Sliding>(config_.urdf_path);
+    impedance_controller_ = std::make_unique<ur5_impedance::UR5Impedance>(config_.urdf_path);
+    sliding_controller_ = std::make_unique<ur5_sliding::UR5Sliding>(config_.urdf_path);
     std::string c_topic = "/" + config_.nmspace + config_.control_topic;
     std::string joint_states_topic = config_.nmspace.empty() ? std::string("/joint_states")
                                                             : std::string("/") + config_.nmspace + std::string("/joint_states");
@@ -573,8 +573,8 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
 
     std::unique_ptr<UR5Kinematics> kinematics_solver_;
-    std::unique_ptr<UR5Impedance> impedance_controller_;
-    std::unique_ptr<UR5Sliding> sliding_controller_;
+    std::unique_ptr<ur5_impedance::UR5Impedance> impedance_controller_;
+    std::unique_ptr<ur5_sliding::UR5Sliding> sliding_controller_;
    
 
     // ---- Mapeo robusto de joints por nombre ----
@@ -615,6 +615,7 @@ private:
     std::vector<double> q_baseline_{0.0,0.0,0.0,0.0,0.0,0.0};
     double move_detect_threshold_ = 0.010; // rad, ~0.57 deg
     rclcpp::TimerBase::SharedPtr init_move_timer_;
+    rclcpp::TimerBase::SharedPtr trajectory_delay_timer_;
     // Detección de llegada a objetivo articular inicial
     bool init_movement_started_ = false;     // ya comenzó a moverse hacia el objetivo
     double reach_threshold_rad_ = 0.020;     // rad, condición de cercanía a q_target
@@ -688,6 +689,7 @@ private:
         << ",e_R_angle"
         << ",pos_err_x,pos_err_y,pos_err_z"
         << ",ori_err_axis_x,ori_err_axis_y,ori_err_axis_z,ori_err_angle"
+        << ",u_control_0,u_control_1,u_control_2,u_control_3,u_control_4,u_control_5"
         << ",ik_ms,loop_ms"
         << std::endl;
 
@@ -705,6 +707,7 @@ private:
                        const Eigen::Vector3d& pos_err,
                        const Eigen::Vector3d& ori_err_axis,
                        double ori_err_angle,
+                       const Eigen::VectorXd& u_control,
                        double ik_ms,
                        double loop_ms) {
         if (!config_.csv_enabled || !csv_file_.is_open()) return;
@@ -728,12 +731,14 @@ private:
         // euler deseado/medido (roll, pitch, yaw)
         csv_file_ << "," << euler_des.x() << "," << euler_des.y() << "," << euler_des.z();
         csv_file_ << "," << euler_meas.x() << "," << euler_meas.y() << "," << euler_meas.z();
-    // e_R_angle
+        // e_R_angle
         csv_file_ << "," << e_R_angle;
-    // Error cartesiano de posición (desired - measured)
-    csv_file_ << "," << pos_err.x() << "," << pos_err.y() << "," << pos_err.z();
-    // Error de orientación (eje normalizado y ángulo)
-    csv_file_ << "," << ori_err_axis.x() << "," << ori_err_axis.y() << "," << ori_err_axis.z() << "," << ori_err_angle;
+        // Error cartesiano de posición (desired - measured)
+        csv_file_ << "," << pos_err.x() << "," << pos_err.y() << "," << pos_err.z();
+        // Error de orientación (eje normalizado y ángulo)
+        csv_file_ << "," << ori_err_axis.x() << "," << ori_err_axis.y() << "," << ori_err_axis.z() << "," << ori_err_angle;
+        // Esfuerzos de control
+        for (int i = 0; i < 6; ++i) csv_file_ << "," << u_control[i];
 
         // métricas de tiempos
         csv_file_ << "," << ik_ms << "," << loop_ms;
@@ -861,9 +866,18 @@ private:
                 cartesian_state_.orientation_initial = Eigen::Quaterniond(frame_now.rotation());
                 
                 RCLCPP_INFO(this->get_logger(), "x_init y R_init reconfigurados a la pose actual antes de iniciar trayectoria.");
-                trajectory_start_time_ = this->now();
-                trajectory_active_ = true;
-                RCLCPP_INFO(this->get_logger(), "Trayectoria automática ACTIVADA desde t=0 tras alcanzar objetivo articular.");
+                RCLCPP_INFO(this->get_logger(), "Esperando 1 segundo antes de activar trayectoria automática...");
+                
+                // Crear timer de una sola ejecución (one-shot) de 1 segundo
+                trajectory_delay_timer_ = this->create_wall_timer(
+                    std::chrono::seconds(1),
+                    [this]() {
+                        trajectory_start_time_ = this->now();
+                        trajectory_active_ = true;
+                        RCLCPP_INFO(this->get_logger(), "Trayectoria automática ACTIVADA desde t=0 tras delay de 1 segundo.");
+                        if (trajectory_delay_timer_) trajectory_delay_timer_->cancel();
+                    }
+                );
             }
             return;
         }
@@ -1224,7 +1238,17 @@ private:
                     cartesian_state_.acceleration,
                     config_.Kp,
                     config_.Kd,
-                    config_.dt);
+                    config_.dt).q_desired;
+                robot_state_.u_control = impedance_controller_->calculateControlCommand(
+                    robot_state_.q,
+                    robot_state_.qd,
+                    cartesian_state_.position_desired,
+                    cartesian_state_.orientation_desired,
+                    cartesian_state_.velocity,
+                    cartesian_state_.acceleration,
+                    config_.Kp,
+                    config_.Kd,
+                    config_.dt).tau;
             }
             else if (config_.controller == "SLD") {                
                 // Eigen::Matrix<double, 6, 1> lambda = {0.1, 0.1, 0.1, 0.1, 0.1, 0.1};
@@ -1247,7 +1271,22 @@ private:
                     config_.k2,
                     config_.alpha,
                     config_.damping_factor,
-                    config_.dt);
+                    config_.dt).q_desired;
+                robot_state_.u_control = sliding_controller_->calculateControlCommand(
+                    robot_state_.q,
+                    robot_state_.qd,
+                    cartesian_state_.position_desired,
+                    cartesian_state_.rotation_matrix_desired,
+                    cartesian_state_.velocity,
+                    Eigen::Vector3d::Zero(), // desired_vel_ori
+                    cartesian_state_.acceleration,
+                    Eigen::Vector3d::Zero(), // desired_acc_ori
+                    config_.lambda,
+                    config_.k,
+                    config_.k2,
+                    config_.alpha,
+                    config_.damping_factor,
+                    config_.dt).tau;
             }
             else {
                 RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
@@ -1398,7 +1437,7 @@ private:
                     Eigen::Vector3d ori_axis = aa.axis();
                     double ori_angle = aa.angle();
                     write_csv_row(t, dt, cartesian_state_.position_desired, cartesian_state_.position, q_des, cartesian_state_.orientation, euler_des, euler_meas, e_R_angle,
-                                  pos_err, ori_axis, ori_angle,
+                                  pos_err, ori_axis, ori_angle, robot_state_.u_control,
                                   last_ik_ms_, last_loop_ms_);
                 } catch (const std::exception& e) {
                     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,

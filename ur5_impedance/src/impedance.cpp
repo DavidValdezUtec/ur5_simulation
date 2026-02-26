@@ -10,6 +10,7 @@
 
 #define M_PI 3.14159265358979323846
 
+namespace ur5_impedance {
 
 UR5Impedance::UR5Impedance(const std::string& urdf_path) {
     model_ = std::make_unique<pinocchio::Model>();
@@ -83,7 +84,7 @@ Eigen::MatrixXd UR5Impedance::computeFullJacobianQuaternion(const Eigen::VectorX
     return J_full;
 }
 
-Eigen::VectorXd UR5Impedance::calculateControlCommand(
+ControlOutput UR5Impedance::calculateControlCommand(
     const Eigen::VectorXd& q,
     const Eigen::VectorXd& dq,
     const Eigen::Vector3d& desired_pos,
@@ -179,5 +180,11 @@ Eigen::VectorXd UR5Impedance::calculateControlCommand(
             q_next[i] = -M_PI; // Normaliza a [-pi, pi]
         }
     }
-    return q_next;
+    ControlOutput output;
+    output.q_desired =q_next;
+    output.tau = tau;
+    output.q_ddot_desired = qdd;
+    return output;
 }
+
+}  // namespace ur5_impedance
