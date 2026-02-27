@@ -54,12 +54,12 @@ def graficar_trayectoria_3d(df: pd.DataFrame, guardar: bool = False, salida: pat
 	fig = plt.figure(figsize=(10, 8))
 	ax = fig.add_subplot(111, projection='3d')
 	ax.plot(x_des[:, 0], x_des[:, 1], x_des[:, 2], label="Trayectoria Deseada", linewidth=1.5)
-	ax.plot(x_meas[:, 0], x_meas[:, 1], x_meas[:, 2], label="Trayectoria Medida", linewidth=1.5, alpha=0.8)
-	ax.set_xlabel("X (m)")
-	ax.set_ylabel("Y (m)")
-	ax.set_zlabel("Z (m)")
-	ax.set_title("Trayectoria 3D del End-Effector")
-	ax.legend()
+	ax.plot(x_meas[:, 0], x_meas[:, 1], x_meas[:, 2], label="Trayectoria Medida",ls="--",linewidth=1.5, alpha=0.8)
+	ax.set_xlabel("X (m)", fontsize=12)
+	ax.set_ylabel("Y (m)", fontsize=12)
+	ax.set_zlabel("Z (m)", fontsize=12)
+	ax.set_title("Trayectoria 3D del End-Effector", fontsize=14)
+	ax.legend(fontsize=12)
 	ax.grid(True, linestyle='--', alpha=0.4)
 
 	if guardar:
@@ -84,12 +84,12 @@ def graficar_esfuerzos(df: pd.DataFrame, guardar: bool = False, salida: pathlib.
 	for i in range(6):
 		ax = axes[i//2, i%2]
 		ax.plot(t, u_control[:, i], label=f"{sp.Symbol(f'u_control_{i+1}')}", linewidth=1.0)
-		ax.set_ylabel(r"$\mu_{%d}$ (N·m)" % (i+1))
+		ax.set_ylabel(r"$\mu_{%d}$ (N·m)" % (i+1), fontsize=12)
 		ax.grid(True, linestyle='--', alpha=0.4)
-		ax.set_title(f"Esfuerzo de Control de la Articulación {i+1}")
+		ax.set_title(f"Esfuerzo de Control de la Articulación {i+1}", fontsize=12)
 	for ax in axes[-1, :]:
-		ax.set_xlabel("t (s)")
-	fig.suptitle("Esfuerzos de Control Articulares")
+		ax.set_xlabel("t (s)", fontsize=12)
+	fig.suptitle("Esfuerzos de Control Articulares", fontsize=14)
 	fig.tight_layout(rect=(0,0,1,0.97))
 
 	if guardar:
@@ -121,13 +121,13 @@ def graficar_posiciones(df: pd.DataFrame, guardar: bool = False, salida: pathlib
 	for i in range(3):
 		ax = axes[i]
 		ax.plot(t, x_des[:, i], label=f"${{{etiquetas[i].lower()}}}_{{des}}$", linewidth=1.0)
-		ax.plot(t, x_meas[:, i], label=f"${{{etiquetas[i].lower()}}}_{{med}}$", linewidth=1.0, alpha=0.8)
-		ax.set_ylabel(f"Posición {etiquetas[i]} (m)")
+		ax.plot(t, x_meas[:, i], label=f"${{{etiquetas[i].lower()}}}_{{med}}$", linewidth=1.0, alpha=0.8, ls="--")
+		ax.set_ylabel(f"Posición {etiquetas[i]} (m)", fontsize=12)
 		ax.grid(True, linestyle='--', alpha=0.4)
-		ax.legend(bbox_to_anchor=(1, 0.8), loc='upper left', fontsize=8)
+		ax.legend(bbox_to_anchor=(1, 0.8), loc='upper left', fontsize=12)
 	for ax in axes[:-1]:
-		ax.set_xlabel("t (s)")
-	fig.suptitle("Posición Deseada vs Medida")
+		ax.set_xlabel("t (s)", fontsize=12)
+	fig.suptitle("Posición Deseada vs Medida", fontsize=14)
 	fig.tight_layout(rect=(0, 0, 0.88, 0.97))  # deja espacio para leyenda a la derecha
 
 	if guardar:

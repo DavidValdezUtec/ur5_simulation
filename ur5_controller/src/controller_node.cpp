@@ -1227,6 +1227,13 @@ private:
                     600,
                     config_.ctrl_hz_
                 );
+                robot_state_.u_control = kinematics_solver_->inverseKinematicsQP2(
+                    robot_state_.q,
+                    cartesian_state_.position_desired,
+                    cartesian_state_.rotation_matrix_desired,
+                    600,
+                    config_.ctrl_hz_
+                ); // No se calculan esfuerzos en QP, solo posición objetivo
             }
             else if (config_.controller == "IMP") {
                 robot_state_.q_solution = impedance_controller_->calculateControlCommand(
