@@ -10,7 +10,9 @@
 #include <iostream>
 #include <algorithm>
 #include <memory>
-#include <string>   
+#include <string>
+#include <unordered_map>
+#include <vector>
 #include <Eigen/Dense>
 #include <pinocchio/parsers/urdf.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
@@ -52,10 +54,17 @@ std::string get_file_path(const std::string& package_name, const std::string& re
     }
 }
 
+static bool ends_with(const std::string& str, const std::string& suffix) {
+    if (suffix.size() > str.size()) return false;
+    return std::equal(suffix.rbegin(), suffix.rend(), str.rbegin());
+}
+
 class FuerzaFeedback : public rclcpp::Node {
 public:
     FuerzaFeedback() : Node("force_feedback_publisher") {
-        
+        // Declarar y obtener parámetro de namespace
+        this->declare_parameter<std::string>("namespace", "");
+        this->get_parameter("namespace", namespace_);
 
         initializeUR5(model, data, tool_frame_id, urdf_path);    
         force_feedback_pub_ = this->create_publisher<omni_msgs::msg::OmniFeedback>("/phantom/force_feedback", 10);
@@ -70,29 +79,131 @@ private:
         last_ur5e_force_ = msg->wrench.force;
     }
 
-    void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
-            last_joint_state_ = msg;
-            //bool implementacion = false; // Variable para determinar si se implementa la cinemática inversa
-            if (implementacion){
-                q_[0] = msg->position[5];           qd_[0] = msg->velocity[5];
-                q_[1] = msg->position[0];           qd_[1] = msg->velocity[0];
-                q_[2] = msg->position[1];           qd_[2] = msg->velocity[1];
-                q_[3] = msg->position[2];           qd_[3] = msg->velocity[2];
-                q_[4] = msg->position[3];           qd_[4] = msg->velocity[3];
-                q_[5] = msg->position[4];           qd_[5] = msg->velocity[4];
-            }
-            else{
-                for (int i = 0; i < 6; ++i) {
-                    q_[i] = msg->position[i];
-                    qd_[i] = msg->velocity[i];
+    // Funciones auxiliares para mapeo de joints
+    std::vector<std::string> get_expected_joint_names() const {
+        std::string prefix = namespace_.empty() ? std::string("") : (namespace_ + std::string("_"));
+        return {
+            prefix + "shoulder_pan_joint",
+            prefix + "shoulder_lift_joint",
+            prefix + "elbow_joint",
+            prefix + "wrist_1_joint",
+            prefix + "wrist_2_joint",
+            prefix + "wrist_3_joint"
+        };
+    }
 
+    std::vector<std::string> get_expected_base_joint_names() const {
+        return {
+            "shoulder_pan_joint",
+            "shoulder_lift_joint",
+            "elbow_joint",
+            "wrist_1_joint",
+            "wrist_2_joint",
+            "wrist_3_joint"
+        };
+    }
+
+    bool same_name_list(const std::vector<std::string>& a, const std::vector<std::string>& b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i)
+            if (a[i] != b[i]) return false;
+        return true;
+    }
+
+    void rebuild_joint_index_map(const sensor_msgs::msg::JointState::SharedPtr& msg) {
+        joint_map_initialized_ = false;
+        joint_index_map_.assign(6, -1);
+        last_js_names_ = msg->name;
+
+        const auto expected = get_expected_joint_names();
+        const auto expected_base = get_expected_base_joint_names();
+
+        // Mapa rápido de nombre -> índice del mensaje
+        std::unordered_map<std::string, int> name_to_idx;
+        for (size_t i = 0; i < msg->name.size(); ++i) {
+            name_to_idx[msg->name[i]] = static_cast<int>(i);
+        }
+
+        // 1) Intento por coincidencia exacta
+        int found_exact = 0;
+        for (int i = 0; i < 6; ++i) {
+            auto it = name_to_idx.find(expected[i]);
+            if (it != name_to_idx.end()) {
+                joint_index_map_[i] = it->second;
+                found_exact++;
+            }
+        }
+
+        // 2) Fallback: buscar por nombre base exacto si faltan
+        if (found_exact < 6) {
+            for (int i = 0; i < 6; ++i) {
+                if (joint_index_map_[i] == -1) {
+                    auto it = name_to_idx.find(expected_base[i]);
+                    if (it != name_to_idx.end()) {
+                        joint_index_map_[i] = it->second;
+                        found_exact++;
+                    }
                 }
             }
-            // Imprimir las posiciones articulares
-            //RCLCPP_INFO(this->get_logger(), "Posiciones articulares: %.4f %.4f %.4f %.4f %.4f %.4f",   q_[0], q_[1], q_[2], q_[3], q_[4], q_[5]);
-            // Imprimir las velocidades articulares
-            //RCLCPP_INFO(this->get_logger(), "Velocidades articulares: %.4f %.4f %.4f %.4f %.4f %.4f",  qd_[0], qd_[1], qd_[2], qd_[3], qd_[4], qd_[5]);
         }
+
+        // 3) Último recurso: buscar entradas que terminen con el nombre base
+        if (found_exact < 6) {
+            for (int i = 0; i < 6; ++i) {
+                if (joint_index_map_[i] == -1) {
+                    for (const auto& [name, idx] : name_to_idx) {
+                        if (ends_with(name, expected_base[i])) {
+                            joint_index_map_[i] = idx;
+                            found_exact++;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (found_exact == 6) {
+            joint_map_initialized_ = true;
+            RCLCPP_INFO(this->get_logger(), "Mapa de joints construido exitosamente!");
+        } else {
+            RCLCPP_ERROR(this->get_logger(), "No se pudieron mapear todos los joints. Solo %d de 6", found_exact);
+        }
+    }
+
+    void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
+        last_joint_state_ = msg;
+        
+        // (Re)construir mapeo si es la primera vez o si la lista de nombres cambió
+        if (!joint_map_initialized_ || !same_name_list(msg->name, last_js_names_)) {
+            rebuild_joint_index_map(msg);
+        }
+
+        if (!joint_map_initialized_) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                "Mapa de joints no inicializado. Esperando mensajes válidos...");
+            return;
+        }
+
+        // Reordenar posiciones y velocidades según el mapeo
+        for (int i = 0; i < 6; ++i) {
+            int idx = joint_index_map_[i];
+            if (idx >= 0 && idx < static_cast<int>(msg->position.size())) {
+                q_[i] = msg->position[idx];
+            }
+            if (idx >= 0 && idx < static_cast<int>(msg->velocity.size())) {
+                qd_[i] = msg->velocity[idx];
+            } else {
+                qd_[i] = 0.0; // Por seguridad
+            }
+        }
+
+        // Imprimir las posiciones articulares (opcional)
+        //RCLCPP_INFO(this->get_logger(), "Posiciones articulares: %.4f %.4f %.4f %.4f %.4f %.4f",
+        //    q_[0], q_[1], q_[2], q_[3], q_[4], q_[5]);
+        // Imprimir las velocidades articulares (opcional)
+        //RCLCPP_INFO(this->get_logger(), "Velocidades articulares: %.4f %.4f %.4f %.4f %.4f %.4f",
+        //    qd_[0], qd_[1], qd_[2], qd_[3], qd_[4], qd_[5]);
+    }
 
     void publish_force_feedback() {        
         auto message = omni_msgs::msg::OmniFeedback();
@@ -134,9 +245,14 @@ private:
 
     Eigen::VectorXd q_ = Eigen::VectorXd::Zero(6);
     Eigen::VectorXd qd_ = Eigen::VectorXd::Zero(6);
-    bool implementacion = true; // Variable para determinar si se implementa la cinemática inversa
     //orientacion del efector final
     Eigen::Matrix3d R;
+
+    // Variables para mapeo dinámico de joints
+    std::vector<int> joint_index_map_{};
+    bool joint_map_initialized_ = false;
+    std::vector<std::string> last_js_names_{};
+    std::string namespace_;
 
 
     rclcpp::Publisher<omni_msgs::msg::OmniFeedback>::SharedPtr force_feedback_pub_;
