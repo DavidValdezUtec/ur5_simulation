@@ -340,7 +340,7 @@ class InterfazRviz(QMainWindow, UIMixin):
             '-p', f'sign_yaw:={float(control_config["sign_yaw"])}',
             '-p', f'controller_type:={control_config["controller_type"]}',
             '-p', f'lambda:={control_config["lambda"]}',
-            '-p', f'k:={control_config["k"]}',
+            '-p', f'k:={control_config["k"]}', 
             '-p', f'alpha:={control_config["alpha"]}'
             
         ]

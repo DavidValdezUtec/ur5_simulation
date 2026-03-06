@@ -1,0 +1,21 @@
+# Configuración para usar el controlador SLD (Sliding Mode)
+# El controlador SLD publica a la frecuencia definida en control_rate
+
+manual_ik_node:
+  ros__parameters:
+    use_current_pose: true
+    target_pose: [0.55566, 0.42846, 0.5]
+    target_orientation_quat: [0.49603, 0.11866, 0.20079, 0.83639]
+    
+    controller: "SLD"
+    namespace: ""
+    ur_model: "ur5"
+    control_rate: 100.0  # Hz
+    
+    # Parámetros específicos de SLD
+    sld_lambda: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+    sld_k: [50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+    sld_k2: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    sld_alpha: 0.01
+    sld_damping_factor: 0.01
+    sld_dt: 0.01

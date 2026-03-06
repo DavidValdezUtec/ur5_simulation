@@ -62,13 +62,23 @@ static bool ends_with(const std::string& str, const std::string& suffix) {
 class FuerzaFeedback : public rclcpp::Node {
 public:
     FuerzaFeedback() : Node("force_feedback_publisher") {
-        // Declarar y obtener parámetro de namespace
-        this->declare_parameter<std::string>("namespace", "");
-        this->get_parameter("namespace", namespace_);
+        // Declarar parámetros de namespace
+        std::string namespace_ = this->declare_parameter<std::string>("namespace", "");
+        std::string phantom_namespace = this->declare_parameter<std::string>("ph_namespace", "phantom");
 
+        // Declarar parámetros de mapeo de ejes de traslación
+        map_pos_ = {static_cast<int>(this->declare_parameter<double>("map_x", 2.0)),
+                    static_cast<int>(this->declare_parameter<double>("map_y", 0.0)),
+                    static_cast<int>(this->declare_parameter<double>("map_z", 1.0))};
+        sign_pos_ = {this->declare_parameter<double>("sign_x", -1.0),
+                     this->declare_parameter<double>("sign_y", 1.0),
+                     this->declare_parameter<double>("sign_z", 1.0)};
+
+        std::string joint_state_topic = namespace_.empty() ? std::string("/force_torque_sensor_broadcaster/wrench") : std::string("/"+namespace_+"/force_torque_sensor_broadcaster/wrench");
+        
         initializeUR5(model, data, tool_frame_id, urdf_path);    
-        force_feedback_pub_ = this->create_publisher<omni_msgs::msg::OmniFeedback>("/phantom/force_feedback", 10);
-        ur5e_force_sub_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>("/force_torque_sensor_broadcaster/wrench", 10,
+        force_feedback_pub_ = this->create_publisher<omni_msgs::msg::OmniFeedback>("/"+phantom_namespace+"/force_feedback", 10);
+        ur5e_force_sub_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(joint_state_topic, 10,
             std::bind(&FuerzaFeedback::ur5e_force_callback, this, std::placeholders::_1));
         subscription_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&FuerzaFeedback::update_joint_positions, this, std::placeholders::_1));            
         timer_ = this->create_wall_timer(
@@ -232,10 +242,26 @@ private:
         message.position.x = 0.0;
         message.position.y = 0.0;
         message.position.z = 0.0;
+        
+        // Array con las componentes de fuerza base para mapeo dinámico
+        Eigen::Vector3d fuerza_array = fuerza_base;
+        std::array<double, 3> fuerza_components = {fuerza_array.x(), fuerza_array.y(), fuerza_array.z()};
+        
+        // Aplicar mapeo de ejes y signos dinamicamente
+        std::array<double, 3> fuerza_mapeada;
+        for (int i = 0; i < 3; ++i) {
+            int src_idx = map_pos_[i];
+            if (src_idx >= 0 && src_idx < 3) {
+                fuerza_mapeada[i] = sign_pos_[i] * fuerza_components[src_idx] * escala;
+            } else {
+                fuerza_mapeada[i] = 0.0;
+            }
+        }
+        
         // Saturar la fuerza a ±3.3 N por componente
-        message.force.x = -std::max(-3.3, std::min(3.3, fuerza_base.y()*escala));
-        message.force.y = std::max(-3.3, std::min(3.3, fuerza_base.x()*escala));
-        message.force.z = std::max(-3.3, std::min(3.3, fuerza_base.z()*escala));
+        message.force.x = std::max(-3.3, std::min(3.3, fuerza_mapeada[0]));
+        message.force.y = std::max(-3.3, std::min(3.3, fuerza_mapeada[1]));
+        message.force.z = std::max(-3.3, std::min(3.3, fuerza_mapeada[2]));
         force_feedback_pub_->publish(message);
         RCLCPP_INFO(this->get_logger(), "OmniFeedback publicado: Fuerza [%.2f, %.2f, %.2f], Posición [%.2f, %.2f, %.2f]",
             message.force.x, message.force.y, message.force.z,
@@ -253,6 +279,10 @@ private:
     bool joint_map_initialized_ = false;
     std::vector<std::string> last_js_names_{};
     std::string namespace_;
+    
+    // Variables para mapeo de ejes de traslación y rotación
+    Eigen::Vector3i map_pos_;  // Mapeo: x<-map_pos_[0], y<-map_pos_[1], z<-map_pos_[2]
+    Eigen::Vector3d sign_pos_; // Signos: sx, sy, sz
 
 
     rclcpp::Publisher<omni_msgs::msg::OmniFeedback>::SharedPtr force_feedback_pub_;

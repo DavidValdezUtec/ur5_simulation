@@ -1,0 +1,18 @@
+# Configuración para usar el controlador IMP (Impedancia)
+# El controlador IMP publica a la frecuencia definida en control_rate
+
+manual_ik_node:
+  ros__parameters:
+    use_current_pose: true
+    target_pose: [0.55566, 0.42846, 0.5]
+    target_orientation_quat: [0.49603, 0.11866, 0.20079, 0.83639]
+    
+    controller: "IMP"
+    namespace: ""
+    ur_model: "ur5"
+    control_rate: 100.0  # Hz
+    
+    # Parámetros específicos de IMP
+    imp_kp: [150.0, 150.0, 150.0, 100.0, 100.0, 100.0, 100.0]
+    imp_kd: [30.0, 30.0, 30.0, 10.0, 10.0, 10.0, 10.0]
+    imp_dt: 0.01

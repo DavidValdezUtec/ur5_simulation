@@ -117,10 +117,15 @@ ament_target_dependencies(manual_ik_node
   Eigen3
   ament_index_cpp
   ur5_kinematics
+  ur5_impedance
+  ur5_sliding
 )
 
 target_link_libraries(manual_ik_node
   ur5_kinematics::ur5_kinematics
+  ur5_impedance::ur5_impedance
+  ur5_sliding::ur5_sliding
+
 )
 
 install(TARGETS manual_ik_node

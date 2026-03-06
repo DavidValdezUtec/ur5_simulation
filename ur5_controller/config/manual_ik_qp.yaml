@@ -1,0 +1,16 @@
+# Configuración para usar el controlador QP
+# El controlador QP publica CADA ITERACIÓN del proceso de optimización
+
+manual_ik_node:
+  ros__parameters:
+    use_current_pose: true
+    target_pose: [0.55566, 0.42846, 0.5]
+    target_orientation_quat: [0.49603, 0.11866, 0.20079, 0.83639]
+    
+    controller: "QP"
+    namespace: "r1"
+    ur_model: "ur5e"
+    
+    # Parámetros específicos de QP
+    qp_max_iterations: 600  # Máximo 150 iteraciones reales
+    qp_control_hz: 100.0

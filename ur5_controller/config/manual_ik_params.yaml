@@ -1,0 +1,59 @@
+# Configuración del nodo manual_ik_node
+# Este nodo permite ir de una pose inicial a una pose final usando los controladores QP, IMP o SLD
+
+manual_ik_node:
+  ros__parameters:
+    # Si es true, usa la pose actual del robot como inicial
+    # Si es false, usa la pose definida en initial_pose/initial_orientation_quat
+    use_current_pose: true
+    
+    # Pose inicial (solo se usa si use_current_pose = false)
+    # [x, y, z] en metros
+    initial_pose: [0.0, 0.0, 0.0]
+    # Orientación inicial como cuaternión [x, y, z, w]
+    initial_orientation_quat: [0.0, 0.0, 0.0, 1.0]
+    
+    # Pose objetivo (destino deseado)
+    # [x, y, z] en metros
+    target_pose: [0.55566, 0.42846, 0.5]
+    # Orientación objetivo como cuaternión [x, y, z, w]
+    target_orientation_quat: [0.49603, 0.11866, 0.20079, 0.83639]
+    
+    # Controlador a usar: "QP", "IMP" o "SLD"
+    controller: "QP"
+    
+    # Namespace del robot (dejar vacío si no usa namespace)
+    namespace: "r1"
+    
+    # Modelo del robot: "ur5" o "ur5e"
+    ur_model: "ur5e"
+    
+    # Frecuencia de control para IMP y SLD (Hz)
+    # Para QP se ignora ya que publica cada iteración
+    control_rate: 100.0
+    
+    # === Parámetros del controlador QP ===
+    qp_max_iterations: 600
+    qp_control_hz: 100.0
+    
+    # === Parámetros del controlador IMP (Impedancia) ===
+    # Ganancias proporcionales [7 valores: 3 pos + 4 quat]
+    imp_kp: [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+    # Ganancias derivativas [7 valores: 3 pos + 4 quat]
+    imp_kd: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    # Paso de tiempo
+    imp_dt: 0.01
+    
+    # === Parámetros del controlador SLD (Sliding Mode) ===
+    # Lambda [6 valores]
+    sld_lambda: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+    # Ganancias k [6 valores]
+    sld_k: [50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+    # Ganancias k2 [6 valores]
+    sld_k2: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    # Alpha
+    sld_alpha: 0.01
+    # Factor de amortiguamiento
+    sld_damping_factor: 0.01
+    # Paso de tiempo
+    sld_dt: 0.01
