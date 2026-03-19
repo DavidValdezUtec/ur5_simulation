@@ -54,7 +54,11 @@ def generate_launch_description():
                     "controllers_file": PathJoinSubstitution([
                         FindPackageShare("ur5_bringup"), "config", "ur_controllers_r1.yaml"
                     ]),
-                    "kinematics_params_file": ["/home/david/my_robot_calibration_", r1_type, ".yaml"],
+                    "kinematics_params_file": PathJoinSubstitution([
+                        FindPackageShare("ur5_description"),
+                        "config",
+                        ["my_robot_calibration_", r1_type, ".yaml"],
+                    ]),
                     "use_fake_hardware": use_fake_hardware_r1,
                     "launch_dashboard_client": launch_dashboard_client,
                     "launch_rviz": "false", # Lanzaremos un RViz común si es necesario
@@ -97,7 +101,11 @@ def generate_launch_description():
                     "controllers_file": PathJoinSubstitution([
                         FindPackageShare("ur5_bringup"), "config", "ur_controllers_r2.yaml"
                     ]),
-                    "kinematics_params_file": ["/home/david/my_robot_calibration_", r2_type, ".yaml"],
+                    "kinematics_params_file": PathJoinSubstitution([
+                        FindPackageShare("ur5_description"),
+                        "config",
+                        ["my_robot_calibration_", r2_type, ".yaml"],
+                    ]),
                     "use_fake_hardware": use_fake_hardware_r2,
                     "launch_dashboard_client": "false", # Solo lanzamos un dashboard client
                     "launch_rviz": "false",
