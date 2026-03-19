@@ -126,7 +126,40 @@ cd openhaptics_3.4-0-developer-edition-amd64
 echo "ATENCIÓN: La siguiente instalación es interactiva."
 echo "Deberás presionar 'y' para continuar y 'q' para cancelar el reinicio al final."
 read -p "Presiona Enter para iniciar la instalación de OpenHaptics..."
+set +e
 sudo ./install
+OPENHAPTICS_INSTALL_STATUS=$?
+set -e
+
+# El instalador puede devolver salida no-cero al cancelar el reinicio con 'q'.
+# Verificamos archivos instalados para decidir si se puede continuar.
+OPENHAPTICS_MARKERS=(
+    "/usr/lib/libHD.so"
+    "/usr/lib/libHL.so"
+    "/usr/lib/libHD.so.3.4.0"
+    "/usr/lib/libHL.so.3.4.0"
+    "/usr/lib/x86_64-linux-gnu/libHD.so"
+    "/usr/lib/x86_64-linux-gnu/libHL.so"
+    "/usr/include/HD/hd.h"
+    "/usr/include/HL/hl.h"
+)
+OPENHAPTICS_INSTALLED=0
+for marker in "${OPENHAPTICS_MARKERS[@]}"; do
+    if [[ -f "$marker" ]]; then
+        OPENHAPTICS_INSTALLED=1
+        break
+    fi
+done
+
+if [[ $OPENHAPTICS_INSTALL_STATUS -ne 0 && $OPENHAPTICS_INSTALLED -eq 1 ]]; then
+    info "OpenHaptics detectado. Se ignora el código de salida al cancelar reinicio con 'q'."
+elif [[ $OPENHAPTICS_INSTALL_STATUS -ne 0 ]]; then
+    echo "ERROR: La instalación de OpenHaptics falló (código $OPENHAPTICS_INSTALL_STATUS)."
+    exit 1
+elif [[ $OPENHAPTICS_INSTALLED -eq 0 ]]; then
+    echo "ERROR: El instalador finalizó, pero no se detectaron archivos de OpenHaptics."
+    exit 1
+fi
 cd ..
 
 # Copiar los binarios de calibración a una ruta local del usuario
