@@ -63,11 +63,23 @@ void initializeUR5(PinocchioResources& pinocchio, const std::string& urdf_path) 
     }
 
     pinocchio.data = std::make_unique<pinocchio::Data>(*pinocchio.model);
+    
+    // Obtener frame de la base
+    pinocchio.base_frame_id = pinocchio.model->getFrameId("world");
+    if (pinocchio.base_frame_id == static_cast<pinocchio::FrameIndex>(pinocchio.model->nframes)) {
+        RCLCPP_WARN(logger, "Frame 'base_link' no encontrado, se usará el frame 0 (universe)");
+        pinocchio.base_frame_id = 0;
+    } else {
+        RCLCPP_INFO(logger, "Frame base 'base_link' encontrado con ID: %d", pinocchio.base_frame_id);
+    }
+    
+    // Obtener frame del efector final
     pinocchio.tool_frame_id = pinocchio.model->getFrameId("tool0");
-
     if (pinocchio.tool_frame_id == static_cast<pinocchio::FrameIndex>(pinocchio.model->nframes)) {
         RCLCPP_ERROR(logger, "Error: Marco 'tool0' no encontrado en el URDF!");
         throw std::runtime_error("Frame tool0 no encontrado");
+    } else {
+        RCLCPP_INFO(logger, "Frame efector 'tool0' encontrado con ID: %d", pinocchio.tool_frame_id);
     }
 }
 
@@ -165,24 +177,13 @@ public:
         
         // Inicializar URDF
         std::string urdf_package = "ur5_description";
-        std::string urdf_path = get_file_path(urdf_package, "urdf/ur5.urdf");
+        std::string urdf_path = get_file_path(urdf_package, "urdf/ur5e.urdf");
         initializeUR5(pinocchio_, urdf_path);
         
         // Inicializar controladores
         kinematics_solver_ = std::make_unique<UR5Kinematics>(urdf_path);
         impedance_controller_ = std::make_unique<ur5_impedance::UR5Impedance>(urdf_path);
         sliding_controller_ = std::make_unique<ur5_sliding::UR5Sliding>(urdf_path);
-        
-        // Configurar nombres de joints
-        std::string prefix = namespace_.empty() ? "" : (namespace_ + "_");
-        std::vector<std::string> joint_names = {
-            prefix + "shoulder_pan_joint",
-            prefix + "shoulder_lift_joint",
-            prefix + "elbow_joint",
-            prefix + "wrist_1_joint",
-            prefix + "wrist_2_joint",
-            prefix + "wrist_3_joint"
-        };
         
         // Subscriber a joint_states
         std::string joint_states_topic = namespace_.empty() ? "/joint_states" : ("/" + namespace_ + "/joint_states");
@@ -247,17 +248,132 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr joint_position_pub_;
     rclcpp::TimerBase::SharedPtr control_timer_;
     
+    // Variables para mapeo de joints
+    std::vector<int> joint_index_map_{};          // índice en msg->name para cada joint esperado
+    bool joint_map_initialized_ = false;
+    std::vector<std::string> last_js_names_{};    // para detectar cambios y reconstruir el mapa
+    
+    // Funciones auxiliares para mapeo de joints
+    bool ends_with(const std::string& str, const std::string& suffix) const {
+        if (suffix.size() > str.size()) return false;
+        return std::equal(suffix.rbegin(), suffix.rend(), str.rbegin());
+    }
+
+    std::vector<std::string> get_expected_joint_names() const {
+        std::string prefix = namespace_.empty() ? std::string("") : (namespace_ + std::string("_"));
+        return {
+            prefix + "shoulder_pan_joint",
+            prefix + "shoulder_lift_joint",
+            prefix + "elbow_joint",
+            prefix + "wrist_1_joint",
+            prefix + "wrist_2_joint",
+            prefix + "wrist_3_joint"
+        };
+    }
+
+    std::vector<std::string> get_expected_base_joint_names() const {
+        return {
+            "shoulder_pan_joint",
+            "shoulder_lift_joint",
+            "elbow_joint",
+            "wrist_1_joint",
+            "wrist_2_joint",
+            "wrist_3_joint"
+        };
+    }
+
+    bool same_name_list(const std::vector<std::string>& a, const std::vector<std::string>& b) const {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i) if (a[i] != b[i]) return false;
+        return true;
+    }
+
+    void rebuild_joint_index_map(const sensor_msgs::msg::JointState::SharedPtr& msg) {
+        joint_map_initialized_ = false;
+        joint_index_map_.assign(6, -1);
+        last_js_names_ = msg->name;
+
+        const auto expected = get_expected_joint_names();
+        const auto expected_base = get_expected_base_joint_names();
+
+        // Mapa rápido de nombre -> índice del mensaje
+        std::unordered_map<std::string, int> name_to_idx;
+        for (size_t i = 0; i < msg->name.size(); ++i) {
+            name_to_idx[msg->name[i]] = static_cast<int>(i);
+        }
+
+        // 1) Intento por coincidencia exacta
+        int found_exact = 0;
+        for (int i = 0; i < 6; ++i) {
+            auto it = name_to_idx.find(expected[i]);
+            if (it != name_to_idx.end()) {
+                joint_index_map_[i] = it->second;
+                ++found_exact;
+            }
+        }
+
+        // 2) Fallback: buscar por nombre base exacto si faltan
+        if (found_exact < 6) {
+            for (int i = 0; i < 6; ++i) {
+                if (joint_index_map_[i] != -1) continue;
+                auto itb = name_to_idx.find(expected_base[i]);
+                if (itb != name_to_idx.end()) {
+                    joint_index_map_[i] = itb->second;
+                    ++found_exact;
+                }
+            }
+        }
+
+        // 3) Último recurso: buscar entradas que terminen con el nombre base
+        if (found_exact < 6) {
+            for (int i = 0; i < 6; ++i) {
+                if (joint_index_map_[i] != -1) continue;
+                for (size_t j = 0; j < msg->name.size(); ++j) {
+                    if (ends_with(msg->name[j], expected_base[i])) {
+                        joint_index_map_[i] = static_cast<int>(j);
+                        ++found_exact;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (found_exact == 6) {
+            joint_map_initialized_ = true;
+            std::ostringstream map_info;
+            map_info << "Mapa de joints establecido (idx en /joint_states): ";
+            for (int i = 0; i < 6; ++i) map_info << joint_index_map_[i] << (i < 5 ? "," : "");
+            RCLCPP_INFO(this->get_logger(), "%s", map_info.str().c_str());
+        } else {
+            RCLCPP_WARN(this->get_logger(), "No se pudo establecer el mapeo de joints por nombre. Recibidos %zu nombres.", msg->name.size());
+        }
+    }
+    
     void joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg) {
-        if (msg->position.size() < 6) {
+        // (Re)construir mapeo si es la primera vez o si la lista de nombres cambió
+        if (!joint_map_initialized_ || !same_name_list(msg->name, last_js_names_)) {
+            rebuild_joint_index_map(msg);
+        }
+
+        if (!joint_map_initialized_) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                                "JointState recibido con menos de 6 posiciones");
+                                "Esperando mapeo válido de joints para reordenar JointState");
             return;
         }
-        
-        // Copiar posiciones y velocidades
-        for (int i = 0; i < 6 && i < static_cast<int>(msg->position.size()); ++i) {
-            robot_state_.q[i] = msg->position[i];
-            robot_state_.qd[i] = (i < static_cast<int>(msg->velocity.size())) ? msg->velocity[i] : 0.0;
+
+        // Reordenar posiciones y velocidades según el mapeo
+        for (int i = 0; i < 6; ++i) {
+            int j = joint_index_map_[i];
+            if (j < 0 || static_cast<size_t>(j) >= msg->position.size()) {
+                RCLCPP_WARN(this->get_logger(), "Índice de joint fuera de rango para posiciones: %d", j);
+                return;
+            }
+            robot_state_.q[i] = msg->position[j];
+            if (static_cast<size_t>(j) < msg->velocity.size()) {
+                robot_state_.qd[i] = msg->velocity[j];
+            } else {
+                robot_state_.qd[i] = 0.0;
+            }
         }
         
         // Calcular pose cartesiana actual

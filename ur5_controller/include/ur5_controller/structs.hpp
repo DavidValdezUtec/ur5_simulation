@@ -132,7 +132,8 @@ struct PinocchioResources
 {
     std::unique_ptr<pinocchio::Model> model;
     std::unique_ptr<pinocchio::Data> data;
-    pinocchio::FrameIndex tool_frame_id;
+    pinocchio::FrameIndex base_frame_id;  // Frame de la base del robot
+    pinocchio::FrameIndex tool_frame_id;  // Frame del efector final
 };
 
 } // namespace ur5_controller

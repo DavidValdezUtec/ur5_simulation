@@ -132,11 +132,23 @@ void initializeUR5(PinocchioResources& pinocchio, const std::string& urdf_path) 
     }
 
     pinocchio.data = std::make_unique<pinocchio::Data>(*pinocchio.model);
+    
+    // Obtener frame de la base
+    pinocchio.base_frame_id = pinocchio.model->getFrameId("world");
+    if (pinocchio.base_frame_id == static_cast<pinocchio::FrameIndex>(pinocchio.model->nframes)) {
+        RCLCPP_WARN(logger, "Frame 'base_link' no encontrado, se usará el frame 0 (universe)");
+        pinocchio.base_frame_id = 0;
+    } else {
+        RCLCPP_INFO(logger, "Frame base 'base_link' encontrado con ID: %d", pinocchio.base_frame_id);
+    }
+    
+    // Obtener frame del efector final
     pinocchio.tool_frame_id = pinocchio.model->getFrameId("tool0");
-
     if (pinocchio.tool_frame_id == static_cast<pinocchio::FrameIndex>(pinocchio.model->nframes)) {
         RCLCPP_ERROR(logger, "Error: Marco 'tool0' no encontrado en el URDF!");
         throw std::runtime_error("Frame tool0 no encontrado");
+    } else {
+        RCLCPP_INFO(logger, "Frame efector 'tool0' encontrado con ID: %d", pinocchio.tool_frame_id);
     }
 }
 
