@@ -1,9 +1,5 @@
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QRadioButton,
-                             QVBoxLayout, QGridLayout, QSizePolicy, 
-                             QPushButton, QLabel, QTabWidget, QLineEdit,
-                             QComboBox, QHBoxLayout, QGroupBox, QCheckBox, QDockWidget,
-                             QSlider, QScrollArea,QButtonGroup)
+from PyQt5.QtWidgets import *
 from PyQt5 import QtCore
 
 class UIMixin:
@@ -440,6 +436,11 @@ class UIMixin:
         self.robots_layout.addWidget(self.r2_layout)
         self.set_r1_menu()
         self.set_r2_menu()
+
+        self.feedback_checkbox = QCheckBox("Iniciar feedback haptico")
+        self.feedback_checkbox.setChecked(True)
+        self.robots_layout.addWidget(self.feedback_checkbox)
+
         self.boton_iniciar_robots.clicked.connect(self.iniciar_robots)
         self.robots_layout.addWidget(self.boton_iniciar_robots)
 

@@ -514,7 +514,6 @@ private:
 
     // ---- Movimiento inicial tipo ur5_pos ----
     // (Variables trasladadas a config_)
-    bool init_pose_published_ = false; // legado (no usado en modo repetitivo)
     bool init_move_active_ = false;    // publicar hasta detectar movimiento
     bool init_baseline_set_ = false;   // baseline ya capturada
     std::vector<double> q_baseline_{0.0,0.0,0.0,0.0,0.0,0.0};
@@ -1022,7 +1021,7 @@ private:
             
             cartesian_state_.position_desired = st.position;
             cartesian_state_.velocity = st.velocity;
-            cartesian_state_.angular_velocity = Eigen::Vector4d::Zero(); // sin rot
+            cartesian_state_.angular_velocity = Eigen::Vector3d::Zero(); // sin rot
             cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
             cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial;
             cartesian_state_.acceleration = st.acceleration;
@@ -1074,11 +1073,13 @@ private:
                 robot_state_.q,
                 robot_state_.qd,
                 cartesian_state_.position_desired,
-                cartesian_state_.orientation_desired,
+                cartesian_state_.rotation_matrix_desired,
                 cartesian_state_.velocity,
+                Eigen::Vector3d::Zero(),
                 cartesian_state_.acceleration,
-                Kp,
-                Kd,
+                Eigen::Vector3d::Zero(),
+                Kp.head<6>(),
+                Kd.head<6>(),
                 0.01).q_desired;
             //std::cout<<"x_des: "<<cartesian_state_.position_desired.transpose()<<std::endl;
 

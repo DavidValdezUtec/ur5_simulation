@@ -645,6 +645,14 @@ private:
     rclcpp::Time trajectory_start_time_ {};
     double t_traj_ = 0.0; // Tiempo para la trayectoria, independiente de dt
 
+    // ---- Estimación robusta de derivadas (haptico y loop) ----
+    std::chrono::steady_clock::time_point last_haptic_sample_time_{};
+    bool haptic_timing_initialized_ = false;
+    std::chrono::steady_clock::time_point last_control_loop_time_{};
+    bool control_timing_initialized_ = false;
+    double derivative_lpf_alpha_ = 0.2; // [0,1], mayor = menos filtrado
+    bool haptic_state_initialized_ = false;
+
     static std::string get_home_dir() {
         const char* home = std::getenv("HOME");
         return home ? std::string(home) : std::string(".");
@@ -1073,26 +1081,64 @@ private:
             RCLCPP_ERROR(this->get_logger(), "Mensaje nulo recibido en /phantom/pose.");
             return;
         }
+
+        double dt = 1.0 / std::max(1.0, config_.ctrl_hz_);
+        const auto now_sample = std::chrono::steady_clock::now();
+        if (haptic_timing_initialized_) {
+            dt = std::chrono::duration<double>(now_sample - last_haptic_sample_time_).count();
+            if (dt < 1e-5 || dt > 0.1) {
+                dt = 1.0 / std::max(1.0, config_.ctrl_hz_);
+            }
+        }
+        last_haptic_sample_time_ = now_sample;
+        haptic_timing_initialized_ = true;
         
         haptic_state_.position << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
         haptic_state_.orientation.w() = msg->pose.orientation.w;
         haptic_state_.orientation.x() = msg->pose.orientation.x;
         haptic_state_.orientation.y() = msg->pose.orientation.y;
         haptic_state_.orientation.z() = msg->pose.orientation.z;
+        haptic_state_.orientation.normalize();
+
+        if (!haptic_state_initialized_) {
+            haptic_state_.position_last = haptic_state_.position;
+            haptic_state_.orientation_last = haptic_state_.orientation;
+            haptic_state_.velocity.setZero();
+            haptic_state_.acceleration.setZero();
+            haptic_state_.angular_velocity.setZero(); 
+            haptic_state_.angular_acceleration.setZero();
+            haptic_state_initialized_ = true;
+            return;
+        }
 
 
+       
+        // Derivadas con dt real y filtrado LPF para reducir ruido
 
-        
-        //guardamos velocidad cartesiana del haptico por derivada de euler
-        haptic_state_.velocity = (haptic_state_.position - haptic_state_.position_last) / (1e-3); //asumiendo 1ms entre callbacks
+        //Velocidad lineal
+        Eigen::Vector3d vel_raw = (haptic_state_.position - haptic_state_.position_last) / dt;
+        haptic_state_.velocity = derivative_lpf_alpha_ * vel_raw + (1.0 - derivative_lpf_alpha_) * haptic_state_.velocity; //velocidad filtrada 
         haptic_state_.position_last = haptic_state_.position;
-        Eigen::Quaterniond delta_orientation = haptic_state_.orientation * haptic_state_.orientation_last.inverse();
-        // Aproximación de velocidad angular a partir de delta quaternion usando eje-ángulo
-        haptic_state_.angular_velocity << delta_orientation.x()/(1e-3), delta_orientation.y()/(1e-3), delta_orientation.z()/(1e-3), delta_orientation.w()/(1e-3); //asumiendo 1ms entre callbacks
-        haptic_state_.orientation_last = haptic_state_.orientation;
-        haptic_state_.acceleration = (haptic_state_.velocity - haptic_state_.velocity_last) / (1e-3); //asumiendo 1ms entre callbacks
+        //Aceleración lineal
+        Eigen::Vector3d acc_raw = (haptic_state_.velocity - haptic_state_.velocity_last) / dt;
+        haptic_state_.acceleration = derivative_lpf_alpha_ * acc_raw + (1.0 - derivative_lpf_alpha_) * haptic_state_.acceleration; //aceleración filtrada
         haptic_state_.velocity_last = haptic_state_.velocity;
         
+        //Velocidad angular
+        Eigen::Quaterniond delta_orientation = haptic_state_.orientation * haptic_state_.orientation_last.inverse();
+        delta_orientation.normalize();
+        if (delta_orientation.w() < 0.0) { delta_orientation.coeffs() *= -1.0; } // asegurar ángulo positivo para interpretación consistente}
+        Eigen::AngleAxisd delta_aa(delta_orientation);
+        Eigen::Vector3d omega_raw = Eigen::Vector3d::Zero();
+        if (std::abs(delta_aa.angle()) > 1e-6) { omega_raw = delta_aa.axis() * (delta_aa.angle() / dt);}
+        
+        haptic_state_.angular_velocity = derivative_lpf_alpha_ * omega_raw + (1.0 - derivative_lpf_alpha_) * haptic_state_.angular_velocity; //velocidad angular filtrada
+        haptic_state_.orientation_last = haptic_state_.orientation; //quaternion anterior para próximo cálculo de delta
+
+        //Aceleración angular
+        Eigen::Vector3d alpha_raw = (haptic_state_.angular_velocity - haptic_state_.angular_velocity_last) / dt;
+        haptic_state_.angular_acceleration = derivative_lpf_alpha_ * (alpha_raw) + (1.0 - derivative_lpf_alpha_) * haptic_state_.angular_acceleration; //aceleración angular filtrada
+        haptic_state_.angular_velocity_last = haptic_state_.angular_velocity;
 
     }
 
@@ -1117,6 +1163,16 @@ private:
     
     void control_loop() {
         auto loop_t0 = std::chrono::steady_clock::now();
+        double loop_dt = 1.0 / std::max(1.0, config_.ctrl_hz_);
+        if (control_timing_initialized_) {
+            loop_dt = std::chrono::duration<double>(loop_t0 - last_control_loop_time_).count();
+            if (loop_dt < 1e-5 || loop_dt > 0.1) {
+                loop_dt = 1.0 / std::max(1.0, config_.ctrl_hz_);
+            }
+        }
+        last_control_loop_time_ = loop_t0;
+        control_timing_initialized_ = true;
+        const double controller_dt = std::max(1e-4, loop_dt);
         
         try {
             // Copiar parámetros dinámicos a locales (para aplicar cambios en caliente)
@@ -1142,73 +1198,87 @@ private:
             }
             // Rama geomagic: seguir referencia del háptico
             if (config_.use_geomagic) {
-            cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial;
+                Eigen::Vector3d desired_vel_ori_cmd = Eigen::Vector3d::Zero();
+                Eigen::Vector3d desired_acc_ori_cmd = Eigen::Vector3d::Zero();
+                cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial;
 
-            Eigen::Quaterniond dif_orientacion_haptic = haptic_state_.orientation_initial.inverse() * haptic_state_.orientation;
-            Eigen::AngleAxisd angle_axis(dif_orientacion_haptic);
-            Eigen::Vector3d axis_raw =  angle_axis.axis() * angle_axis.angle();
-            double escala = 0.5; // factor de orientación
-            Eigen::Vector3d axis_map;
-            for(int i=0; i<3; i++) axis_map(i) = axis_raw(map_rot_local(i)) * sign_rot_local(i) * escala;
-            if (axis_map.norm() > 1e-6){
-                Eigen::Matrix3d R_delta = Eigen::AngleAxisd(axis_map.norm(), axis_map.normalized()).toRotationMatrix();
-                cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial * R_delta;
-            }
-            
-            // dif_orientacion_haptic = Eigen::Quaterniond(Eigen::AngleAxisd(escala * angle_axis.angle(), angle_axis.axis()));
-            // cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
-
-            RCLCPP_DEBUG(this->get_logger(), "Dif orientación háptico (eje): [%.3f, %.3f, %.3f]",
-                        dif_orientacion_haptic.vec().x(), dif_orientacion_haptic.vec().y(), dif_orientacion_haptic.vec().z());
-            
-            for(int i=0; i<3; i++){
-                cartesian_state_.position_desired(i) = cartesian_state_.position_initial(i) +
-                    (haptic_state_.position(map_pos_local(i)) - haptic_state_.position_initial(map_pos_local(i))) * sign_pos_local(i)*2.5;     
-            }
-            
-
-            
-            // cartesian_state_.position_desired = trayectoria_geomagic(
-            // cartesian_state_.position_initial, haptic_state_.position_initial, haptic_state_.position, 2.5);
-
-            cartesian_state_.velocity = haptic_state_.velocity * 2.5; // escala de velocidad
-            cartesian_state_.angular_velocity = haptic_state_.angular_velocity; // escala de velocidad
-            cartesian_state_.acceleration = haptic_state_.acceleration * 2.5; // escala de aceleración
+                Eigen::Quaterniond dif_orientacion_haptic = haptic_state_.orientation_initial.inverse() * haptic_state_.orientation;
+                Eigen::AngleAxisd angle_axis(dif_orientacion_haptic);
+                Eigen::Vector3d axis_raw =  angle_axis.axis() * angle_axis.angle();
+                double escala = 0.5; // factor de orientación
+                Eigen::Vector3d axis_map;
+                for(int i=0; i<3; i++) axis_map(i) = axis_raw(map_rot_local(i)) * sign_rot_local(i) * escala;
+                if (axis_map.norm() > 1e-6){
+                    Eigen::Matrix3d R_delta = Eigen::AngleAxisd(axis_map.norm(), axis_map.normalized()).toRotationMatrix();
+                    cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial * R_delta;
+                }
                 
-            
-        } else {
+                // dif_orientacion_haptic = Eigen::Quaterniond(Eigen::AngleAxisd(escala * angle_axis.angle(), angle_axis.axis()));
+                // cartesian_state_.orientation_desired = cartesian_state_.orientation_initial * dif_orientacion_haptic;
 
-            // Rama automática: generar trayectoria paramétrica
-            if (!trajectory_active_) {
-                // Aún no activada (esperando fin de movimiento inicial)
-                return;
+                RCLCPP_DEBUG(this->get_logger(), "Dif orientación háptico (eje): [%.3f, %.3f, %.3f]",
+                            dif_orientacion_haptic.vec().x(), dif_orientacion_haptic.vec().y(), dif_orientacion_haptic.vec().z());
+                
+                for(int i=0; i<3; i++){
+                    cartesian_state_.position_desired(i) = cartesian_state_.position_initial(i) +
+                        (haptic_state_.position(map_pos_local(i)) - haptic_state_.position_initial(map_pos_local(i))) * sign_pos_local(i)*2.5;     
+                }
+                
+
+                cartesian_state_.velocity = haptic_state_.velocity * 2.5; // escala de velocidad
+                cartesian_state_.acceleration = haptic_state_.acceleration * 2.5; // escala de aceleración
+                for (int i = 0; i < 3; ++i) {
+                    desired_vel_ori_cmd(i) = haptic_state_.angular_velocity(map_rot_local(i)) * sign_rot_local(i) * escala;
+                    desired_acc_ori_cmd(i) = haptic_state_.angular_acceleration(map_rot_local(i)) * sign_rot_local(i) * escala;
+                }
+                cartesian_state_.angular_velocity << desired_vel_ori_cmd;
+                
+                cartesian_state_.angular_acceleration = desired_acc_ori_cmd;
+                
+                // Los controladores usan estas referencias de orientación en 3D
+                cartesian_state_.orientation_desired = Eigen::Quaterniond(cartesian_state_.rotation_matrix_desired);
+                cartesian_state_.orientation_desired.normalize();
+                    
+                
+            } else {
+
+                // Rama automática: generar trayectoria paramétrica
+                if (!trajectory_active_) {
+                    // Aún no activada (esperando fin de movimiento inicial)
+                    return;
+                }
+                auto st = TrajectoryGenerator::calculate(
+                    cartesian_state_.position_initial,
+                    config_.traj_A,
+                    config_.traj_wn,
+                    config_.traj_c0,
+                    t_traj_,
+                    config_.traj_mode
+                );
+                
+                cartesian_state_.position_desired = st.position;
+                cartesian_state_.velocity = st.velocity;
+                cartesian_state_.angular_velocity = Eigen::Vector3d::Zero(); // sin rot
+                cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
+                cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial;
+                cartesian_state_.acceleration = st.acceleration;
+                cartesian_state_.angular_acceleration = Eigen::Vector3d::Zero();
+                t_traj_ += loop_dt;
+
+                //x_des << -0.03, 0.7, 0.1;
+                // Mantener orientación constanteluego agregalo al cmakelist
+                cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
+                RCLCPP_DEBUG(this->get_logger(), "x_des: [%.3f, %.3f, %.3f]",
+                    cartesian_state_.position_desired.x(), cartesian_state_.position_desired.y(), cartesian_state_.position_desired.z());
+                RCLCPP_DEBUG(this->get_logger(), "vel_des: [%.3f, %.3f, %.3f]",
+                    cartesian_state_.velocity.x(), cartesian_state_.velocity.y(), cartesian_state_.velocity.z());
             }
-            auto st = TrajectoryGenerator::calculate(
-                cartesian_state_.position_initial,
-                config_.traj_A,
-                config_.traj_wn,
-                config_.traj_c0,
-                t_traj_,
-                config_.traj_mode
-            );
-            
-            cartesian_state_.position_desired = st.position;
-            cartesian_state_.velocity = st.velocity;
-            cartesian_state_.angular_velocity = Eigen::Vector4d::Zero(); // sin rot
-            cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
-            cartesian_state_.rotation_matrix_desired = cartesian_state_.rotation_matrix_initial;
-            cartesian_state_.acceleration = st.acceleration;
-            cartesian_state_.angular_acceleration = Eigen::Vector3d::Zero();
 
-            //x_des << -0.03, 0.7, 0.1;
-            // Mantener orientación constanteluego agregalo al cmakelist
-            cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
-            RCLCPP_DEBUG(this->get_logger(), "x_des: [%.3f, %.3f, %.3f]",
-                cartesian_state_.position_desired.x(), cartesian_state_.position_desired.y(), cartesian_state_.position_desired.z());
-            RCLCPP_DEBUG(this->get_logger(), "vel_des: [%.3f, %.3f, %.3f]",
-                cartesian_state_.velocity.x(), cartesian_state_.velocity.y(), cartesian_state_.velocity.z());
-        }
-        t_traj_ += 0.005; // t_step = 0.005
+            Eigen::Vector3d desired_vel_ori_ctrl =
+                config_.use_geomagic ? cartesian_state_.angular_velocity : Eigen::Vector3d::Zero();
+
+            Eigen::Vector3d desired_acc_ori_ctrl =
+                config_.use_geomagic ? cartesian_state_.angular_acceleration : Eigen::Vector3d::Zero();
             // Medición cartesiana actual (para logging y control si fuera necesario)
             pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
             pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
@@ -1239,35 +1309,24 @@ private:
                     600,
                     config_.ctrl_hz_
                 );
-                robot_state_.u_control = kinematics_solver_->inverseKinematicsQP2(
-                    robot_state_.q,
-                    cartesian_state_.position_desired,
-                    cartesian_state_.rotation_matrix_desired,
-                    600,
-                    config_.ctrl_hz_
-                ); // No se calculan esfuerzos en QP, solo posición objetivo
+                robot_state_.u_control = Eigen::VectorXd::Zero(6); // QP no calcula tau
             }
             else if (config_.controller == "IMP") {
-                robot_state_.q_solution = impedance_controller_->calculateControlCommand(
+                auto output = impedance_controller_->calculateControlCommand(
                     robot_state_.q,
                     robot_state_.qd,
                     cartesian_state_.position_desired,
-                    cartesian_state_.orientation_desired,
+                    cartesian_state_.rotation_matrix_desired, //3x3 orientation_desired,
                     cartesian_state_.velocity,
+                    desired_vel_ori_ctrl,
                     cartesian_state_.acceleration,
-                    config_.Kp,
-                    config_.Kd,
-                    config_.dt).q_desired;
-                robot_state_.u_control = impedance_controller_->calculateControlCommand(
-                    robot_state_.q,
-                    robot_state_.qd,
-                    cartesian_state_.position_desired,
-                    cartesian_state_.orientation_desired,
-                    cartesian_state_.velocity,
-                    cartesian_state_.acceleration,
-                    config_.Kp,
-                    config_.Kd,
-                    config_.dt).tau;
+                    desired_acc_ori_ctrl,
+                    config_.Kp.head<6>(),
+                    config_.Kd.head<6>(),
+                    controller_dt);
+
+                robot_state_.q_solution = output.q_desired;
+                robot_state_.u_control = output.tau;
             }
             else if (config_.controller == "SLD") {                
                 // Eigen::Matrix<double, 6, 1> lambda = {0.1, 0.1, 0.1, 0.1, 0.1, 0.1};
@@ -1276,36 +1335,24 @@ private:
                 // double alpha = 0.01;
                 // double damping_factor = 0.01;
                 // double dt = 0.01;
-                robot_state_.q_solution = sliding_controller_->calculateControlCommand(
+                auto output = sliding_controller_->calculateControlCommand(
                     robot_state_.q,
                     robot_state_.qd,
                     cartesian_state_.position_desired,
                     cartesian_state_.rotation_matrix_desired,
                     cartesian_state_.velocity,
-                    Eigen::Vector3d::Zero(), // desired_vel_ori (no control de velocidad angular en este ejemplo)
+                    desired_vel_ori_ctrl,
                     cartesian_state_.acceleration,
-                    Eigen::Vector3d::Zero(), // desired_acc_ori
+                    desired_acc_ori_ctrl,
                     config_.lambda,
                     config_.k,
                     config_.k2,
                     config_.alpha,
                     config_.damping_factor,
-                    config_.dt).q_desired;
-                robot_state_.u_control = sliding_controller_->calculateControlCommand(
-                    robot_state_.q,
-                    robot_state_.qd,
-                    cartesian_state_.position_desired,
-                    cartesian_state_.rotation_matrix_desired,
-                    cartesian_state_.velocity,
-                    Eigen::Vector3d::Zero(), // desired_vel_ori
-                    cartesian_state_.acceleration,
-                    Eigen::Vector3d::Zero(), // desired_acc_ori
-                    config_.lambda,
-                    config_.k,
-                    config_.k2,
-                    config_.alpha,
-                    config_.damping_factor,
-                    config_.dt).tau;
+                    controller_dt);
+                    
+                robot_state_.q_solution = output.q_desired;
+                robot_state_.u_control = output.tau;
             }
             else {
                 RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
@@ -1318,6 +1365,7 @@ private:
                     600,
                     config_.ctrl_hz_
                 );
+                robot_state_.u_control = Eigen::VectorXd::Zero(6);
             }
         
             last_ik_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(

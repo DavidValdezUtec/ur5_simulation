@@ -36,11 +36,13 @@ public:
         const Eigen::VectorXd& q,
         const Eigen::VectorXd& dq,
         const Eigen::Vector3d& desired_pos,
-        const Eigen::Quaterniond& desired_orient,
+        const Eigen::Matrix3d& desired_orient,
         const Eigen::Vector3d& desired_vel,
+        const Eigen::Vector3d& desired_vel_orient,
         const Eigen::Vector3d& desired_acc,
-        const Eigen::Matrix<double, 7, 1>& Kp_task,
-        const Eigen::Matrix<double, 7, 1>& Kd_task,
+        const Eigen::Vector3d& desired_acc_orient,
+        const Eigen::Matrix<double, 6, 1>& Kp_task_diag,
+        const Eigen::Matrix<double, 6, 1>& Kd_task_diag,
         double dt
     );
 

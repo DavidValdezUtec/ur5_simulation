@@ -118,7 +118,7 @@ Eigen::VectorXd UR5Kinematics::solveQPIK(const Eigen::MatrixXd& J, const Eigen::
     Eigen::MatrixXd A = (W_p * J_p).transpose() * (W_p * J_p) + (W_o * J_o).transpose() * (W_o * J_o);
     Eigen::VectorXd b = (W_p * J_p).transpose() * (W_p * e_p) + (W_o * J_o).transpose() * (W_o * e_o);
 
-    // Regularización para asegurar definida positiva
+    // Regularización para asegurar definida positiva, evita riesgos en singularidades o colapsos del jacobiano
     const double lambda = 1e-6;
     A.noalias() += lambda * Eigen::MatrixXd::Identity(n, n);
 

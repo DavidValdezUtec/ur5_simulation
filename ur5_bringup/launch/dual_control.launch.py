@@ -2,6 +2,7 @@
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, GroupAction
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import PushRosNamespace
@@ -31,6 +32,9 @@ def generate_launch_description():
     r2_IP = LaunchConfiguration("r2_IP")
     r1_TCP_port = LaunchConfiguration("r1_TCP_port")
     r2_TCP_port = LaunchConfiguration("r2_TCP_port")
+    launch_feedback = LaunchConfiguration("launch_feedback")
+    r1_force_filter_alpha = LaunchConfiguration("r1_force_filter_alpha")
+    r2_force_filter_alpha = LaunchConfiguration("r2_force_filter_alpha")
     # --- Configuración del UR5 ---
     r1_launch = GroupAction(
         actions=[
@@ -135,6 +139,33 @@ def generate_launch_description():
         name="rviz2",
         output="log",
     )
+
+    # Nodos de feedback háptico (uno por robot)
+    feedback_r1_node = Node(
+        package="ur5_torque",
+        executable="feedback_node",
+        name="feedback_r1",
+        output="screen",
+        parameters=[{
+            "namespace": "r1",
+            "ph_namespace": "phantom1",
+            "force_filter_alpha": r1_force_filter_alpha,
+        }],
+        condition=IfCondition(launch_feedback),
+    )
+
+    feedback_r2_node = Node(
+        package="ur5_torque",
+        executable="feedback_node",
+        name="feedback_r2",
+        output="screen",
+        parameters=[{
+            "namespace": "r2",
+            "ph_namespace": "phantom2",
+            "force_filter_alpha": r2_force_filter_alpha,
+        }],
+        condition=IfCondition(launch_feedback),
+    )
     
     
     return LaunchDescription([
@@ -204,8 +235,19 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "r2_rot_z", default_value="3.14", description="Robot 2 Z Rotation"
-        ),  
+        ),
+        DeclareLaunchArgument(
+            "launch_feedback", default_value="true", description="Launch haptic force feedback nodes"
+        ),
+        DeclareLaunchArgument(
+            "r1_force_filter_alpha", default_value="0.2", description="LPF alpha for r1 feedback (0..1)"
+        ),
+        DeclareLaunchArgument(
+            "r2_force_filter_alpha", default_value="0.2", description="LPF alpha for r2 feedback (0..1)"
+        ),
         r1_launch,
         r2_launch,
+        feedback_r1_node,
+        feedback_r2_node,
         #rviz_node,
     ])

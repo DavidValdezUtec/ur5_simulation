@@ -12,11 +12,7 @@ from sensor_msgs.msg import Image
 
 from PyQt5.QtCore import Qt, QTimer, QSize
 from PyQt5.QtGui import QPixmap, QImage, QTransform
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QRadioButton,
-                             QVBoxLayout, QGridLayout, QSizePolicy, 
-                             QPushButton, QLabel, QTabWidget, QLineEdit,
-                             QComboBox, QHBoxLayout, QGroupBox, QCheckBox, QDockWidget,
-                             QSlider, QScrollArea,QButtonGroup)
+from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QPixmap, QIcon, QPainter, QColor
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5 import QtCore
@@ -593,6 +589,10 @@ class InterfazRviz(QMainWindow, UIMixin):
     
     def lanzar_robots(self):
         """Lanza los launches de ambos robots simultáneamente"""
+        launch_feedback = "true"
+        if hasattr(self, 'feedback_checkbox'):
+            launch_feedback = "true" if self.feedback_checkbox.isChecked() else "false"
+
         # Construir comando con argumentos desde la interfaz
         command = [
             'ros2', 'launch', 'ur5_bringup', 'dual_control.launch.py',
@@ -617,6 +617,7 @@ class InterfazRviz(QMainWindow, UIMixin):
             f'r2_rot_x:={self.r2_config["rot_x"]}',
             f'r2_rot_y:={self.r2_config["rot_y"]}',
             f'r2_rot_z:={self.r2_config["rot_z"]}',
+            f'launch_feedback:={launch_feedback}',
             # Agrega más argumentos según necesites
         ]
             

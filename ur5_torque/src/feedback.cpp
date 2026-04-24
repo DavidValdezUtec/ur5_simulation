@@ -9,6 +9,7 @@
 
 #include <iostream>
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -63,8 +64,10 @@ class FuerzaFeedback : public rclcpp::Node {
 public:
     FuerzaFeedback() : Node("force_feedback_publisher") {
         // Declarar parámetros de namespace
-        std::string namespace_ = this->declare_parameter<std::string>("namespace", "");
+        namespace_ = this->declare_parameter<std::string>("namespace", "");
         std::string phantom_namespace = this->declare_parameter<std::string>("ph_namespace", "phantom");
+        force_filter_alpha_ = this->declare_parameter<double>("force_filter_alpha", 0.2);
+        force_filter_alpha_ = std::clamp(force_filter_alpha_, 0.0, 1.0);
 
         // Declarar parámetros de mapeo de ejes de traslación
         map_pos_ = {static_cast<int>(this->declare_parameter<double>("map_x", 2.0)),
@@ -86,7 +89,19 @@ public:
     }
 private:
     void ur5e_force_callback(const geometry_msgs::msg::WrenchStamped::SharedPtr msg) {
-        last_ur5e_force_ = msg->wrench.force;
+        const auto & raw_force = msg->wrench.force;
+
+        // Filtro pasa-bajos de 1er orden: y = a*x + (1-a)*y_prev
+        if (!force_filter_initialized_ || force_filter_alpha_ >= 1.0) {
+            last_ur5e_force_ = raw_force;
+            force_filter_initialized_ = true;
+            return;
+        }
+
+        const double a = force_filter_alpha_;
+        last_ur5e_force_.x = a * raw_force.x + (1.0 - a) * last_ur5e_force_.x;
+        last_ur5e_force_.y = a * raw_force.y + (1.0 - a) * last_ur5e_force_.y;
+        last_ur5e_force_.z = a * raw_force.z + (1.0 - a) * last_ur5e_force_.z;
     }
 
     // Funciones auxiliares para mapeo de joints
@@ -283,6 +298,8 @@ private:
     // Variables para mapeo de ejes de traslación y rotación
     Eigen::Vector3i map_pos_;  // Mapeo: x<-map_pos_[0], y<-map_pos_[1], z<-map_pos_[2]
     Eigen::Vector3d sign_pos_; // Signos: sx, sy, sz
+    double force_filter_alpha_ = 0.2;
+    bool force_filter_initialized_ = false;
 
 
     rclcpp::Publisher<omni_msgs::msg::OmniFeedback>::SharedPtr force_feedback_pub_;

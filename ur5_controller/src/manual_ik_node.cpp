@@ -551,11 +551,13 @@ private:
                 robot_state_.q,
                 robot_state_.qd,
                 cartesian_state_.position_desired,
-                cartesian_state_.orientation_desired,
+                cartesian_state_.rotation_matrix_desired,
                 Eigen::Vector3d::Zero(), // velocidad deseada
+                Eigen::Vector3d::Zero(), // velocidad angular deseada
                 Eigen::Vector3d::Zero(), // aceleración deseada
-                config_.Kp,
-                config_.Kd,
+                Eigen::Vector3d::Zero(), // aceleración angular deseada
+                config_.Kp.head<6>(),
+                config_.Kd.head<6>(),
                 config_.dt);
             q_cmd = result.q_desired;
             

@@ -5,6 +5,7 @@
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/crba.hpp>
 #include <pinocchio/algorithm/rnea.hpp>
+#include <pinocchio/spatial/explog.hpp>
 #include <stdexcept>
 #include <iostream>
 
@@ -22,7 +23,7 @@ UR5Impedance::UR5Impedance(const std::string& urdf_path) {
         throw std::runtime_error("El frame 'tool0' no existe en el modelo URDF.");
     }
 
-    J_previous_ = Eigen::MatrixXd::Zero(7, model_->nv);
+    J_previous_ = Eigen::MatrixXd::Zero(6, model_->nv);
     std::cout << "Modelo de impedancia cargado correctamente." << std::endl;
 }
 
@@ -88,57 +89,65 @@ ControlOutput UR5Impedance::calculateControlCommand(
     const Eigen::VectorXd& q,
     const Eigen::VectorXd& dq,
     const Eigen::Vector3d& desired_pos,
-    const Eigen::Quaterniond& desired_orient,
+    const Eigen::Matrix3d& desired_orient, //ya es matriz 3x3
     const Eigen::Vector3d& desired_vel,
+    const Eigen::Vector3d& desired_vel_orient,
     const Eigen::Vector3d& desired_acc,
-    const Eigen::Matrix<double, 7, 1>& Kp_task_diag,
-    const Eigen::Matrix<double, 7, 1>& Kd_task_diag,
+    const Eigen::Vector3d& desired_acc_orient,
+    const Eigen::Matrix<double, 6, 1>& Kp_task_diag,
+    const Eigen::Matrix<double, 6, 1>& Kd_task_diag,
     double dt)
 {
     // 1. Cinemática y Jacobiano
     pinocchio::forwardKinematics(*model_, *data_, q, dq);
     pinocchio::updateFramePlacement(*model_, *data_, tool_frame_id_);
-    
-    
-    Eigen::MatrixXd J = computeFullJacobianQuaternion(q, 1e-8);  //7x6
-    Eigen::MatrixXd dJ = (J - J_previous_) / dt; //7x6
-    
-    Eigen::VectorXd dx_current_cartesian = J * dq; // (7x6) * (6x1) = 7x1
 
-    Eigen::Vector4d vel_ori_d = Eigen::Vector4d::Zero();
-    Eigen::Vector4d acc_ori_d = Eigen::Vector4d::Zero();
+    Eigen::MatrixXd J = Eigen::MatrixXd::Zero(6, model_->nv); //6x6 para el UR5
+    Eigen::MatrixXd dJ = Eigen::MatrixXd::Zero(6, model_->nv);
+    pinocchio::computeFrameJacobian(*model_, *data_, q, tool_frame_id_, 
+                                    pinocchio::LOCAL_WORLD_ALIGNED, J);
+
+    pinocchio::getFrameJacobianTimeVariation(*model_, *data_, tool_frame_id_,
+                                            pinocchio::LOCAL_WORLD_ALIGNED, dJ);
+    
+    Eigen::VectorXd dx_current_cartesian = J * dq; // (6x6) * (6x1) = 6x1
+
+    Eigen::Vector3d vel_ori_d = desired_vel_orient;//Eigen::Vector3d::Zero();
+    Eigen::Vector3d acc_ori_d = desired_acc_orient;//Eigen::Vector3d::Zero();
 
 
-    Eigen::Matrix<double,7,7> Kp_task, Kd_task;
+    Eigen::Matrix<double,6,6> Kp_task, Kd_task;
     Kp_task.setZero();
     Kd_task.setZero();
     Kp_task.diagonal() = Kp_task_diag;
     Kd_task.diagonal() = Kd_task_diag;
 
-    // 2. Calcular errores
+    // 2. Calcular errores:
+    //pose actual
     const auto& current_pose = data_->oMf[tool_frame_id_];
-    Eigen::Vector3d current_pos = current_pose.translation();
-    Eigen::Quaterniond current_orient(current_pose.rotation());
-    current_orient.normalize();
 
-    // Error de posición
+    //error de posicion:
+    Eigen::Vector3d current_pos = current_pose.translation();
     Eigen::Vector3d error_pos = current_pos - desired_pos;
 
-    // Error de orientación (diferencia de cuaterniones)
-    Eigen::Vector4d error_quat = current_orient.coeffs() - desired_orient.coeffs();
 
-    Eigen::Matrix<double, 7, 1> error_pose;
-    error_pose << error_pos, error_quat;
+    // Error de orientación en SO(3) usando mapa logarítmico
+    Eigen::Matrix3d error_rot = current_pose.rotation() * desired_orient.transpose();
+    Eigen::Vector3d angular_error = pinocchio::log3(error_rot);
+
+
+    Eigen::Matrix<double, 6, 1> error_pose;
+    error_pose << error_pos, angular_error;
 
     // Error de velocidad
     
-    Eigen::VectorXd desired_vel_7D(7);
-    desired_vel_7D << desired_vel, vel_ori_d;
+    Eigen::VectorXd desired_vel_6D(6);
+    desired_vel_6D << desired_vel, vel_ori_d;
     
-    // Eigen::VectorXd current_vel_7D(7);
-    // current_vel_7D << current_vel_6D.head(3), vel_ori_d;
+    // Eigen::VectorXd current_vel_6D(6);
+    // current_vel_6D << current_vel_6D.head(3), vel_ori_d;
 
-    Eigen::VectorXd error_vel = desired_vel_7D - dx_current_cartesian;
+    Eigen::VectorXd error_vel = dx_current_cartesian - desired_vel_6D; // (6x1) - (6x1) = 6x1
 
     // 3. Dinámica del robot
     pinocchio::computeJointJacobians(*model_, *data_, q);
@@ -154,13 +163,13 @@ ControlOutput UR5Impedance::calculateControlCommand(
     // Nota: La fórmula original tiene términos que se cancelan o son redundantes.
     // Una formulación más estándar es: tau = J^T * F + nle, donde F es la fuerza cartesiana deseada.
     
-    Eigen::VectorXd desired_acc_7D(7);
-    desired_acc_7D << desired_acc, acc_ori_d;
+    Eigen::VectorXd desired_acc_6D(6);
+    desired_acc_6D << desired_acc, acc_ori_d;
 
-    // Fuerza cartesiana deseada (simplificada para 7D)
-    Eigen::MatrixXd J_pinv = J.completeOrthogonalDecomposition().pseudoInverse(); // (N x 7)
-    Eigen::VectorXd tau  = M*J_pinv * (desired_acc_7D - Kp_task * error_pose - Kd_task * error_vel - dJ * dq)+ nle;
-    Eigen::VectorXd qdd  = J_pinv * (desired_acc_7D - Kp_task * error_pose - Kd_task * error_vel - dJ * dq);
+    // Fuerza cartesiana deseada (6D: posición + orientación)
+    Eigen::MatrixXd J_pinv = J.completeOrthogonalDecomposition().pseudoInverse();
+    Eigen::VectorXd tau  = M*J_pinv * (desired_acc_6D - Kp_task * error_pose - Kd_task * error_vel - dJ * dq)+ nle;
+    Eigen::VectorXd qdd  = J_pinv * (desired_acc_6D - Kp_task * error_pose - Kd_task * error_vel - dJ * dq);
     J_previous_ = J; // Actualizar para la siguiente iteración
 
 
