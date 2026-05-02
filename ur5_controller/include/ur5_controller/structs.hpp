@@ -78,7 +78,7 @@ struct NodeConfig
   Eigen::Vector3d velocity = Eigen::Vector3d::Zero();              // Velocidad cartesiana estimada
   Eigen::Vector3d angular_velocity = Eigen::Vector3d::Zero();      // Velocidad angular estimada (parte imaginaria del delta quaternion / dt)
   // ------------------------------------------------------------------
-  std::string control_topic = "/joint_trajectory_controller/joint_trajectory"; // Tópico de control articular
+  std::string control_topic = "/forward_velocity_controller/commands"; // Tópico de control articular
   std::string operation_mode = "teleop";   // "teleop" o "trajectory"
   std::string ur_model = "ur5";            // Modelo: ur5 / ur5e
   std::string nmspace = "";                // Namespace (prefijo de joints y tópicos)

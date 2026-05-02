@@ -24,7 +24,45 @@ find_package(geomagic_interface REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
-# Agregar ejecutable para el controller_backup (controlador original)
+
+add_library(trajectory_generator
+  src/trajectory_generator.cpp
+)
+
+add_library(csv_logger
+  src/csv_logger.cpp
+)
+
+target_include_directories(trajectory_generator PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIR}
+)
+
+target_include_directories(csv_logger PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIR}
+)
+
+ament_target_dependencies(trajectory_generator
+  Eigen3
+)
+
+ament_target_dependencies(csv_logger
+  rclcpp
+  Eigen3
+)
+
+install(TARGETS trajectory_generator csv_logger
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(DIRECTORY include/
+  DESTINATION include
+)
 
 add_executable(controller_node 
   src/controller_node.cpp
@@ -52,6 +90,8 @@ ament_target_dependencies(controller_node
 )
 
 target_link_libraries(controller_node
+  trajectory_generator
+  csv_logger
   ur5_kinematics::ur5_kinematics
   ur5_impedance::ur5_impedance
   ur5_sliding::ur5_sliding

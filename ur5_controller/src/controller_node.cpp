@@ -21,6 +21,9 @@
 // Utilidades de ROS 2
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
+#include <ur5_controller/csv_logger.hpp>
+#include <ur5_controller/trajectory_generator.hpp>
+
 // Standard C++
 #include <iostream>
 #include <fstream>
@@ -39,99 +42,6 @@
 
 // Usar el namespace para las structs
 using namespace ur5_controller;
-
-
-class TrajectoryGenerator {
-public:
-    // Estructura para contener los resultados
-    struct State {
-        Eigen::Vector3d position;
-        Eigen::Vector3d velocity;
-        Eigen::Vector3d acceleration;
-    };
-
-    // Calcula el estado completo de la trayectoria en un tiempo dado
-    static State calculate(
-        const Eigen::Vector3d& x_init,
-        const Eigen::Vector3d& A,
-        double wn,
-        double c0,
-        double time_elapsed,
-        int grafica)
-    {
-        State state;
-        double t = time_elapsed;
-
-        // --- Términos comunes (se calculan una sola vez) ---
-        double exp_neg_c0_t = exp(-c0 * t);
-        double sin_wn_t = sin(wn * t);
-        double cos_wn_t = cos(wn * t);
-        
-        double amp_factor = 1.0 - exp_neg_c0_t;
-        double d_amp_factor_dt = c0 * exp_neg_c0_t;
-        double d2_amp_factor_dt2 = -c0 * c0 * exp_neg_c0_t;
-        // ----------------------------------------------------
-        if (grafica ==1) {
-            // --- Cálculo de Posición ---
-            state.position.x() = x_init.x() + A.x() * amp_factor * sin_wn_t;
-            state.position.y() = x_init.y() + A.y() * amp_factor * cos_wn_t;
-            state.position.z() = x_init.z() + A.z() * amp_factor * sin_wn_t;
-
-            // --- Cálculo de Velocidad ---
-            state.velocity.x() = A.x() * (d_amp_factor_dt * sin_wn_t + amp_factor * wn * cos_wn_t);
-            state.velocity.y() = A.y() * (d_amp_factor_dt * cos_wn_t - amp_factor * wn * sin_wn_t);
-            state.velocity.z() = A.z() * (d_amp_factor_dt * sin_wn_t + amp_factor * wn * cos_wn_t);
-
-            // --- Cálculo de Aceleración ---
-            double term1_sin = d2_amp_factor_dt2 - amp_factor * wn * wn;
-            double term2_cos = 2 * d_amp_factor_dt * wn;
-            state.acceleration.x() = A.x() * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
-            state.acceleration.y() = A.y() * (term1_sin * cos_wn_t - term2_cos * sin_wn_t);
-            state.acceleration.z() = A.z() * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
-        }
-        else if (grafica == 2){
-            state.position.x() = x_init.x() + A.x() - A.x()*exp_neg_c0_t;
-            state.position.y() = x_init.y() + A.y() - A.y()*exp_neg_c0_t;
-            state.position.z() = x_init.z() + A.z() - A.z()*exp_neg_c0_t;
-
-            state.velocity.x() = A.x() * (-c0) * exp_neg_c0_t;
-            state.velocity.y() = A.y() * (-c0) * exp_neg_c0_t;
-            state.velocity.z() = A.z() * (-c0) * exp_neg_c0_t;
-
-            state.acceleration.x() = A.x() * (c0 * c0) * exp_neg_c0_t;
-            state.acceleration.y() = A.y() * (c0 * c0) * exp_neg_c0_t;
-            state.acceleration.z() = A.z() * (c0 * c0) * exp_neg_c0_t;
-        } 
-        else if (grafica == 3){
-            // Usamos A.x() como radio en X y A.y() como radio en Y
-            // Si quieres un círculo perfecto, asegúrate que A.x() == A.y()
-            double r_x = A.x();
-            double r_y = A.y();
-
-            // --- Posición (Circunferencia en el plano XY) ---
-            state.position.x() = x_init.x() + r_x * cos_wn_t;
-            state.position.y() = x_init.y() + r_y * sin_wn_t;
-            state.position.z() = x_init.z(); // Se mantiene constante en Z
-
-            // --- Velocidad (Derivada de la posición) ---
-            // dx/dt = -r * wn * sin(wn * t)
-            // dy/dt =  r * wn * cos(wn * t)
-            state.velocity.x() = -r_x * wn * sin_wn_t;
-            state.velocity.y() =  r_y * wn * cos_wn_t;
-            state.velocity.z() = 0.0;
-
-            // --- Aceleración (Segunda derivada) ---
-            // d2x/dt2 = -r * wn^2 * cos(wn * t)
-            // d2y/dt2 = -r * wn^2 * sin(wn * t)
-            state.acceleration.x() = -r_x * wn * wn * cos_wn_t;
-            state.acceleration.y() = -r_y * wn * wn * sin_wn_t;
-            state.acceleration.z() = 0.0;
-        }
-        
-
-        return state;
-    }
-};
 
 
 void initializeUR5(PinocchioResources& pinocchio, const std::string& urdf_path) {
@@ -189,7 +99,7 @@ public:
   UR5IKNode() : Node("ur5_ik_node")
   {
     // 1. Declarar parámetros
-    this->declare_parameter<std::string>("control_topic", config_.control_topic);
+    
     this->declare_parameter<bool>("geomagic", config_.use_geomagic);
     this->declare_parameter<std::string>("ur", config_.ur_model);
     this->declare_parameter<std::string>("nmspace", config_.nmspace);
@@ -215,6 +125,9 @@ public:
     this->declare_parameter<std::vector<double>>("lambda",{0.5,0.5,0.5,0.5,0.5,0.5});
     this->declare_parameter<std::vector<double>>("k",{50.0, 50.0, 50.0, 50.0, 50.0, 50.0});
     this->declare_parameter<std::vector<double>>("k2",{10.0, 10.0, 10.0, 10.0, 10.0, 10.0});
+
+
+    config_.control_topic = this->declare_parameter<std::string>("control_topic", config_.control_topic);
     config_.alpha = this->declare_parameter<double>("alpha", 0.01);
     config_.damping_factor = this->declare_parameter<double>("damping_factor", 0.01);
     config_.dt = this->declare_parameter<double>("dt", 0.01);
@@ -387,7 +300,7 @@ public:
 
     // Inicializar CSV si está habilitado
     if (config_.csv_enabled) {
-        init_csv_logger();
+        csv_logger_.configure(config_.csv_enabled, config_.csv_path, config_.csv_prefix, config_.nmspace);
     }
 
     // Callback para parámetros dinámicos (aplica cambios en caliente)
@@ -612,16 +525,12 @@ private:
     std::vector<std::string> last_js_names_{};    // para detectar cambios y reconstruir el mapa
 
     // ---- CSV logging ----
-    //bool csv_enabled = false;
-    //std::string csv_path;
-    //std::string config_.csv_prefix = "ur5_log";
-    std::string csv_file_path_;
-    std::ofstream csv_file_;
     rclcpp::Time start_time_{};
     rclcpp::Time last_log_time_{};
     // Métricas de tiempo por ciclo
     double last_ik_ms_ {0.0};
     double last_loop_ms_ {0.0};
+    CsvLogger csv_logger_;
     
     // === Watchdog para detectar delays y desconexiones ===
     std::chrono::steady_clock::time_point last_successful_publish_;
@@ -673,114 +582,6 @@ private:
     static std::string get_home_dir() {
         const char* home = std::getenv("HOME");
         return home ? std::string(home) : std::string(".");
-    }
-
-    std::string now_timestamp_string() {
-        auto now = std::chrono::system_clock::now();
-        std::time_t tt = std::chrono::system_clock::to_time_t(now);
-        std::tm tm{};
-        localtime_r(&tt, &tm);
-        std::ostringstream oss;
-        oss << std::put_time(&tm, "%Y%m%d_%H%M%S");
-        return oss.str();
-    }
-
-    void init_csv_logger() {
-        // Directorio por defecto: ~/.ros/ur5_logs
-        if (config_.csv_path.empty()) {
-            config_.csv_path = get_home_dir() + std::string("/.ros/ur5_logs");
-        }
-        std::error_code ec;
-        std::filesystem::create_directories(config_.csv_path, ec);
-        if (ec) {
-            RCLCPP_WARN(this->get_logger(), "No se pudo crear el directorio de CSV '%s': %s", config_.csv_path.c_str(), ec.message().c_str());
-        }
-
-        // Nombre de archivo único: <prefix>_<ns>_<YYYYMMDD_HHMMSS>.csv
-        std::string ns_part = config_.nmspace.empty() ? std::string("nonamespace") : config_.nmspace;
-        std::string fname = config_.csv_prefix + std::string("_") + ns_part + std::string("_") + now_timestamp_string() + std::string(".csv");
-        csv_file_path_ = (std::filesystem::path(config_.csv_path) / fname).string();
-
-        csv_file_.open(csv_file_path_, std::ios::out);
-        if (!csv_file_.is_open()) {
-            RCLCPP_ERROR(this->get_logger(), "No se pudo abrir archivo CSV: %s", csv_file_path_.c_str());
-            config_.csv_enabled = false;
-            return;
-        }
-
-        // Tiempos base
-        start_time_ = this->now();
-        last_log_time_ = start_time_;
-
-    // Encabezado
-    csv_file_ << "t,dt"
-        << ",q_meas_0,q_meas_1,q_meas_2,q_meas_3,q_meas_4,q_meas_5"
-        << ",q_cmd_0,q_cmd_1,q_cmd_2,q_cmd_3,q_cmd_4,q_cmd_5"
-        << ",e_q_0,e_q_1,e_q_2,e_q_3,e_q_4,e_q_5"
-        << ",x_des_x,x_des_y,x_des_z"
-        << ",x_meas_x,x_meas_y,x_meas_z"
-        << ",q_des_w,q_des_x,q_des_y,q_des_z"
-        << ",q_meas_w,q_meas_x,q_meas_y,q_meas_z"
-        << ",euler_des_r,euler_des_p,euler_des_y"
-        << ",euler_meas_r,euler_meas_p,euler_meas_y"
-        << ",e_R_angle"
-        << ",pos_err_x,pos_err_y,pos_err_z"
-        << ",ori_err_axis_x,ori_err_axis_y,ori_err_axis_z,ori_err_angle"
-        << ",u_control_0,u_control_1,u_control_2,u_control_3,u_control_4,u_control_5"
-        << ",ik_ms,loop_ms"
-        << std::endl;
-
-        RCLCPP_INFO(this->get_logger(), "CSV logging habilitado: %s", csv_file_path_.c_str());
-    }
-
-    void write_csv_row(double t, double dt,
-                       const Eigen::Vector3d& x_des,
-                       const Eigen::Vector3d& x_meas,
-                       const Eigen::Quaterniond& q_des,
-                       const Eigen::Quaterniond& q_meas,
-                       const Eigen::Vector3d& euler_des,
-                       const Eigen::Vector3d& euler_meas,
-                       double e_R_angle,
-                       const Eigen::Vector3d& pos_err,
-                       const Eigen::Vector3d& ori_err_axis,
-                       double ori_err_angle,
-                       const Eigen::VectorXd& u_control,
-                       double ik_ms,
-                       double loop_ms) {
-        if (!config_.csv_enabled || !csv_file_.is_open()) return;
-
-        csv_file_ << std::fixed << std::setprecision(6)
-                  << t << "," << dt;
-
-        // q_meas
-        for (int i = 0; i < 6; ++i) csv_file_ << "," << robot_state_.q[i];
-        // q_cmd
-        for (int i = 0; i < 6; ++i) csv_file_ << "," << robot_state_.q_solution[i];
-        // e_q = q_cmd - q_meas
-        for (int i = 0; i < 6; ++i) csv_file_ << "," << (robot_state_.q_solution[i] - robot_state_.q[i]);
-
-        // x_des, x_meas
-        csv_file_ << "," << x_des.x() << "," << x_des.y() << "," << x_des.z();
-        csv_file_ << "," << x_meas.x() << "," << x_meas.y() << "," << x_meas.z();
-        // quaternions deseado/medido
-        csv_file_ << "," << q_des.w() << "," << q_des.x() << "," << q_des.y() << "," << q_des.z();
-        csv_file_ << "," << q_meas.w() << "," << q_meas.x() << "," << q_meas.y() << "," << q_meas.z();
-        // euler deseado/medido (roll, pitch, yaw)
-        csv_file_ << "," << euler_des.x() << "," << euler_des.y() << "," << euler_des.z();
-        csv_file_ << "," << euler_meas.x() << "," << euler_meas.y() << "," << euler_meas.z();
-        // e_R_angle
-        csv_file_ << "," << e_R_angle;
-        // Error cartesiano de posición (desired - measured)
-        csv_file_ << "," << pos_err.x() << "," << pos_err.y() << "," << pos_err.z();
-        // Error de orientación (eje normalizado y ángulo)
-        csv_file_ << "," << ori_err_axis.x() << "," << ori_err_axis.y() << "," << ori_err_axis.z() << "," << ori_err_angle;
-        // Esfuerzos de control
-        for (int i = 0; i < 6; ++i) csv_file_ << "," << u_control[i];
-
-        // métricas de tiempos
-        csv_file_ << "," << ik_ms << "," << loop_ms;
-
-        csv_file_ << std::endl;
     }
 
     // Publica el objetivo articular a forward_position_controller (UN PASO cada 100ms)
@@ -1500,23 +1301,36 @@ private:
                 last_ik_ms_, last_loop_ms_);
 
             // Logging CSV (sin bloqueo, en thread de fondo ideal)
-            if (config_.csv_enabled) {
+            if (csv_logger_.isEnabled()) {
                 try {
                     rclcpp::Time now_ros = this->now();
-                    double t = (now_ros - start_time_).seconds();
-                    double dt = (now_ros - last_log_time_).seconds();
+                    const double t = (now_ros - start_time_).seconds();
+                    const double dt = (now_ros - last_log_time_).seconds();
                     last_log_time_ = now_ros;
-                    // Calcular errores cartesianos
-                    Eigen::Vector3d pos_err = cartesian_state_.position_desired - cartesian_state_.position; // error de posición
-                    RCLCPP_DEBUG(this->get_logger(), "pos_err: [%.3f, %.3f, %.3f]", pos_err.x(), pos_err.y(), pos_err.z());
-                    // Para orientación: quaternion de error (desired * meas^{-1})
+
+                    CsvRow row;
+                    row.t = t;
+                    row.dt = dt;
+                    row.q_meas_joints = robot_state_.q;
+                    row.q_cmd = robot_state_.q_solution;
+                    row.x_des = cartesian_state_.position_desired;
+                    row.x_meas = cartesian_state_.position;
+                    row.q_des = q_des;
+                    row.q_meas_pose = cartesian_state_.orientation;
+                    row.euler_des = euler_des;
+                    row.euler_meas = euler_meas;
+                    row.e_R_angle = e_R_angle;
+                    row.pos_err = cartesian_state_.position_desired - cartesian_state_.position;
                     Eigen::Quaterniond q_err = q_des * cartesian_state_.orientation.inverse();
                     Eigen::AngleAxisd aa(q_err);
-                    Eigen::Vector3d ori_axis = aa.axis();
-                    double ori_angle = aa.angle();
-                    write_csv_row(t, dt, cartesian_state_.position_desired, cartesian_state_.position, q_des, cartesian_state_.orientation, euler_des, euler_meas, e_R_angle,
-                                  pos_err, ori_axis, ori_angle, robot_state_.u_control,
-                                  last_ik_ms_, last_loop_ms_);
+                    row.ori_err_axis = aa.axis();
+                    row.ori_err_angle = aa.angle();
+                    row.u_control = robot_state_.u_control;
+                    row.ik_ms = last_ik_ms_;
+                    row.loop_ms = last_loop_ms_;
+
+                    RCLCPP_DEBUG(this->get_logger(), "pos_err: [%.3f, %.3f, %.3f]", row.pos_err.x(), row.pos_err.y(), row.pos_err.z());
+                    csv_logger_.writeRow(row);
                 } catch (const std::exception& e) {
                     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                         "Error escribiendo CSV: %s", e.what());
