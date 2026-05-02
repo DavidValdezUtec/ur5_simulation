@@ -15,7 +15,6 @@ find_package(OsqpEigen REQUIRED)
 # Crear la biblioteca
 add_library(${PROJECT_NAME} SHARED
   src/kinematics.cpp
-  src/hqp_kinematics.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC

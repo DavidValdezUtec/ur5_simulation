@@ -8,6 +8,9 @@
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/frames.hpp>
+#include <pinocchio/spatial/explog.hpp> // Necesario para pinocchio::log6
+#include <cmath>
+#include <algorithm>
 
 #include <Eigen/Dense>
 #include <string>
@@ -21,25 +24,14 @@ public:
     // El constructor ahora toma la ruta al archivo URDF.
     explicit UR5Kinematics(const std::string& urdf_path);
 
-    // Cinemática Inversa
-    Eigen::VectorXd inverseKinematics(
-        const Eigen::VectorXd& q_initial,
+    Eigen::VectorXd computeVelocityControlStep(
+        const Eigen::VectorXd& q_real,
         const Eigen::Vector3d& desired_pos,
-        const Eigen::Quaterniond& desired_orient,
-        int max_iterations,
-        double alpha
-    );
-
-    // NUEVO: Cinemática Inversa con solver QP
-    Eigen::VectorXd inverseKinematicsQP(
-        const Eigen::VectorXd& q_initial,
-        const Eigen::Vector3d& desired_pos,
-        const Eigen::Quaterniond& desired_orient,
-        int max_iterations,
-        double alpha,
-        double weight_pos = 1.0,
-        double weight_orient = 0.9
-    );
+        const Eigen::Matrix3d& desired_orient,
+        double Kp_pos,
+        double Kp_orient,
+        double dt); 
+    
     Eigen::VectorXd inverseKinematicsQP2(
         const Eigen::VectorXd& q_initial,
         const Eigen::Vector3d& desired_pos,
@@ -64,7 +56,7 @@ private:
     Eigen::Matrix<double, 6, 1> computePoseError2(const pinocchio::SE3& desired_pose);
 
     Eigen::VectorXd solveQPIK(const Eigen::MatrixXd& J, const Eigen::Matrix<double, 6, 1>& error, const Eigen::MatrixXd& W_p, const Eigen::MatrixXd& W_o);
-    
+    Eigen::VectorXd solveQPIK_Velocity(  const Eigen::MatrixXd& J, const Eigen::VectorXd& x_dot_des, const Eigen::VectorXd& current_q, double dt) ;
 };
 
 #endif // UR5_KINEMATICS_HPP

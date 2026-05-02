@@ -27,63 +27,6 @@ UR5Impedance::UR5Impedance(const std::string& urdf_path) {
     std::cout << "Modelo de impedancia cargado correctamente." << std::endl;
 }
 
-Eigen::MatrixXd UR5Impedance::computeFullJacobian(const Eigen::VectorXd& q) {
-    Eigen::MatrixXd J_full(7, model_->nv);
-    
-    // Jacobiano estándar de 6D
-    pinocchio::computeFrameJacobian(*model_, *data_, q, tool_frame_id_, pinocchio::LOCAL_WORLD_ALIGNED, J_full.topRows<6>());
-
-    // Derivada del cuaternión (aproximación)
-    // d(quat)/dt = 0.5 * quat * omega
-    // Esto es complejo. Por simplicidad, la derivada del cuaternión en el jacobiano se puede aproximar
-    // o calcular numéricamente, pero para el control es más robusto usar el error en el espacio tangente (log6).
-    // Aquí mantenemos la estructura de tu código original, pero esto es un punto a mejorar.
-    // Por ahora, la fila del cuaternión se deja en cero o se aproxima.
-    // La forma más simple es usar el jacobiano geométrico de 6D y mapear el error de cuaternión a velocidad angular.
-    
-    // Para replicar tu código, usaremos el jacobiano de 6D y manejaremos el error de 7D en la ley de control.
-    Eigen::MatrixXd J_geom(6, model_->nv);
-    pinocchio::computeFrameJacobian(*model_, *data_, q, tool_frame_id_, pinocchio::LOCAL_WORLD_ALIGNED, J_geom);
-    
-    J_full.setZero();
-    J_full.topRows(3) = J_geom.topRows(3); // Parte de posición
-    // La parte de orientación del jacobiano de 7D es más compleja.
-    // Por ahora, usaremos una simplificación.
-    J_full.bottomRows(4).setZero(); // Placeholder
-
-    return J_geom; // Devolvemos el jacobiano geométrico de 6D, que es más estándar.
-}
-Eigen::MatrixXd UR5Impedance::computeFullJacobianQuaternion(const Eigen::VectorXd& q, double delta)
-{
-    int nq = q.size();
-    Eigen::MatrixXd J_full(7, nq); // 3 pos + 4 quat
-
-    // Estado nominal
-    pinocchio::forwardKinematics(*model_, *data_, q);
-    pinocchio::updateFramePlacement(*model_, *data_, tool_frame_id_);
-    Eigen::Vector3d pos0 = data_->oMf[tool_frame_id_].translation();
-    Eigen::Quaterniond quat0(data_->oMf[tool_frame_id_].rotation());
-
-    for (int i = 0; i < nq; ++i) {
-        Eigen::VectorXd q_perturbed = q;
-        q_perturbed[i] += delta;
-
-        pinocchio::forwardKinematics(*model_, *data_, q_perturbed);
-        pinocchio::updateFramePlacement(*model_, *data_, tool_frame_id_);
-        Eigen::Vector3d pos1 = data_->oMf[tool_frame_id_].translation();
-        Eigen::Quaterniond quat1(data_->oMf[tool_frame_id_].rotation());
-
-        // Diferencia numérica para posición
-        Eigen::Vector3d dpos = (pos1 - pos0) / delta;
-        // Diferencia numérica para cuaternión (Eigen almacena como x, y, z, w)
-        Eigen::Vector4d dquat = (quat1.coeffs() - quat0.coeffs()) / delta;
-
-        // Guardar en la columna i
-        J_full.block<3,1>(0, i) = dpos;
-        J_full.block<4,1>(3, i) = dquat;
-    }
-    return J_full;
-}
 
 ControlOutput UR5Impedance::calculateControlCommand(
     const Eigen::VectorXd& q,

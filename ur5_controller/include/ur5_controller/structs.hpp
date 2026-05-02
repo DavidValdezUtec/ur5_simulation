@@ -103,7 +103,7 @@ struct NodeConfig
   // Trayectoria automática (cuando use_geomagic = false)
   // Parámetros leídos de ROS params: traj_A, traj_wn, traj_c0, traj_mode
   // ------------------------------------------------------------------
-  Eigen::Vector3d traj_A {0.05, 0.05, 0.02}; // Amplitudes en metros
+  Eigen::Vector3d traj_A {0.3, 0.2, 0.2}; // Amplitudes en metros
   double traj_wn = 0.5;                  // Frecuencia natural
   double traj_c0 = 0.1;                      // Factor de decaimiento
   int traj_mode = 1;                         // Modo (1 sinusoidal, 2 exponencial, etc.)

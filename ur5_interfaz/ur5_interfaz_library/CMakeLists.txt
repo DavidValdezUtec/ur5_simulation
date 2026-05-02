@@ -1,4 +1,4 @@
-  cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.10)
 project(ur5_interfaz_library)
 
 # Use C++17 and position-independent code for shared libs

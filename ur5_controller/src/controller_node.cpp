@@ -90,30 +90,47 @@ public:
             state.acceleration.z() = A.z() * (term1_sin * sin_wn_t + term2_cos * cos_wn_t);
         }
         else if (grafica == 2){
-            state.position.x() = x_init.x() -0.3 + 0.3*exp_neg_c0_t;
-            state.position.y() = x_init.y() + 0.1 - 0.1*exp_neg_c0_t;
-            state.position.z() = x_init.z() + 0.1 - 0.1*exp_neg_c0_t;
+            state.position.x() = x_init.x() + A.x() - A.x()*exp_neg_c0_t;
+            state.position.y() = x_init.y() + A.y() - A.y()*exp_neg_c0_t;
+            state.position.z() = x_init.z() + A.z() - A.z()*exp_neg_c0_t;
 
-            state.velocity.x() = -0.3 * (-c0) * exp_neg_c0_t;
-            state.velocity.y() = 0.1 * (-c0) * exp_neg_c0_t;
-            state.velocity.z() = 0.1 * (-c0) * exp_neg_c0_t;
+            state.velocity.x() = A.x() * (-c0) * exp_neg_c0_t;
+            state.velocity.y() = A.y() * (-c0) * exp_neg_c0_t;
+            state.velocity.z() = A.z() * (-c0) * exp_neg_c0_t;
 
-            state.acceleration.x() = -0.3 * (c0 * c0) * exp_neg_c0_t;
-            state.acceleration.y() = 0.1 * (c0 * c0) * exp_neg_c0_t;
-            state.acceleration.z() = 0.1 * (c0 * c0) * exp_neg_c0_t;
+            state.acceleration.x() = A.x() * (c0 * c0) * exp_neg_c0_t;
+            state.acceleration.y() = A.y() * (c0 * c0) * exp_neg_c0_t;
+            state.acceleration.z() = A.z() * (c0 * c0) * exp_neg_c0_t;
         } 
-        // grafica == 3 eliminado
+        else if (grafica == 3){
+            // Usamos A.x() como radio en X y A.y() como radio en Y
+            // Si quieres un círculo perfecto, asegúrate que A.x() == A.y()
+            double r_x = A.x();
+            double r_y = A.y();
+
+            // --- Posición (Circunferencia en el plano XY) ---
+            state.position.x() = x_init.x() + r_x * cos_wn_t;
+            state.position.y() = x_init.y() + r_y * sin_wn_t;
+            state.position.z() = x_init.z(); // Se mantiene constante en Z
+
+            // --- Velocidad (Derivada de la posición) ---
+            // dx/dt = -r * wn * sin(wn * t)
+            // dy/dt =  r * wn * cos(wn * t)
+            state.velocity.x() = -r_x * wn * sin_wn_t;
+            state.velocity.y() =  r_y * wn * cos_wn_t;
+            state.velocity.z() = 0.0;
+
+            // --- Aceleración (Segunda derivada) ---
+            // d2x/dt2 = -r * wn^2 * cos(wn * t)
+            // d2y/dt2 = -r * wn^2 * sin(wn * t)
+            state.acceleration.x() = -r_x * wn * wn * cos_wn_t;
+            state.acceleration.y() = -r_y * wn * wn * sin_wn_t;
+            state.acceleration.z() = 0.0;
+        }
+        
 
         return state;
     }
-};
-
-Eigen::Vector3d trayectoria_geomagic(Eigen::Vector3d x_init, Eigen::Vector3d r_init,Eigen::Vector3d r_actual, double escala){
-    Eigen::Vector3d x_des = Eigen::Vector3d::Zero();
-    x_des[0] = x_init[0] + (r_actual[1]-r_init[1])*escala;
-    x_des[1] = x_init[1] - (r_actual[0]-r_init[0])*escala;
-    x_des[2] = x_init[2] + (r_actual[2]-r_init[2])*escala;
-    return x_des;
 };
 
 
@@ -1240,9 +1257,8 @@ private:
                 cartesian_state_.orientation_desired.normalize();
                     
                 
-            } else {
-
-                // Rama automática: generar trayectoria paramétrica
+            } else {// Rama automática: generar trayectoria paramétrica
+                
                 if (!trajectory_active_) {
                     // Aún no activada (esperando fin de movimiento inicial)
                     return;
@@ -1265,20 +1281,15 @@ private:
                 cartesian_state_.angular_acceleration = Eigen::Vector3d::Zero();
                 t_traj_ += loop_dt;
 
-                //x_des << -0.03, 0.7, 0.1;
-                // Mantener orientación constanteluego agregalo al cmakelist
-                cartesian_state_.orientation_desired = cartesian_state_.orientation_initial;
                 RCLCPP_DEBUG(this->get_logger(), "x_des: [%.3f, %.3f, %.3f]",
                     cartesian_state_.position_desired.x(), cartesian_state_.position_desired.y(), cartesian_state_.position_desired.z());
                 RCLCPP_DEBUG(this->get_logger(), "vel_des: [%.3f, %.3f, %.3f]",
                     cartesian_state_.velocity.x(), cartesian_state_.velocity.y(), cartesian_state_.velocity.z());
             }
 
-            Eigen::Vector3d desired_vel_ori_ctrl =
-                config_.use_geomagic ? cartesian_state_.angular_velocity : Eigen::Vector3d::Zero();
+            Eigen::Vector3d desired_vel_ori_ctrl = config_.use_geomagic ? cartesian_state_.angular_velocity : Eigen::Vector3d::Zero();
 
-            Eigen::Vector3d desired_acc_ori_ctrl =
-                config_.use_geomagic ? cartesian_state_.angular_acceleration : Eigen::Vector3d::Zero();
+            Eigen::Vector3d desired_acc_ori_ctrl = config_.use_geomagic ? cartesian_state_.angular_acceleration : Eigen::Vector3d::Zero();
             // Medición cartesiana actual (para logging y control si fuera necesario)
             pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
             pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
@@ -1286,9 +1297,9 @@ private:
             const auto& frame_meas = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
             cartesian_state_.position = frame_meas.translation();
             RCLCPP_DEBUG(this->get_logger(), "x_meas: [%.3f, %.3f, %.3f]",
-                cartesian_state_.position.x(), cartesian_state_.position.y(), cartesian_state_.position.z());
-        Eigen::Matrix3d R_meas = frame_meas.rotation();
-        cartesian_state_.orientation = Eigen::Quaterniond(R_meas);
+            cartesian_state_.position.x(), cartesian_state_.position.y(), cartesian_state_.position.z());
+            Eigen::Matrix3d R_meas = frame_meas.rotation();
+            cartesian_state_.orientation = Eigen::Quaterniond(R_meas);
 
             Eigen::Matrix3d R_des = cartesian_state_.orientation_desired.toRotationMatrix();
             Eigen::Matrix3d R_err = R_meas.transpose() * R_des;
