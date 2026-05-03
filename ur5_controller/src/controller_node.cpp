@@ -579,10 +579,6 @@ private:
     double derivative_lpf_alpha_ = 0.2; // [0,1], mayor = menos filtrado
     bool haptic_state_initialized_ = false;
 
-    static std::string get_home_dir() {
-        const char* home = std::getenv("HOME");
-        return home ? std::string(home) : std::string(".");
-    }
 
     // Publica el objetivo articular a forward_position_controller (UN PASO cada 100ms)
     void publish_initial_joint_position() {
