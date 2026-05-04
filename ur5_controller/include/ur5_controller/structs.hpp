@@ -98,6 +98,8 @@ struct NodeConfig
   bool use_ur5_pos_init = true;             // Activar secuencia inicial hacia q_target
   std::vector<double> q_target {1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0}; // Objetivo articular inicial
   double q_target_time = 2.0;               // Tiempo para alcanzar objetivo inicial
+  // Señalización entre InitialMotionPublisher y el nodo principal para activar trayectoria
+  bool initial_motion_done = false;         // true cuando la secuencia inicial terminó y trayectoria puede comenzar
 
   // ------------------------------------------------------------------
   // Trayectoria automática (cuando use_geomagic = false)

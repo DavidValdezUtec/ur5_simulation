@@ -22,7 +22,10 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include <ur5_controller/csv_logger.hpp>
+#include <ur5_controller/joint_state_mapper.hpp>
 #include <ur5_controller/trajectory_generator.hpp>
+#include <ur5_controller/initial_motion_publisher.hpp>
+#include <ur5_controller/parameter_manager.hpp>
 
 // Standard C++
 #include <iostream>
@@ -91,47 +94,41 @@ std::string get_file_path(const std::string& package_name, const std::string& re
 
 
 
-
-
 class UR5IKNode : public rclcpp::Node
 {
 public:
   UR5IKNode() : Node("ur5_ik_node")
   {
     // 1. Declarar parámetros
-    
-    this->declare_parameter<bool>("geomagic", config_.use_geomagic);
-    this->declare_parameter<std::string>("ur", config_.ur_model);
-    this->declare_parameter<std::string>("nmspace", config_.nmspace);
-    this->declare_parameter<std::string>("urdf_path", "");
-    this->declare_parameter<std::string>("geomagic_topic", "/phantom/pose");
-    this->declare_parameter<std::string>("geomagic_button_topic", "/phantom/button");
-    // Movimiento inicial
-    this->declare_parameter<bool>("use_ur5_pos_init", config_.use_ur5_pos_init);
-    this->declare_parameter<std::vector<double>>("q_target", config_.q_target);
-    this->declare_parameter<double>("q_target_time", config_.q_target_time);
-    // CSV
-    this->declare_parameter<bool>("csv_log_enable", config_.csv_enabled);
-    this->declare_parameter<std::string>("csv_log_dir", config_.csv_path);
-    this->declare_parameter<std::string>("csv_log_prefix", config_.csv_prefix);
-    // Trayectoria automática
-    this->declare_parameter<std::vector<double>>("traj_A", {config_.traj_A.x(), config_.traj_A.y(), config_.traj_A.z()});
-    this->declare_parameter<double>("traj_wn", config_.traj_wn);
-    this->declare_parameter<double>("traj_c0", config_.traj_c0);
-    this->declare_parameter<int>("traj_mode", config_.traj_mode);
-    this->declare_parameter<std::string>("controller_type", config_.controller);
-    this->declare_parameter<std::vector<double>>("Kp", {1850.0, 1850.0, 1850.0, 500.0, 500.0, 500.0, 5000.0});
-    this->declare_parameter<std::vector<double>>("Kd", {10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0});
-    this->declare_parameter<std::vector<double>>("lambda",{0.5,0.5,0.5,0.5,0.5,0.5});
-    this->declare_parameter<std::vector<double>>("k",{50.0, 50.0, 50.0, 50.0, 50.0, 50.0});
-    this->declare_parameter<std::vector<double>>("k2",{10.0, 10.0, 10.0, 10.0, 10.0, 10.0});
+    config_.use_geomagic = this->declare_parameter<bool>("geomagic", config_.use_geomagic);
+    config_.ur_model = this->declare_parameter<std::string>("ur", config_.ur_model);
+    config_.nmspace = this->declare_parameter<std::string>("nmspace", config_.nmspace);
+    std::string urdf_param = this->declare_parameter<std::string>("urdf_path", "");
+    std::string geomagic_topic = this->declare_parameter<std::string>("geomagic_topic", "/phantom/pose");
+    std::string geomagic_button_topic = this->declare_parameter<std::string>("geomagic_button_topic", "/phantom/button");
+    config_.use_ur5_pos_init = this->declare_parameter<bool>("use_ur5_pos_init", config_.use_ur5_pos_init);
+    config_.q_target = this->declare_parameter<std::vector<double>>("q_target", config_.q_target);
+    config_.q_target_time = this->declare_parameter<double>("q_target_time", config_.q_target_time);
+    config_.csv_enabled = this->declare_parameter<bool>("csv_log_enable", config_.csv_enabled);
+    config_.csv_path = this->declare_parameter<std::string>("csv_log_dir", config_.csv_path);
+    config_.csv_prefix = this->declare_parameter<std::string>("csv_log_prefix", config_.csv_prefix);
 
+    std::vector<double> traj_A_param = this->declare_parameter<std::vector<double>>("traj_A", {config_.traj_A.x(), config_.traj_A.y(), config_.traj_A.z()});
+    config_.traj_wn = this->declare_parameter<double>("traj_wn", config_.traj_wn);
+    config_.traj_c0 = this->declare_parameter<double>("traj_c0", config_.traj_c0);
+    config_.traj_mode = this->declare_parameter<int>("traj_mode", config_.traj_mode);
+    config_.controller = this->declare_parameter<std::string>("controller_type", config_.controller);
+
+    std::vector<double> Kp_param = this->declare_parameter<std::vector<double>>("Kp", {1850.0, 1850.0, 1850.0, 500.0, 500.0, 500.0, 5000.0});
+    std::vector<double> Kd_param = this->declare_parameter<std::vector<double>>("Kd", {10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0});
+    std::vector<double> param_lambda = this->declare_parameter<std::vector<double>>("lambda", {0.5, 0.5, 0.5, 0.5, 0.5, 0.5});
+    std::vector<double> param_k = this->declare_parameter<std::vector<double>>("k", {50.0, 50.0, 50.0, 50.0, 50.0, 50.0});
+    std::vector<double> param_k2 = this->declare_parameter<std::vector<double>>("k2", {10.0, 10.0, 10.0, 10.0, 10.0, 10.0});
 
     config_.control_topic = this->declare_parameter<std::string>("control_topic", config_.control_topic);
     config_.alpha = this->declare_parameter<double>("alpha", 0.01);
     config_.damping_factor = this->declare_parameter<double>("damping_factor", 0.01);
     config_.dt = this->declare_parameter<double>("dt", 0.01);
-
     config_.ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 500.0); // 125Hz para estabilidad
     max_joint_step_rad_ = this->declare_parameter<double>("max_joint_step_rad", 0.05); // Paso máximo por ciclo
     large_error_threshold_rad_ = this->declare_parameter<double>("large_error_threshold_rad", 0.15); // Umbral error grande
@@ -139,49 +136,27 @@ public:
                 static_cast<int>(this->declare_parameter<double>("map_y", 0.0)),
                 static_cast<int>(this->declare_parameter<double>("map_z", 1.0))};
     sign_pos_ = {this->declare_parameter<double>("sign_x", -1.0),
-                    this->declare_parameter<double>("sign_y", -1.0),
-                    this->declare_parameter<double>("sign_z", 1.0)};
-
+                 this->declare_parameter<double>("sign_y", -1.0),
+                 this->declare_parameter<double>("sign_z", 1.0)};
     map_rot_ = {static_cast<int>(this->declare_parameter<double>("map_roll", 2.0)),
                 static_cast<int>(this->declare_parameter<double>("map_pitch", 0.0)),
                 static_cast<int>(this->declare_parameter<double>("map_yaw", 1.0))};
     sign_rot_ = {this->declare_parameter<double>("sign_roll", 1.0),
-                    this->declare_parameter<double>("sign_pitch", 1.0),
-                    this->declare_parameter<double>("sign_yaw", 1.0)};
+                 this->declare_parameter<double>("sign_pitch", 1.0),
+                 this->declare_parameter<double>("sign_yaw", 1.0)};
 
+    joint_state_mapper_.configure(config_.nmspace, this->get_logger());
 
-
-    // 2. Obtener parámetros y guardarlos en la struct de configuración
-    this->get_parameter("control_topic", config_.control_topic);
-    this->get_parameter("geomagic", config_.use_geomagic);
-    this->get_parameter("ur", config_.ur_model);
-    this->get_parameter("nmspace", config_.nmspace);
-    this->get_parameter("use_ur5_pos_init", config_.use_ur5_pos_init);
-    this->get_parameter("q_target", config_.q_target);
-    this->get_parameter("q_target_time", config_.q_target_time);
-    this->get_parameter("csv_log_enable", config_.csv_enabled);
-    this->get_parameter("csv_log_dir", config_.csv_path);
-    this->get_parameter("csv_log_prefix", config_.csv_prefix);
-    this->get_parameter("controller_type", config_.controller);
-    // Obtener parámetros de trayectoria
-    std::vector<double> A_param;
-    this->get_parameter("traj_A", A_param);
-    if (A_param.size() == 3) {
-        config_.traj_A = Eigen::Vector3d(A_param[0], A_param[1], A_param[2]);
+    if (traj_A_param.size() == 3) {
+        config_.traj_A = Eigen::Vector3d(traj_A_param[0], traj_A_param[1], traj_A_param[2]);
     } else {
         RCLCPP_WARN(this->get_logger(), "Parametro traj_A debe tener tamaño 3. Usando valores por defecto.");
     }
-    this->get_parameter("traj_wn", config_.traj_wn);
-    this->get_parameter("traj_c0", config_.traj_c0);
-    this->get_parameter("traj_mode", config_.traj_mode);
     if (config_.traj_mode < 1 || config_.traj_mode > 3) {
         RCLCPP_WARN(this->get_logger(), "traj_mode fuera de rango (%d). Se usará 1.", config_.traj_mode);
         config_.traj_mode = 1;
     }
-    
-    // Obtener parámetros de control
-    std::vector<double> Kp_param;
-    this->get_parameter("Kp", Kp_param);
+
     if (Kp_param.size() == 7) {
         for (int i = 0; i < 7; ++i) {
             config_.Kp(i) = Kp_param[i];
@@ -190,9 +165,7 @@ public:
         RCLCPP_WARN(this->get_logger(), "Parametro Kp debe tener tamaño 7. Usando valores por defecto.");
         config_.Kp << 1850.0, 1850.0, 1850.0, 500.0, 500.0, 500.0, 500.0;
     }
-    
-    std::vector<double> Kd_param;
-    this->get_parameter("Kd", Kd_param);
+
     if (Kd_param.size() == 7) {
         for (int i = 0; i < 7; ++i) {
             config_.Kd(i) = Kd_param[i];
@@ -201,8 +174,6 @@ public:
         RCLCPP_WARN(this->get_logger(), "Parametro Kd debe tener tamaño 7. Usando valores por defecto.");
         config_.Kd << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
     }
-    std::vector<double> param_lambda;
-    this->get_parameter("lambda", param_lambda);
     if (param_lambda.size() == 6) {
         for (int i = 0; i < 6; ++i) {
             config_.lambda(i) = param_lambda[i];
@@ -211,8 +182,6 @@ public:
         RCLCPP_WARN(this->get_logger(), "Parametro lambda debe tener tamaño 6. Usando valores por defecto.");
         config_.lambda << 0.5, 0.5, 0.5, 0.5, 0.5, 0.5;
     }
-    std::vector<double> param_k;
-    this->get_parameter("k", param_k);
     if (param_k.size() == 6) {
         for (int i = 0; i < 6; ++i) {
             config_.k(i) = param_k[i];
@@ -221,8 +190,6 @@ public:
         RCLCPP_WARN(this->get_logger(), "Parametro k debe tener tamaño 6. Usando valores por defecto.");
         config_.k << 50.0, 50.0, 50.0, 50.0, 50.0, 50.0;
     }
-    std::vector<double> param_k2;
-    this->get_parameter("k2", param_k2);
     if (param_k2.size() == 6) {
         for (int i = 0; i < 6; ++i) {
             config_.k2(i) = param_k2[i];
@@ -231,17 +198,12 @@ public:
         RCLCPP_WARN(this->get_logger(), "Parametro k2 debe tener tamaño 6. Usando valores por defecto.");
         config_.k2 << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
     }
-    
-    this->get_parameter("alpha", config_.alpha);
-    
-    
-    std::string urdf_param;
-    std::string geomagic_topic;
-    std::string geomagic_button_topic;
 
-    this->get_parameter("geomagic_button_topic", geomagic_button_topic);
-    this->get_parameter("geomagic_topic", geomagic_topic);
-    this->get_parameter("urdf_path", urdf_param);
+    if (urdf_param.empty()) {
+        config_.urdf_path = get_file_path("ur5_description", "urdf/" + config_.ur_model + ".urdf");
+    } else {
+        config_.urdf_path = urdf_param;
+    }
     if (urdf_param.empty()) {
         config_.urdf_path = get_file_path("ur5_description", "urdf/" + config_.ur_model + ".urdf");
     } else {
@@ -279,18 +241,21 @@ public:
     else {
         RCLCPP_INFO(this->get_logger(), "Modo Geomagic deshabilitado. Seguimiento de la trayectoria predefinida.");
         RCLCPP_INFO(this->get_logger(), "Controlador seleccionado: '%s'", config_.controller.c_str());
-        // Programar movimiento inicial tipo ur5_pos si está habilitado
+        // Configurar y inicializar el movimiento inicial si está habilitado
         if (config_.use_ur5_pos_init) {
-            init_move_active_ = true;            // activar modo publicación hasta detectar movimiento
-            init_baseline_set_ = false;          // baseline de joints se tomará al recibir JointState
-            step_publishing_initialized_ = false; // resetear estado de pasos para nueva secuencia
-            step_count_ = 0;
-            step_total_ = 0;
-            init_move_timer_ = this->create_wall_timer(
-                std::chrono::milliseconds(static_cast<int>(1000.0 / config_.ctrl_hz_)),  // 10 Hz (cada 100ms)
-                std::bind(&UR5IKNode::init_move_tick, this)
+            initial_motion_publisher_.configure(
+                robot_state_,
+                cartesian_state_,
+                config_,
+                joint_position_pub_,
+                joint_state_mapper_,
+                pinocchio_.model.get(),
+                pinocchio_.data.get(),
+                pinocchio_.tool_frame_id
             );
-            RCLCPP_INFO(this->get_logger(), "Modo ur5_pos activo: publicando objetivo hasta detectar movimiento (umbral %.3f rad)", move_detect_threshold_);
+            initial_motion_publisher_.initialize(this, config_.ctrl_hz_);
+
+            RCLCPP_INFO(this->get_logger(), "Initial motion (ur5_pos) mode activated.");
         }
         // Trayectoria automática se activará una vez termine movimiento inicial o inmediatamente si no se usa init
         if (!config_.use_ur5_pos_init) {
@@ -303,9 +268,10 @@ public:
         csv_logger_.configure(config_.csv_enabled, config_.csv_path, config_.csv_prefix, config_.nmspace);
     }
 
-    // Callback para parámetros dinámicos (aplica cambios en caliente)
+    // Inicializar gestor de parámetros y registrar callback para cambios en caliente
+    param_manager_ = std::make_unique<ParameterManager>(&config_, &map_pos_, &sign_pos_, &map_rot_, &sign_rot_, &dynamic_params_mutex_, this->get_logger());
     params_cb_handle_ = this->add_on_set_parameters_callback(
-        std::bind(&UR5IKNode::on_parameters_set, this, std::placeholders::_1));
+        std::bind(&ParameterManager::on_parameters_set, param_manager_.get(), std::placeholders::_1));
 
     last_successful_publish_ = std::chrono::steady_clock::now();
     timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(1000.0 / config_.ctrl_hz_)), std::bind(&UR5IKNode::control_loop, this));
@@ -314,170 +280,7 @@ public:
 private:
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr params_cb_handle_;
     std::mutex dynamic_params_mutex_;
-
-    rcl_interfaces::msg::SetParametersResult on_parameters_set(const std::vector<rclcpp::Parameter>& params) {
-        rcl_interfaces::msg::SetParametersResult result;
-        result.successful = true;
-        result.reason = "";
-
-        // Copias locales para aplicar todo de forma consistente
-        Eigen::Vector3i new_map_pos = map_pos_;
-        Eigen::Vector3d new_sign_pos = sign_pos_;
-        Eigen::Vector3i new_map_rot = map_rot_;
-        Eigen::Vector3d new_sign_rot = sign_rot_;
-
-        Eigen::Vector3d new_traj_A = config_.traj_A;
-        double new_traj_wn = config_.traj_wn;
-        double new_traj_c0 = config_.traj_c0;
-        int new_traj_mode = config_.traj_mode;
-        std::string new_controller = config_.controller;
-
-        auto reject = [&](const std::string& why) {
-            result.successful = false;
-            result.reason = why;
-        };
-
-        auto validate_map_idx = [&](int v, const std::string& name) {
-            if (v < 0 || v > 2) {
-                reject(name + " debe estar en [0,2]");
-                return false;
-            }
-            return true;
-        };
-        auto validate_sign = [&](double v, const std::string& name) {
-            if (!(v == 1.0 || v == -1.0)) {
-                reject(name + " debe ser 1.0 o -1.0");
-                return false;
-            }
-            return true;
-        };
-
-        for (const auto& p : params) {
-            const auto& name = p.get_name();
-
-            // --- Mapeo de posición ---
-            if (name == "map_x") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_x debe ser int"); break; }
-                int v = static_cast<int>(p.as_int());
-                if (!validate_map_idx(v, name)) break;
-                new_map_pos.x() = v;
-            } else if (name == "map_y") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_y debe ser int"); break; }
-                int v = static_cast<int>(p.as_int());
-                if (!validate_map_idx(v, name)) break;
-                new_map_pos.y() = v;
-            } else if (name == "map_z") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_z debe ser int"); break; }
-                int v = static_cast<int>(p.as_int());
-                if (!validate_map_idx(v, name)) break;
-                new_map_pos.z() = v;
-            } else if (name == "sign_x") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_x debe ser double"); break; }
-                double v = p.as_double();
-                if (!validate_sign(v, name)) break;
-                new_sign_pos.x() = v;
-            } else if (name == "sign_y") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_y debe ser double"); break; }
-                double v = p.as_double();
-                if (!validate_sign(v, name)) break;
-                new_sign_pos.y() = v;
-            } else if (name == "sign_z") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_z debe ser double"); break; }
-                double v = p.as_double();
-                if (!validate_sign(v, name)) break;
-                new_sign_pos.z() = v;
-
-            // --- Mapeo de rotación ---
-            } else if (name == "map_roll") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_roll debe ser int"); break; }
-                int v = static_cast<int>(p.as_int());
-                if (!validate_map_idx(v, name)) break;
-                new_map_rot.x() = v;
-            } else if (name == "map_pitch") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_pitch debe ser int"); break; }
-                int v = static_cast<int>(p.as_int());
-                if (!validate_map_idx(v, name)) break;
-                new_map_rot.y() = v;
-            } else if (name == "map_yaw") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("map_yaw debe ser int"); break; }
-                int v = static_cast<int>(p.as_int());
-                if (!validate_map_idx(v, name)) break;
-                new_map_rot.z() = v;
-            } else if (name == "sign_roll") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_roll debe ser double"); break; }
-                double v = p.as_double();
-                if (!validate_sign(v, name)) break;
-                new_sign_rot.x() = v;
-            } else if (name == "sign_pitch") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_pitch debe ser double"); break; }
-                double v = p.as_double();
-                if (!validate_sign(v, name)) break;
-                new_sign_rot.y() = v;
-            } else if (name == "sign_yaw") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("sign_yaw debe ser double"); break; }
-                double v = p.as_double();
-                if (!validate_sign(v, name)) break;
-                new_sign_rot.z() = v;
-
-            // --- Trayectoria automática ---
-            } else if (name == "traj_A") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE_ARRAY) { reject("traj_A debe ser double[]"); break; }
-                auto v = p.as_double_array();
-                if (v.size() != 3) { reject("traj_A debe tener tamaño 3"); break; }
-                new_traj_A = Eigen::Vector3d(v[0], v[1], v[2]);
-            } else if (name == "traj_wn") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("traj_wn debe ser double"); break; }
-                new_traj_wn = p.as_double();
-            } else if (name == "traj_c0") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) { reject("traj_c0 debe ser double"); break; }
-                new_traj_c0 = p.as_double();
-            } else if (name == "traj_mode") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) { reject("traj_mode debe ser int"); break; }
-                int v = static_cast<int>(p.as_int());
-                // En este archivo sólo existen modos 1 y 2 (el 3 está comentado/eliminado)
-                if (v != 1 && v != 2) { reject("traj_mode debe ser 1 o 2"); break; }
-                new_traj_mode = v;
-
-            // --- Controlador ---
-            } else if (name == "controller_type") {
-                if (p.get_type() != rclcpp::ParameterType::PARAMETER_STRING) { reject("controller_type debe ser string"); break; }
-                auto v = p.as_string();
-                if (!(v == "QP" || v == "IMP" || v == "SLD")) {
-                    reject("controller_type debe ser 'QP', 'IMP' o 'SLD'");
-                    break;
-                }
-                new_controller = v;
-            }
-        }
-
-        if (!result.successful) {
-            return result;
-        }
-
-        {
-            std::scoped_lock<std::mutex> lock(dynamic_params_mutex_);
-            map_pos_ = new_map_pos;
-            sign_pos_ = new_sign_pos;
-            map_rot_ = new_map_rot;
-            sign_rot_ = new_sign_rot;
-            config_.traj_A = new_traj_A;
-            config_.traj_wn = new_traj_wn;
-            config_.traj_c0 = new_traj_c0;
-            config_.traj_mode = new_traj_mode;
-            config_.controller = new_controller;
-        }
-
-        RCLCPP_INFO(this->get_logger(),
-                    "Parametros actualizados: map_pos=[%d,%d,%d] sign_pos=[%.0f,%.0f,%.0f] map_rot=[%d,%d,%d] sign_rot=[%.0f,%.0f,%.0f] traj_mode=%d controller=%s",
-                    map_pos_.x(), map_pos_.y(), map_pos_.z(),
-                    sign_pos_.x(), sign_pos_.y(), sign_pos_.z(),
-                    map_rot_.x(), map_rot_.y(), map_rot_.z(),
-                    sign_rot_.x(), sign_rot_.y(), sign_rot_.z(),
-                    config_.traj_mode,
-                    config_.controller.c_str());
-
-        return result;
-    }
+    std::unique_ptr<ParameterManager> param_manager_;
 
     // Suscriptores y publicadores
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr joint_position_pub_;
@@ -520,9 +323,10 @@ private:
    
 
     // ---- Mapeo robusto de joints por nombre ----
-    std::vector<int> joint_index_map_{};          // índice en msg->name para cada joint esperado
-    bool joint_map_initialized_ = false;
-    std::vector<std::string> last_js_names_{};    // para detectar cambios y reconstruir el mapa
+    JointStateMapper joint_state_mapper_;
+
+    // ---- Motion initialization (movimiento inicial) ----
+    InitialMotionPublisher initial_motion_publisher_{this->get_logger()};
 
     // ---- CSV logging ----
     rclcpp::Time start_time_{};
@@ -544,27 +348,6 @@ private:
     Eigen::Vector3d sign_pos_, sign_rot_;
     Eigen::Vector3i map_pos_, map_rot_;
 
-
-    // ---- Movimiento inicial tipo ur5_pos ----
-    // (Variables trasladadas a config_)
-    bool init_pose_published_ = false; // legado (no usado en modo repetitivo)
-    bool init_move_active_ = false;    // publicar hasta detectar movimiento
-    bool init_baseline_set_ = false;   // baseline ya capturada
-    std::vector<double> q_baseline_{0.0,0.0,0.0,0.0,0.0,0.0};
-    double move_detect_threshold_ = 0.010; // rad, ~0.57 deg
-    rclcpp::TimerBase::SharedPtr init_move_timer_;
-    rclcpp::TimerBase::SharedPtr trajectory_delay_timer_;
-    // Detección de llegada a objetivo articular inicial
-    bool init_movement_started_ = false;     // ya comenzó a moverse hacia el objetivo
-    double reach_threshold_rad_ = 0.020;     // rad, condición de cercanía a q_target
-    int reach_count_ = 0;                    // conteo de comprobaciones consecutivas en umbral
-    int reach_count_required_ = 5;           // número de comprobaciones consecutivas para confirmar llegada
-    // ---- Control de pasos para movimiento inicial ----
-    bool step_publishing_initialized_ = false;  // saber si ya inicializamos el proceso de pasos
-    std::vector<double> step_error_{0.0,0.0,0.0,0.0,0.0,0.0};  // error actual por joint
-    std::vector<double> step_q_{0.0,0.0,0.0,0.0,0.0,0.0};      // posición siendo pasada
-    int step_count_ = 0;                        // número de pasos ya publicados
-    int step_total_ = 0;                        // número total de pasos necesarios
     // ---- Trayectoria automática sin geomagic ----
     // (Parámetros de trayectoria ahora en config_)
     bool trajectory_active_ {false};
@@ -580,267 +363,15 @@ private:
     bool haptic_state_initialized_ = false;
 
 
-    // Publica el objetivo articular a forward_position_controller (UN PASO cada 100ms)
-    void publish_initial_joint_position() {
-        if (config_.q_target.size() != 6) {
-            RCLCPP_ERROR(this->get_logger(), "q_target debe tener 6 elementos, tiene %zu", config_.q_target.size());
-            return;
-        }
-        
-        // === INICIALIZACIÓN (primera llamada) ===
-        if (!step_publishing_initialized_) {
-            // Usar posición actual del robot como punto de inicio
-            std::vector<double> robot_q(robot_state_.q.data(), robot_state_.q.data() + 6);
-            step_q_ = robot_q;
-            std::cout << "Posición actual del robot (baseline): [";
-            for (size_t i = 0; i < 6; ++i) {
-                std::cout << robot_q[i];
-                if (i < 5) std::cout << ", ";
-            }
-            std::cout << "]" << std::endl;
-            
-            step_count_ = 0;
-            
-            // Calcular error elemento por elemento desde la posición actual (baseline)
-            double max_error = 0.0;
-            for (size_t i = 0; i < 6; ++i) {
-                step_error_[i] = config_.q_target[i] - step_q_[i];
-                max_error = std::max(max_error, std::abs(step_error_[i]));
-            }
-            
-            // Redondear y calcular número total de pasos necesarios
-            max_error = std::round(max_error * 100000.0) / 100000.0;
-            step_total_ = static_cast<int>(std::ceil(max_error / 0.00001));
-            
-            RCLCPP_INFO(this->get_logger(), "Publicación de pasos INICIADA: %d pasos totales (máx error: %.3f rad)", 
-                        step_total_, max_error);
-            
-            step_publishing_initialized_ = true;
-        }
-        
-        // === PUBLICACIÓN DE UN SOLO PASO ===
-        if (step_count_ < step_total_) {
-            // Actualizar posición para este paso
-            for (size_t j = 0; j < 6; ++j) {
-                if (std::abs(step_error_[j]) > 0.001) {
-                    // Avanzar 0.001 rad en la dirección del error
-                    step_q_[j] = step_q_[j] + 0.001 * std::copysign(1.0, step_error_[j]);
-                    step_error_[j] -= 0.001 * std::copysign(1.0, step_error_[j]);
-                }
-                else if (std::abs(step_error_[j]) > 1e-6) {
-                    // Último paso: fijar exactamente al objetivo
-                    step_q_[j] = config_.q_target[j];
-                    step_error_[j] = 0.0;
-                }
-            }
-            
-            // Publicar este paso
-            auto msg = std_msgs::msg::Float64MultiArray();
-            msg.data = step_q_;
-            step_count_++;
-            
-            RCLCPP_INFO(this->get_logger(), "Publicando objetivo articular [paso %d/%d]: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]", 
-                        step_count_, step_total_,
-                        step_q_[0], step_q_[1], step_q_[2], step_q_[3], step_q_[4], step_q_[5]);
-            joint_position_pub_->publish(msg);
-        }
-    }
-
-    // Tick periódico: publica mientras no detecte movimiento respecto a baseline
-    void init_move_tick() {
-        if (!init_move_active_) return;
-        // Asegurar baseline al recibir primeras articulaciones
-        if (!init_baseline_set_) {
-            // Necesitamos haber recibido joint_states y tener un mapeo válido
-            if (last_joint_state_ && joint_map_initialized_) {
-                for (int i = 0; i < 6; ++i) q_baseline_[i] = robot_state_.q[i];
-                init_baseline_set_ = true;
-                RCLCPP_INFO(this->get_logger(), "Baseline articular capturada para detección de movimiento: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]",
-                           q_baseline_[0], q_baseline_[1], q_baseline_[2], q_baseline_[3], q_baseline_[4], q_baseline_[5]);
-            }
-            return; // NO publicar hasta tener baseline
-        }
-
-        // Detectar inicio de movimiento respecto a baseline
-        if (!init_movement_started_ && init_baseline_set_) {
-            for (int i = 0; i < 6; ++i) {
-                if (std::abs(robot_state_.q[i] - q_baseline_[i]) > move_detect_threshold_) {
-                    init_movement_started_ = true;
-                    RCLCPP_INFO(this->get_logger(), "Movimiento inicial detectado (> %.3f rad). Continuando hasta alcanzar q_target.", move_detect_threshold_);
-                    break;
-                }
-            }
-        }
-
-        // Verificar llegada a q_target con histéresis (consecutivo)
-        double max_err = 0.0;
-        for (int i = 0; i < 6; ++i) {
-            max_err = std::max(max_err, std::abs(robot_state_.q[i] - config_.q_target[i]));
-        }
-        if (max_err < reach_threshold_rad_) {
-            reach_count_++;
-        } else {
-            reach_count_ = 0;
-        }
-
-        if (reach_count_ >= reach_count_required_) {
-            init_move_active_ = false;
-            step_publishing_initialized_ = false;  // resetear estado de pasos para próxima secuencia
-            if (init_move_timer_) init_move_timer_->cancel();
-            RCLCPP_INFO(this->get_logger(), "Objetivo articular alcanzado (|e|_max < %.3f rad por %d ciclos).", reach_threshold_rad_, reach_count_required_);
-            // Activar trayectoria automática desde t = 0
-            if (!config_.use_geomagic) {
-                // Reasignar x_init y R_init a la pose actual alcanzada para arrancar la trayectoria exactamente desde q_target
-                pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
-                pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
-                const auto& frame_now = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
-
-                cartesian_state_.position_initial = frame_now.translation();
-                cartesian_state_.rotation_matrix_initial = frame_now.rotation();
-                cartesian_state_.orientation_initial = Eigen::Quaterniond(frame_now.rotation());
-                
-                RCLCPP_INFO(this->get_logger(), "x_init y R_init reconfigurados a la pose actual antes de iniciar trayectoria.");
-                RCLCPP_INFO(this->get_logger(), "Esperando 1 segundo antes de activar trayectoria automática...");
-                
-                // Crear timer de una sola ejecución (one-shot) de 1 segundo
-                trajectory_delay_timer_ = this->create_wall_timer(
-                    std::chrono::seconds(1),
-                    [this]() {
-                        trajectory_start_time_ = this->now();
-                        trajectory_active_ = true;
-                        RCLCPP_INFO(this->get_logger(), "Trayectoria automática ACTIVADA desde t=0 tras delay de 1 segundo.");
-                        if (trajectory_delay_timer_) trajectory_delay_timer_->cancel();
-                    }
-                );
-            }
-            return;
-        }
-
-        // Publicar el objetivo mientras no se alcance
-        publish_initial_joint_position();
-    }
-
-    static bool ends_with(const std::string& str, const std::string& suffix) {
-        if (suffix.size() > str.size()) return false;
-        return std::equal(suffix.rbegin(), suffix.rend(), str.rbegin());
-    }
-
-    std::vector<std::string> get_expected_joint_names() const {
-        std::string prefix = config_.nmspace.empty() ? std::string("") : (config_.nmspace + std::string("_"));
-        return {
-            prefix + "shoulder_pan_joint",
-            prefix + "shoulder_lift_joint",
-            prefix + "elbow_joint",
-            prefix + "wrist_1_joint",
-            prefix + "wrist_2_joint",
-            prefix + "wrist_3_joint"
-        };
-    }
-
-    std::vector<std::string> get_expected_base_joint_names() const {
-        return {
-            "shoulder_pan_joint",
-            "shoulder_lift_joint",
-            "elbow_joint",
-            "wrist_1_joint",
-            "wrist_2_joint",
-            "wrist_3_joint"
-        };
-    }
-
-    bool same_name_list(const std::vector<std::string>& a, const std::vector<std::string>& b) {
-        if (a.size() != b.size()) return false;
-        for (size_t i = 0; i < a.size(); ++i) if (a[i] != b[i]) return false;
-        return true;
-    }
-
-    void rebuild_joint_index_map(const sensor_msgs::msg::JointState::SharedPtr& msg) {
-        joint_map_initialized_ = false;
-        joint_index_map_.assign(6, -1);
-        last_js_names_ = msg->name;
-
-        const auto expected = get_expected_joint_names();
-        const auto expected_base = get_expected_base_joint_names();
-
-        // Mapa rápido de nombre -> índice del mensaje
-        std::unordered_map<std::string, int> name_to_idx;
-        for (size_t i = 0; i < msg->name.size(); ++i) {
-            name_to_idx[msg->name[i]] = static_cast<int>(i);
-        }
-
-        // 1) Intento por coincidencia exacta
-        int found_exact = 0;
-        for (int i = 0; i < 6; ++i) {
-            auto it = name_to_idx.find(expected[i]);
-            if (it != name_to_idx.end()) {
-                joint_index_map_[i] = it->second;
-                ++found_exact;
-            }
-        }
-
-        // 2) Fallback: buscar por nombre base exacto si faltan
-        if (found_exact < 6) {
-            for (int i = 0; i < 6; ++i) {
-                if (joint_index_map_[i] != -1) continue;
-                auto itb = name_to_idx.find(expected_base[i]);
-                if (itb != name_to_idx.end()) {
-                    joint_index_map_[i] = itb->second;
-                    ++found_exact;
-                }
-            }
-        }
-
-        // 3) Último recurso: buscar entradas que terminen con el nombre base
-        if (found_exact < 6) {
-            for (int i = 0; i < 6; ++i) {
-                if (joint_index_map_[i] != -1) continue;
-                for (size_t j = 0; j < msg->name.size(); ++j) {
-                    if (ends_with(msg->name[j], expected_base[i])) {
-                        joint_index_map_[i] = static_cast<int>(j);
-                        ++found_exact;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (found_exact == 6) {
-            joint_map_initialized_ = true;
-            std::ostringstream map_info;
-            map_info << "Mapa de joints establecido (idx en /joint_states): ";
-            for (int i = 0; i < 6; ++i) map_info << joint_index_map_[i] << (i < 5 ? "," : "");
-            RCLCPP_INFO(this->get_logger(), "%s", map_info.str().c_str());
-        } else {
-            RCLCPP_WARN(this->get_logger(), "No se pudo establecer el mapeo de joints por nombre. Recibidos %zu nombres.", msg->name.size());
-        }
-    }
-
     // Callback de JOINT STATES del UR5(e)
     void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
         last_joint_state_ = msg;
-        // (Re)construir mapeo si es la primera vez o si la lista de nombres cambió
-        if (!joint_map_initialized_ || !same_name_list(msg->name, last_js_names_)) {
-            rebuild_joint_index_map(msg);
-        }
+        
+        // Update the initial motion publisher with the latest joint state
+        initial_motion_publisher_.setLastJointState(msg);
 
-        if (!joint_map_initialized_) {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Esperando mapeo válido de joints para reordenar JointState");
+        if (!joint_state_mapper_.updateOrderedState(msg, robot_state_.q, robot_state_.qd)) {
             return;
-        }
-
-        // Reordenar posiciones y velocidades según el mapeo
-        for (int i = 0; i < 6; ++i) {
-            int j = joint_index_map_[i];
-            if (j < 0 || static_cast<size_t>(j) >= msg->position.size()) {
-                RCLCPP_WARN(this->get_logger(), "Índice de joint fuera de rango para posiciones: %d", j);
-                return;
-            }
-            robot_state_.q[i] = msg->position[j];
-            if (static_cast<size_t>(j) < msg->velocity.size()) {
-                robot_state_.qd[i] = msg->velocity[j];
-            } else {
-                robot_state_.qd[i] = 0.0;
-            }
         }
 
         // Actualizar medición cartesiana actual (posición y orientación) del efector
@@ -851,13 +382,6 @@ private:
         cartesian_state_.position = frame_placement_now.translation();
         cartesian_state_.rotation_matrix = frame_placement_now.rotation();
         cartesian_state_.orientation = Eigen::Quaterniond(frame_placement_now.rotation());
-
-        // Si estamos en modo ur5_pos y aún no hay baseline, capturarla cuando llegan los primeros joints
-        if (config_.use_ur5_pos_init && !config_.use_geomagic && init_move_active_ && !init_baseline_set_) {
-            for (int i = 0; i < 6; ++i) q_baseline_[i] = robot_state_.q[i];
-            init_baseline_set_ = true;
-            RCLCPP_INFO(this->get_logger(), "Baseline articular capturada (update_joint_positions).");
-        }
 
         // Capturar la pose inicial automáticamente en la primera recepción
         if (!pose_inicial_capturada_) {
@@ -881,7 +405,7 @@ private:
             RCLCPP_INFO(this->get_logger(), "q_init: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f", 
                         robot_state_.q_init[0], robot_state_.q_init[1], robot_state_.q_init[2], robot_state_.q_init[3], robot_state_.q_init[4], robot_state_.q_init[5]);
             // Si geomagic es false y no hay movimiento inicial activo, arrancar trayectoria ahora
-            if (!config_.use_geomagic && !init_move_active_) {
+            if (!config_.use_geomagic && !initial_motion_publisher_.isActive()) {
                 trajectory_start_time_ = this->now();
                 trajectory_active_ = true;
                 RCLCPP_INFO(this->get_logger(), "Trayectoria automática ACTIVADA desde t=0 tras captura de pose inicial (sin movimiento inicial)." );
@@ -1058,7 +582,15 @@ private:
                 
                 if (!trajectory_active_) {
                     // Aún no activada (esperando fin de movimiento inicial)
-                    return;
+                        // If initial motion helper finished and signaled readiness, activate trajectory
+                        if (config_.initial_motion_done && !config_.use_geomagic) {
+                            trajectory_start_time_ = this->now();
+                            trajectory_active_ = true;
+                            RCLCPP_INFO(this->get_logger(), "Trayectoria automática ACTIVADA después de movimiento inicial.");
+                            // reset the flag to avoid re-triggering
+                            config_.initial_motion_done = false;
+                        }
+                        if (!trajectory_active_) return;
                 }
                 auto st = TrajectoryGenerator::calculate(
                     cartesian_state_.position_initial,

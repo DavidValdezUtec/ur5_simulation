@@ -33,6 +33,18 @@ add_library(csv_logger
   src/csv_logger.cpp
 )
 
+add_library(joint_state_mapper
+  src/joint_state_mapper.cpp
+)
+
+add_library(initial_motion_publisher
+  src/initial_motion_publisher.cpp
+)
+
+add_library(parameter_manager
+  src/parameter_manager.cpp
+)
+
 target_include_directories(trajectory_generator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -40,6 +52,24 @@ target_include_directories(trajectory_generator PUBLIC
 )
 
 target_include_directories(csv_logger PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIR}
+)
+
+target_include_directories(joint_state_mapper PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIR}
+)
+
+target_include_directories(initial_motion_publisher PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIR}
+)
+
+target_include_directories(parameter_manager PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
   ${EIGEN3_INCLUDE_DIR}
@@ -54,7 +84,30 @@ ament_target_dependencies(csv_logger
   Eigen3
 )
 
-install(TARGETS trajectory_generator csv_logger
+ament_target_dependencies(joint_state_mapper
+  rclcpp
+  sensor_msgs
+  Eigen3
+)
+
+ament_target_dependencies(initial_motion_publisher
+  rclcpp
+  sensor_msgs
+  std_msgs
+  pinocchio
+  Eigen3
+)
+
+ament_target_dependencies(parameter_manager
+  rclcpp
+  Eigen3
+)
+
+ament_target_dependencies(parameter_manager
+  pinocchio
+)
+
+install(TARGETS trajectory_generator csv_logger joint_state_mapper initial_motion_publisher parameter_manager
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
@@ -92,6 +145,9 @@ ament_target_dependencies(controller_node
 target_link_libraries(controller_node
   trajectory_generator
   csv_logger
+  joint_state_mapper
+  initial_motion_publisher
+  parameter_manager
   ur5_kinematics::ur5_kinematics
   ur5_impedance::ur5_impedance
   ur5_sliding::ur5_sliding
