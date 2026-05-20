@@ -282,7 +282,7 @@ class InterfazRviz(QMainWindow, UIMixin):
   -p ur:="ur5e" \
   -p nmspace:="r1" \
   -p geomagic:="true" \
-  -p geomagic_topic:="/phantom1/pose" \
+  -p geomagic_topic:="/phantom1/state" \
   -p geomagic_button_topic:="/phantom1/button" \
   -p csv_log_enable:="true" \
   -p traj_mode:=1 \
@@ -317,7 +317,7 @@ class InterfazRviz(QMainWindow, UIMixin):
             '-p', f'ur:={control_config["ur"]}',
             '-p', f'nmspace:={robot_id}',
             '-p', f'geomagic:={control_config["geomagic"]}',
-            '-p', f'geomagic_topic:={"phantom1" if robot_id == "r1" else "phantom2"}/pose',
+            '-p', f'geomagic_topic:={"phantom1" if robot_id == "r1" else "phantom2"}/state',
             '-p', f'geomagic_button_topic:={"/phantom1/button" if robot_id == "r1" else "/phantom2/button"}',
             '-p', 'csv_log_enable:=true',
             '-p', f'traj_mode:={int(control_config["traj_mode"])}',

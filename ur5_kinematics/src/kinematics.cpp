@@ -274,6 +274,3 @@ Eigen::VectorXd UR5Kinematics::inverseKinematicsQP2(
     std::cout << "dq_limite: " << dq_externo.transpose() << " norm: " << dq_externo.norm() << std::endl;
     return q;
 }
-
-
-

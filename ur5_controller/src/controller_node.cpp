@@ -10,7 +10,6 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <omni_msgs/msg/omni_button_event.hpp>
 #include <omni_msgs/msg/omni_state.hpp>
 #include <omni_msgs/msg/omni_feedback.hpp>
 
@@ -104,7 +103,7 @@ public:
     config_.ur_model = this->declare_parameter<std::string>("ur", config_.ur_model);
     config_.nmspace = this->declare_parameter<std::string>("nmspace", config_.nmspace);
     std::string urdf_param = this->declare_parameter<std::string>("urdf_path", "");
-    std::string geomagic_topic = this->declare_parameter<std::string>("geomagic_topic", "/phantom/pose");
+    std::string geomagic_topic = this->declare_parameter<std::string>("geomagic_topic", "/phantom/state");
     std::string geomagic_button_topic = this->declare_parameter<std::string>("geomagic_button_topic", "/phantom/button");
     config_.use_ur5_pos_init = this->declare_parameter<bool>("use_ur5_pos_init", config_.use_ur5_pos_init);
     config_.q_target = this->declare_parameter<std::vector<double>>("q_target", config_.q_target);
@@ -233,10 +232,8 @@ public:
     }
 
     if (config_.use_geomagic) {
-        geomagic_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(geomagic_topic, 10, std::bind(&UR5IKNode::pose_callback, this, std::placeholders::_1));
-        subscription_phantom_button_ = this->create_subscription<omni_msgs::msg::OmniButtonEvent>(geomagic_button_topic, 10, std::bind(&UR5IKNode::button_callback, this, std::placeholders::_1));
-        RCLCPP_INFO(this->get_logger(), "Usando tópico de Geomagic: '%s'", geomagic_topic.c_str());
-        RCLCPP_INFO(this->get_logger(), "Usando tópico de botón Geomagic: '%s'", geomagic_button_topic.c_str());
+        geomagic_state_sub_ = this->create_subscription<omni_msgs::msg::OmniState>(geomagic_topic, 10, std::bind(&UR5IKNode::pose_callback, this, std::placeholders::_1));
+        RCLCPP_INFO(this->get_logger(), "Usando tópico de Geomagic state: '%s'", geomagic_topic.c_str());
     }
     else {
         RCLCPP_INFO(this->get_logger(), "Modo Geomagic deshabilitado. Seguimiento de la trayectoria predefinida.");
@@ -286,9 +283,13 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr joint_position_pub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_global_;
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr geomagic_pose_sub_;
-    rclcpp::Subscription<omni_msgs::msg::OmniButtonEvent>::SharedPtr subscription_phantom_button_;
+    rclcpp::Subscription<omni_msgs::msg::OmniState>::SharedPtr geomagic_state_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr geomagic_pose_stamped_sub_;
     sensor_msgs::msg::JointState::SharedPtr last_joint_state_;  
+
+    // Estado previo de botones recibidos vía OmniState
+    bool haptic_close_prev_ = false;
+    bool haptic_locked_prev_ = false;
 
     // --- Variables agrupadas en structs ---
     RobotState robot_state_;
@@ -413,10 +414,10 @@ private:
         }
     }
     
-    // Callback del Geomagic Touch
-    void pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+    // Callback del Geomagic Touch (recibe OmniState con posición en mm, velocidad en mm/s)
+    void pose_callback(const omni_msgs::msg::OmniState::SharedPtr msg) {
         if (!msg) {
-            RCLCPP_ERROR(this->get_logger(), "Mensaje nulo recibido en /phantom/pose.");
+            RCLCPP_ERROR(this->get_logger(), "Mensaje nulo recibido en /phantom/state.");
             return;
         }
 
@@ -431,72 +432,79 @@ private:
         last_haptic_sample_time_ = now_sample;
         haptic_timing_initialized_ = true;
         
-        haptic_state_.position << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
+        // Convertir posición de mm a m (dividir por 1000)
+        haptic_state_.position << msg->pose.position.x / 1000.0, 
+                                  msg->pose.position.y / 1000.0, 
+                                  msg->pose.position.z / 1000.0;
         haptic_state_.orientation.w() = msg->pose.orientation.w;
         haptic_state_.orientation.x() = msg->pose.orientation.x;
         haptic_state_.orientation.y() = msg->pose.orientation.y;
         haptic_state_.orientation.z() = msg->pose.orientation.z;
         haptic_state_.orientation.normalize();
+        // Manejo de botones usando campos de OmniState
+        bool close_btn = msg->close_gripper;
+        bool locked_btn = msg->locked;
+        if (close_btn && capturar_pose_inicial_haptico_) {
+            RCLCPP_INFO(this->get_logger(), "Botón gris presionado: Capturando pose inicial del Geomagic.");
+            capturar_pose_inicial_haptico_ = false; // el boton solo sirve para capturar la pose inicial una vez
+            RCLCPP_INFO(this->get_logger(), "Pose inicial háptica capturada.");
+            haptic_state_.position_initial = haptic_state_.position;
+            haptic_state_.orientation_initial = haptic_state_.orientation;
+        }
+        if (close_btn && !haptic_close_prev_) {
+            RCLCPP_INFO(this->get_logger(), "Botón gris presionado");
+        }
+        if (locked_btn && !haptic_locked_prev_) {
+            RCLCPP_INFO(this->get_logger(), "Botón blanco presionado");
+        }
+        haptic_close_prev_ = close_btn;
+        haptic_locked_prev_ = locked_btn;
+        std::cout<<"Haptic position (m): "<<haptic_state_.position.transpose()<<std::endl;
+        std::cout<<"Haptic orientation (quat): "<<haptic_state_.orientation.coeffs().transpose()<<std::endl;
+        // Velocidad directa del driver: convertir de mm/s a m/s (dividir por 1000)
+        Eigen::Vector3d vel_raw;
+        vel_raw << msg->velocity.x / 1000.0, msg->velocity.y / 1000.0, msg->velocity.z / 1000.0;
 
         if (!haptic_state_initialized_) {
             haptic_state_.position_last = haptic_state_.position;
             haptic_state_.orientation_last = haptic_state_.orientation;
-            haptic_state_.velocity.setZero();
+            haptic_state_.velocity = vel_raw;  // Inicializar con velocidad del driver
+            haptic_state_.velocity_last = vel_raw;
             haptic_state_.acceleration.setZero();
             haptic_state_.angular_velocity.setZero(); 
             haptic_state_.angular_acceleration.setZero();
+            haptic_state_.angular_velocity_last.setZero();
             haptic_state_initialized_ = true;
             return;
         }
 
-
-       
-        // Derivadas con dt real y filtrado LPF para reducir ruido
-
-        //Velocidad lineal
-        Eigen::Vector3d vel_raw = (haptic_state_.position - haptic_state_.position_last) / dt;
-        haptic_state_.velocity = derivative_lpf_alpha_ * vel_raw + (1.0 - derivative_lpf_alpha_) * haptic_state_.velocity; //velocidad filtrada 
-        haptic_state_.position_last = haptic_state_.position;
-        //Aceleración lineal
+        // Usar velocidad directa del driver con filtro LPF
+        haptic_state_.velocity = derivative_lpf_alpha_ * vel_raw + (1.0 - derivative_lpf_alpha_) * haptic_state_.velocity;
+        
+        // Aceleración lineal: derivar velocidad filtrada
         Eigen::Vector3d acc_raw = (haptic_state_.velocity - haptic_state_.velocity_last) / dt;
-        haptic_state_.acceleration = derivative_lpf_alpha_ * acc_raw + (1.0 - derivative_lpf_alpha_) * haptic_state_.acceleration; //aceleración filtrada
+        haptic_state_.acceleration = derivative_lpf_alpha_ * acc_raw + (1.0 - derivative_lpf_alpha_) * haptic_state_.acceleration;
         haptic_state_.velocity_last = haptic_state_.velocity;
         
-        //Velocidad angular
+        // Velocidad angular: derivar orientación (quaternion)
         Eigen::Quaterniond delta_orientation = haptic_state_.orientation * haptic_state_.orientation_last.inverse();
         delta_orientation.normalize();
-        if (delta_orientation.w() < 0.0) { delta_orientation.coeffs() *= -1.0; } // asegurar ángulo positivo para interpretación consistente}
+        if (delta_orientation.w() < 0.0) { delta_orientation.coeffs() *= -1.0; }
         Eigen::AngleAxisd delta_aa(delta_orientation);
         Eigen::Vector3d omega_raw = Eigen::Vector3d::Zero();
-        if (std::abs(delta_aa.angle()) > 1e-6) { omega_raw = delta_aa.axis() * (delta_aa.angle() / dt);}
+        if (std::abs(delta_aa.angle()) > 1e-6) { omega_raw = delta_aa.axis() * (delta_aa.angle() / dt); }
         
-        haptic_state_.angular_velocity = derivative_lpf_alpha_ * omega_raw + (1.0 - derivative_lpf_alpha_) * haptic_state_.angular_velocity; //velocidad angular filtrada
-        haptic_state_.orientation_last = haptic_state_.orientation; //quaternion anterior para próximo cálculo de delta
+        haptic_state_.angular_velocity = derivative_lpf_alpha_ * omega_raw + (1.0 - derivative_lpf_alpha_) * haptic_state_.angular_velocity;
+        haptic_state_.orientation_last = haptic_state_.orientation;
 
-        //Aceleración angular
+        // Aceleración angular: derivar velocidad angular
         Eigen::Vector3d alpha_raw = (haptic_state_.angular_velocity - haptic_state_.angular_velocity_last) / dt;
-        haptic_state_.angular_acceleration = derivative_lpf_alpha_ * (alpha_raw) + (1.0 - derivative_lpf_alpha_) * haptic_state_.angular_acceleration; //aceleración angular filtrada
+        haptic_state_.angular_acceleration = derivative_lpf_alpha_ * (alpha_raw) + (1.0 - derivative_lpf_alpha_) * haptic_state_.angular_acceleration;
         haptic_state_.angular_velocity_last = haptic_state_.angular_velocity;
 
     }
 
-    void button_callback(const omni_msgs::msg::OmniButtonEvent::SharedPtr msg){
-        if (msg->grey_button == 1 && capturar_pose_inicial_haptico_){ //
-            RCLCPP_INFO(this->get_logger(), "Botón gris presionado: Capturando pose inicial del Geomagic.");
-            capturar_pose_inicial_haptico_ = false; // el boton solo sirve para capturar la pose inicial una vez
-            RCLCPP_INFO(this->get_logger(), "Pose inicial háptica capturada.");
-
-            haptic_state_.position_initial = haptic_state_.position;
-            haptic_state_.orientation_initial = haptic_state_.orientation;
-            
-        }
-        if (msg->grey_button == 1) {
-                RCLCPP_INFO(this->get_logger(), "Botón gris presionado");
-            }
-        if (msg->white_button == 1) {
-            RCLCPP_INFO(this->get_logger(), "Botón blanco presionado");
-        }
-    } 
+    // button_callback removed: button events handled via OmniState in pose_callback
 
     
     void control_loop() {
