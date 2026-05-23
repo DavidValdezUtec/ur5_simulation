@@ -2,6 +2,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <trajectory_msgs/msg/joint_trajectory.hpp>
+#include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <Eigen/Dense>
 #include <vector>
@@ -42,7 +44,7 @@ public:
      * @param robot_state Reference to robot state struct
      * @param cartesian_state Reference to cartesian state struct
      * @param config Reference to node configuration
-     * @param joint_position_pub Publisher for joint position commands
+    * @param joint_trajectory_pub Publisher for initial trajectory commands
      * @param joint_state_mapper Reference to joint state mapper
      * @param pinocchio_model Pointer to pinocchio model
      * @param pinocchio_data Pointer to pinocchio data
@@ -52,7 +54,7 @@ public:
         RobotState& robot_state,
         CartesianState& cartesian_state,
         NodeConfig& config,
-        const rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr& joint_position_pub,
+        const rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr& joint_trajectory_pub,
         const JointStateMapper& joint_state_mapper,
         const pinocchio::Model* pinocchio_model,
         pinocchio::Data* pinocchio_data,
@@ -100,7 +102,7 @@ private:
     RobotState* robot_state_ = nullptr;
     CartesianState* cartesian_state_ = nullptr;
     NodeConfig* config_ = nullptr;
-    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr joint_position_pub_;
+    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr joint_trajectory_pub_;
     const JointStateMapper* joint_state_mapper_ = nullptr;
     const pinocchio::Model* pinocchio_model_ = nullptr;
     pinocchio::Data* pinocchio_data_ = nullptr;
@@ -121,6 +123,7 @@ private:
     bool init_baseline_set_ = false;             // Baseline position captured
     bool init_movement_started_ = false;         // Robot has started moving
     bool step_publishing_initialized_ = false;   // Step sequence initialized
+    bool trajectory_sent_ = false;               // Initial trajectory already published
 
     // Baseline joint positions
     std::vector<double> q_baseline_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -139,9 +142,9 @@ private:
 
     // Private methods
     /**
-     * @brief Publish a single step of the initial motion
+        * @brief Publish the initial joint trajectory once
      */
-    void publish_initial_joint_position();
+        void publish_initial_trajectory();
 
     /**
      * @brief Capture baseline joint positions for movement detection

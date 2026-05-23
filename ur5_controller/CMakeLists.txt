@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
+find_package(controller_manager_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(omni_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -45,6 +46,10 @@ add_library(parameter_manager
   src/parameter_manager.cpp
 )
 
+add_library(controller_switch_coordinator
+  src/controller_switch_coordinator.cpp
+)
+
 target_include_directories(trajectory_generator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -75,6 +80,12 @@ target_include_directories(parameter_manager PUBLIC
   ${EIGEN3_INCLUDE_DIR}
 )
 
+target_include_directories(controller_switch_coordinator PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIR}
+)
+
 ament_target_dependencies(trajectory_generator
   Eigen3
 )
@@ -94,6 +105,7 @@ ament_target_dependencies(initial_motion_publisher
   rclcpp
   sensor_msgs
   std_msgs
+  trajectory_msgs
   pinocchio
   Eigen3
 )
@@ -107,7 +119,12 @@ ament_target_dependencies(parameter_manager
   pinocchio
 )
 
-install(TARGETS trajectory_generator csv_logger joint_state_mapper initial_motion_publisher parameter_manager
+ament_target_dependencies(controller_switch_coordinator
+  rclcpp
+  controller_manager_msgs
+)
+
+install(TARGETS trajectory_generator csv_logger joint_state_mapper initial_motion_publisher parameter_manager controller_switch_coordinator
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
@@ -131,6 +148,7 @@ ament_target_dependencies(controller_node
   rclcpp
   sensor_msgs
   trajectory_msgs
+  controller_manager_msgs
   geometry_msgs
   omni_msgs
   std_msgs
@@ -148,6 +166,7 @@ target_link_libraries(controller_node
   joint_state_mapper
   initial_motion_publisher
   parameter_manager
+  controller_switch_coordinator
   ur5_kinematics::ur5_kinematics
   ur5_impedance::ur5_impedance
   ur5_sliding::ur5_sliding

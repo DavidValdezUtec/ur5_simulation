@@ -619,6 +619,9 @@ class InterfazRviz(QMainWindow, UIMixin):
             f'r2_rot_y:={self.r2_config["rot_y"]}',
             f'r2_rot_z:={self.r2_config["rot_z"]}',
             f'launch_feedback:={launch_feedback}',
+            #Controlador inicial:
+            f'r1_initial_controller:={"forward_position_controller"}',
+            f'r2_initial_controller:={"forward_position_controller"}',
             # Agrega más argumentos según necesites
         ]
             

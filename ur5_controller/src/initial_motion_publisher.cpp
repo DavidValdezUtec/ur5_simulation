@@ -9,6 +9,8 @@
 #include <iostream>
 #include <cmath>
 #include <algorithm>
+#include <array>
+#include <utility>
 
 namespace ur5_controller {
 
@@ -21,7 +23,7 @@ void InitialMotionPublisher::configure(
     RobotState& robot_state,
     CartesianState& cartesian_state,
     NodeConfig& config,
-    const rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr& joint_position_pub,
+    const rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr& joint_trajectory_pub,
     const JointStateMapper& joint_state_mapper,
     const pinocchio::Model* pinocchio_model,
     pinocchio::Data* pinocchio_data,
@@ -30,7 +32,7 @@ void InitialMotionPublisher::configure(
     robot_state_ = &robot_state;
     cartesian_state_ = &cartesian_state;
     config_ = &config;
-    joint_position_pub_ = joint_position_pub;
+    joint_trajectory_pub_ = joint_trajectory_pub;
     joint_state_mapper_ = &joint_state_mapper;
     pinocchio_model_ = pinocchio_model;
     pinocchio_data_ = pinocchio_data;
@@ -52,6 +54,7 @@ rclcpp::TimerBase::SharedPtr InitialMotionPublisher::initialize(rclcpp::Node* no
     init_move_active_ = true;
     init_baseline_set_ = false;
     step_publishing_initialized_ = false;
+    trajectory_sent_ = false;
     step_count_ = 0;
     step_total_ = 0;
     reach_count_ = 0;
@@ -94,8 +97,8 @@ void InitialMotionPublisher::tick()
         return;
     }
 
-    // Publish the next step while the robot hasn't reached the target
-    publish_initial_joint_position();
+    // Publish the initial trajectory once while the robot hasn't reached the target
+    publish_initial_trajectory();
 }
 
 void InitialMotionPublisher::reset()
@@ -104,6 +107,7 @@ void InitialMotionPublisher::reset()
     init_baseline_set_ = false;
     init_movement_started_ = false;
     step_publishing_initialized_ = false;
+    trajectory_sent_ = false;
     step_count_ = 0;
     step_total_ = 0;
     reach_count_ = 0;
@@ -230,9 +234,9 @@ void InitialMotionPublisher::on_target_reached()
     }
 }
 
-void InitialMotionPublisher::publish_initial_joint_position()
+void InitialMotionPublisher::publish_initial_trajectory()
 {
-    if (!robot_state_ || !config_ || !joint_position_pub_) {
+    if (!robot_state_ || !config_ || !joint_trajectory_pub_) {
         return;
     }
 
@@ -241,66 +245,44 @@ void InitialMotionPublisher::publish_initial_joint_position()
         return;
     }
 
-    // === INITIALIZATION (first call) ===
-    if (!step_publishing_initialized_) {
-        // Use current robot position as starting point
-        std::vector<double> robot_q(robot_state_->q.data(), robot_state_->q.data() + 6);
-        step_q_ = robot_q;
-
-        std::cout << "Current robot position (baseline): [";
-        for (size_t i = 0; i < 6; ++i) {
-            std::cout << robot_q[i];
-            if (i < 5) std::cout << ", ";
-        }
-        std::cout << "]" << std::endl;
-
-        step_count_ = 0;
-
-        // Calculate error element by element from current position
-        double max_error = 0.0;
-        for (size_t i = 0; i < 6; ++i) {
-            step_error_[i] = config_->q_target[i] - step_q_[i];
-            max_error = std::max(max_error, std::abs(step_error_[i]));
-        }
-
-        // Round and calculate total steps needed
-        max_error = std::round(max_error * 100000.0) / 100000.0;
-        step_total_ = static_cast<int>(std::ceil(max_error / 0.00001));
-
-        RCLCPP_INFO(logger_,
-            "Step publication INITIATED: %d total steps (max error: %.3f rad)",
-            step_total_, max_error);
-
-        step_publishing_initialized_ = true;
+    if (trajectory_sent_) {
+        return;
     }
 
-    // === PUBLISH SINGLE STEP ===
-    if (step_count_ < step_total_) {
-        // Update position for this step
+    std::vector<double> robot_q(robot_state_->q.data(), robot_state_->q.data() + 6);
+    std::array<std::string, 6> joint_names = {
+        config_->nmspace.empty() ? std::string("shoulder_pan_joint") : config_->nmspace + std::string("_shoulder_pan_joint"),
+        config_->nmspace.empty() ? std::string("shoulder_lift_joint") : config_->nmspace + std::string("_shoulder_lift_joint"),
+        config_->nmspace.empty() ? std::string("elbow_joint") : config_->nmspace + std::string("_elbow_joint"),
+        config_->nmspace.empty() ? std::string("wrist_1_joint") : config_->nmspace + std::string("_wrist_1_joint"),
+        config_->nmspace.empty() ? std::string("wrist_2_joint") : config_->nmspace + std::string("_wrist_2_joint"),
+        config_->nmspace.empty() ? std::string("wrist_3_joint") : config_->nmspace + std::string("_wrist_3_joint")
+    };
+
+    trajectory_msgs::msg::JointTrajectory trajectory_msg;
+    trajectory_msg.header.stamp = node_ ? node_->now() : rclcpp::Clock().now();
+    trajectory_msg.joint_names.assign(joint_names.begin(), joint_names.end());
+
+    const double duration = std::max(0.5, config_->q_target_time);
+    const int num_points = std::max(2, static_cast<int>(std::ceil(duration * 20.0)));
+
+    for (int i = 1; i <= num_points; ++i) {
+        const double ratio = static_cast<double>(i) / static_cast<double>(num_points);
+        trajectory_msgs::msg::JointTrajectoryPoint point;
+        point.positions.resize(6);
         for (size_t j = 0; j < 6; ++j) {
-            if (std::abs(step_error_[j]) > 0.001) {
-                // Advance 0.001 rad in the direction of error
-                step_q_[j] = step_q_[j] + 0.001 * std::copysign(1.0, step_error_[j]);
-                step_error_[j] -= 0.001 * std::copysign(1.0, step_error_[j]);
-            } else if (std::abs(step_error_[j]) > 1e-6) {
-                // Last step: fix exactly to target
-                step_q_[j] = config_->q_target[j];
-                step_error_[j] = 0.0;
-            }
+            point.positions[j] = robot_q[j] + ratio * (config_->q_target[j] - robot_q[j]);
         }
-
-        // Publish this step
-        auto msg = std_msgs::msg::Float64MultiArray();
-        msg.data = step_q_;
-        step_count_++;
-
-        RCLCPP_INFO(logger_,
-            "Publishing joint target [step %d/%d]: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]",
-            step_count_, step_total_,
-            step_q_[0], step_q_[1], step_q_[2], step_q_[3], step_q_[4], step_q_[5]);
-
-        joint_position_pub_->publish(msg);
+        point.time_from_start = rclcpp::Duration::from_seconds(duration * ratio);
+        trajectory_msg.points.push_back(point);
     }
+
+    RCLCPP_INFO(logger_,
+        "Publishing initial JointTrajectory with %d points toward q_target (duration: %.2f s)",
+        num_points, duration);
+
+    joint_trajectory_pub_->publish(trajectory_msg);
+    trajectory_sent_ = true;
 }
 
 } // namespace ur5_controller

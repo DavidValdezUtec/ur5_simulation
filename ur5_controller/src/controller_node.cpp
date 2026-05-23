@@ -12,6 +12,8 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <omni_msgs/msg/omni_state.hpp>
 #include <omni_msgs/msg/omni_feedback.hpp>
+#include <trajectory_msgs/msg/joint_trajectory.hpp>
+#include <controller_manager_msgs/srv/switch_controller.hpp>
 
 // Eigen para matemáticas
 #include <Eigen/Dense>
@@ -25,6 +27,7 @@
 #include <ur5_controller/trajectory_generator.hpp>
 #include <ur5_controller/initial_motion_publisher.hpp>
 #include <ur5_controller/parameter_manager.hpp>
+#include <ur5_controller/controller_switch_coordinator.hpp>
 
 // Standard C++
 #include <iostream>
@@ -44,6 +47,22 @@
 
 // Usar el namespace para las structs
 using namespace ur5_controller;
+
+namespace
+{
+std::string make_namespaced_path(const std::string& namespace_name, const std::string& resource_path)
+{
+    if (resource_path.empty()) {
+        return namespace_name.empty() ? std::string{} : std::string("/") + namespace_name;
+    }
+
+    if (resource_path.front() == '/') {
+        return namespace_name.empty() ? resource_path : ("/" + namespace_name + resource_path);
+    }
+
+    return namespace_name.empty() ? ("/" + resource_path) : ("/" + namespace_name + "/" + resource_path);
+}
+}  // namespace
 
 
 void initializeUR5(PinocchioResources& pinocchio, const std::string& urdf_path) {
@@ -203,25 +222,30 @@ public:
     } else {
         config_.urdf_path = urdf_param;
     }
-    if (urdf_param.empty()) {
-        config_.urdf_path = get_file_path("ur5_description", "urdf/" + config_.ur_model + ".urdf");
-    } else {
-        config_.urdf_path = urdf_param;
-    }
 
     // Inicializar Pinocchio
     initializeUR5(pinocchio_, config_.urdf_path);
     kinematics_solver_ = std::make_unique<UR5Kinematics>(config_.urdf_path);
     impedance_controller_ = std::make_unique<ur5_impedance::UR5Impedance>(config_.urdf_path);
     sliding_controller_ = std::make_unique<ur5_sliding::UR5Sliding>(config_.urdf_path);
-    std::string c_topic = "/" + config_.nmspace + config_.control_topic;
+    std::string forward_command_topic = make_namespaced_path(config_.nmspace, config_.control_topic);
+    std::string initial_trajectory_topic = make_namespaced_path(
+        config_.nmspace, "/scaled_joint_trajectory_controller/joint_trajectory");
+    std::string controller_manager_service = make_namespaced_path(
+        config_.nmspace, "/controller_manager/switch_controller");
     std::string joint_states_topic = config_.nmspace.empty() ? std::string("/joint_states")
                                                             : std::string("/") + config_.nmspace + std::string("/joint_states");
 
-    RCLCPP_INFO(this->get_logger(), "Publicando en el tópico de control: '%s'", c_topic.c_str());
+    RCLCPP_INFO(this->get_logger(), "Publicando en el tópico de control: '%s'", forward_command_topic.c_str());
+    RCLCPP_INFO(this->get_logger(), "Trayectoria inicial en: '%s'", initial_trajectory_topic.c_str());
+    RCLCPP_INFO(this->get_logger(), "Servicio switch_controller: '%s'", controller_manager_service.c_str());
     RCLCPP_INFO(this->get_logger(), "Usando modelo UR: '%s'", config_.ur_model.c_str());
     RCLCPP_INFO(this->get_logger(), "Usando URDF en: '%s'", config_.urdf_path.c_str());
-    joint_position_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(c_topic, 10);
+    joint_position_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(forward_command_topic, 10);
+    initial_trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(initial_trajectory_topic, 10);
+    auto switch_controller_client = this->create_client<controller_manager_msgs::srv::SwitchController>(controller_manager_service);
+    controller_switch_coordinator_ = std::make_unique<ControllerSwitchCoordinator>(
+        this->get_logger(), this->get_clock(), switch_controller_client);
     joint_states_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(joint_states_topic, 10, std::bind(&UR5IKNode::update_joint_positions, this, std::placeholders::_1));
     RCLCPP_INFO(this->get_logger(), "Suscrito a joint_states: '%s'", joint_states_topic.c_str());
     // Suscripción de respaldo al tópico global en caso de que el driver no use namespace
@@ -234,25 +258,25 @@ public:
     if (config_.use_geomagic) {
         geomagic_state_sub_ = this->create_subscription<omni_msgs::msg::OmniState>(geomagic_topic, 10, std::bind(&UR5IKNode::pose_callback, this, std::placeholders::_1));
         RCLCPP_INFO(this->get_logger(), "Usando tópico de Geomagic state: '%s'", geomagic_topic.c_str());
+        controller_switch_coordinator_->setInitialForwardState();
     }
     else {
         RCLCPP_INFO(this->get_logger(), "Modo Geomagic deshabilitado. Seguimiento de la trayectoria predefinida.");
         RCLCPP_INFO(this->get_logger(), "Controlador seleccionado: '%s'", config_.controller.c_str());
+        controller_switch_coordinator_->setInitialForwardState();
         // Configurar y inicializar el movimiento inicial si está habilitado
         if (config_.use_ur5_pos_init) {
             initial_motion_publisher_.configure(
                 robot_state_,
                 cartesian_state_,
                 config_,
-                joint_position_pub_,
+                initial_trajectory_pub_,
                 joint_state_mapper_,
                 pinocchio_.model.get(),
                 pinocchio_.data.get(),
                 pinocchio_.tool_frame_id
             );
-            initial_motion_publisher_.initialize(this, config_.ctrl_hz_);
-
-            RCLCPP_INFO(this->get_logger(), "Initial motion (ur5_pos) mode activated.");
+            RCLCPP_INFO(this->get_logger(), "Initial motion configured. Waiting to switch to scaled controller.");
         }
         // Trayectoria automática se activará una vez termine movimiento inicial o inmediatamente si no se usa init
         if (!config_.use_ur5_pos_init) {
@@ -281,6 +305,7 @@ private:
 
     // Suscriptores y publicadores
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr joint_position_pub_;
+    rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr initial_trajectory_pub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_global_;
     rclcpp::Subscription<omni_msgs::msg::OmniState>::SharedPtr geomagic_state_sub_;
@@ -321,6 +346,8 @@ private:
     std::unique_ptr<UR5Kinematics> kinematics_solver_;
     std::unique_ptr<ur5_impedance::UR5Impedance> impedance_controller_;
     std::unique_ptr<ur5_sliding::UR5Sliding> sliding_controller_;
+    std::unique_ptr<ControllerSwitchCoordinator> controller_switch_coordinator_;
+    bool initial_motion_initialized_ = false;
    
 
     // ---- Mapeo robusto de joints por nombre ----
@@ -363,7 +390,6 @@ private:
     double derivative_lpf_alpha_ = 0.2; // [0,1], mayor = menos filtrado
     bool haptic_state_initialized_ = false;
 
-
     // Callback de JOINT STATES del UR5(e)
     void update_joint_positions(const sensor_msgs::msg::JointState::SharedPtr msg) {
         last_joint_state_ = msg;
@@ -405,8 +431,8 @@ private:
             RCLCPP_INFO(this->get_logger(), "Pose inicial capturada. El control está activo.");
             RCLCPP_INFO(this->get_logger(), "q_init: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f", 
                         robot_state_.q_init[0], robot_state_.q_init[1], robot_state_.q_init[2], robot_state_.q_init[3], robot_state_.q_init[4], robot_state_.q_init[5]);
-            // Si geomagic es false y no hay movimiento inicial activo, arrancar trayectoria ahora
-            if (!config_.use_geomagic && !initial_motion_publisher_.isActive()) {
+            // Si no se usa movimiento inicial, arrancar trayectoria ahora
+            if (!config_.use_geomagic && !config_.use_ur5_pos_init && !initial_motion_publisher_.isActive()) {
                 trajectory_start_time_ = this->now();
                 trajectory_active_ = true;
                 RCLCPP_INFO(this->get_logger(), "Trayectoria automática ACTIVADA desde t=0 tras captura de pose inicial (sin movimiento inicial)." );
@@ -542,6 +568,28 @@ private:
                     "Esperando a que se capture la pose inicial del Geomagic. Presione el botón gris.");
                 return;
             }
+            if (!config_.use_geomagic && config_.use_ur5_pos_init && !controller_switch_coordinator_->scaledActive() && !config_.initial_motion_done) {
+                controller_switch_coordinator_->requestScaledIfNeeded([this]() {
+                    if (!initial_motion_initialized_) {
+                        initial_motion_publisher_.initialize(this, config_.ctrl_hz_);
+                        initial_motion_initialized_ = true;
+                        config_.initial_motion_done = false;
+                    }
+                });
+                return;
+            }
+            if (!config_.use_geomagic && config_.use_ur5_pos_init && config_.initial_motion_done && !controller_switch_coordinator_->forwardActive()) {
+                controller_switch_coordinator_->requestForwardIfNeeded([this]() {
+                    trajectory_active_ = true;
+                    trajectory_start_time_ = this->now();
+                    t_traj_ = 0.0;
+                });
+                return;
+            }
+            if (!config_.use_geomagic && config_.use_ur5_pos_init && controller_switch_coordinator_->scaledActive() && !config_.initial_motion_done) {
+                // Mientras scaled ejecuta el movimiento inicial, no entrar al bucle de control principal.
+                return;
+            }
             // Rama geomagic: seguir referencia del háptico
             if (config_.use_geomagic) {
                 Eigen::Vector3d desired_vel_ori_cmd = Eigen::Vector3d::Zero();
@@ -589,16 +637,19 @@ private:
             } else {// Rama automática: generar trayectoria paramétrica
                 
                 if (!trajectory_active_) {
-                    // Aún no activada (esperando fin de movimiento inicial)
-                        // If initial motion helper finished and signaled readiness, activate trajectory
-                        if (config_.initial_motion_done && !config_.use_geomagic) {
-                            trajectory_start_time_ = this->now();
-                            trajectory_active_ = true;
-                            RCLCPP_INFO(this->get_logger(), "Trayectoria automática ACTIVADA después de movimiento inicial.");
-                            // reset the flag to avoid re-triggering
-                            config_.initial_motion_done = false;
-                        }
-                        if (!trajectory_active_) return;
+                    // Cuando se usa movimiento inicial, la activación real llega al completarse el switch.
+                    if (config_.use_ur5_pos_init) {
+                        return;
+                    }
+
+                    // Activación heredada cuando no hay fase inicial
+                    if (config_.initial_motion_done && !config_.use_geomagic) {
+                        trajectory_start_time_ = this->now();
+                        trajectory_active_ = true;
+                        RCLCPP_INFO(this->get_logger(), "Trayectoria automática ACTIVADA después de movimiento inicial.");
+                        config_.initial_motion_done = false;
+                    }
+                    if (!trajectory_active_) return;
                 }
                 auto st = TrajectoryGenerator::calculate(
                     cartesian_state_.position_initial,

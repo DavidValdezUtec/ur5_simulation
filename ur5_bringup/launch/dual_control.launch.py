@@ -35,6 +35,8 @@ def generate_launch_description():
     launch_feedback = LaunchConfiguration("launch_feedback")
     r1_force_filter_alpha = LaunchConfiguration("r1_force_filter_alpha")
     r2_force_filter_alpha = LaunchConfiguration("r2_force_filter_alpha")
+    r1_initial_controller = LaunchConfiguration("r1_initial_controller")
+    r2_initial_controller = LaunchConfiguration("r2_initial_controller") # Asumimos el mismo
     # --- Configuración del UR5 ---
     r1_launch = GroupAction(
         actions=[
@@ -77,6 +79,7 @@ def generate_launch_description():
                     "rot_x": r1_rot_x,
                     "rot_y": r1_rot_y,
                     "rot_z": r1_rot_z,
+                    "initial_joint_controller": r1_initial_controller,
                 }.items(),
             ),
         ]
@@ -124,6 +127,7 @@ def generate_launch_description():
                     "rot_x": r2_rot_x,
                     "rot_y": r2_rot_y,
                     "rot_z": r2_rot_z,
+                    "initial_joint_controller": r2_initial_controller,
                 }.items(),
             ),
         ]
