@@ -54,7 +54,8 @@ TrajectoryGenerator::State TrajectoryGenerator::calculate(
     const double r_x = A.x();
     const double r_y = A.y();
 
-    state.position.x() = x_init.x() + r_x * cos_wn_t;
+    // Start the circle from the current point instead of jumping to the perimeter.
+    state.position.x() = x_init.x() + r_x * (cos_wn_t - 1.0);
     state.position.y() = x_init.y() + r_y * sin_wn_t;
     state.position.z() = x_init.z();
 

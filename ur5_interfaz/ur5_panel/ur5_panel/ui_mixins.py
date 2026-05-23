@@ -560,7 +560,7 @@ class UIMixin:
         self.r1_trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
         self.r1_controles = QComboBox(); self.r1_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
         self.r1_q_target = QLineEdit(); self.r1_q_target.setText("-1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0")
-        
+        self.r1_A_input = QLineEdit(); self.r1_A_input.setText("1.0")
         
         
         r1_mode_layout = QGridLayout()

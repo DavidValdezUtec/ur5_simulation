@@ -337,7 +337,8 @@ class InterfazRviz(QMainWindow, UIMixin):
             '-p', f'controller_type:={control_config["controller_type"]}',
             '-p', f'lambda:={control_config["lambda"]}',
             '-p', f'k:={control_config["k"]}', 
-            '-p', f'alpha:={control_config["alpha"]}'
+            '-p', f'alpha:={control_config["alpha"]}',
+            '-p', f'traj_A:=[0.1,0.1,0.2]',
             
         ]
         
