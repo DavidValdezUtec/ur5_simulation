@@ -33,7 +33,7 @@ public:
         double dt); 
     
     Eigen::VectorXd inverseKinematicsQP2(
-        const Eigen::VectorXd& q_initial,
+        const Eigen::VectorXd& q,
         const Eigen::Vector3d& desired_pos,
         const Eigen::Matrix3d& desired_orient,
         int max_iterations,
@@ -55,7 +55,12 @@ private:
     Eigen::Matrix<double, 6, 1> computePoseError(const pinocchio::SE3& desired_pose);
     Eigen::Matrix<double, 6, 1> computePoseError2(const pinocchio::SE3& desired_pose);
 
-    Eigen::VectorXd solveQPIK(const Eigen::MatrixXd& J, const Eigen::Matrix<double, 6, 1>& error, const Eigen::MatrixXd& W_p, const Eigen::MatrixXd& W_o);
+    Eigen::VectorXd solveQPIK(
+        const Eigen::MatrixXd& J, 
+        const Eigen::Matrix<double, 6, 1>& error, 
+        const Eigen::VectorXd& current_q,
+        const Eigen::MatrixXd& W);
+        //const Eigen::VectorXd& q);
     Eigen::VectorXd solveQPIK_Velocity(  const Eigen::MatrixXd& J, const Eigen::VectorXd& x_dot_des, const Eigen::VectorXd& current_q, double dt) ;
 };
 

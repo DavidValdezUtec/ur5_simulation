@@ -485,8 +485,8 @@ private:
         }
         haptic_close_prev_ = close_btn;
         haptic_locked_prev_ = locked_btn;
-        std::cout<<"Haptic position (m): "<<haptic_state_.position.transpose()<<std::endl;
-        std::cout<<"Haptic orientation (quat): "<<haptic_state_.orientation.coeffs().transpose()<<std::endl;
+        //std::cout<<"Haptic position (m): "<<haptic_state_.position.transpose()<<std::endl;
+        //std::cout<<"Haptic orientation (quat): "<<haptic_state_.orientation.coeffs().transpose()<<std::endl;
         // Velocidad directa del driver: convertir de mm/s a m/s (dividir por 1000)
         Eigen::Vector3d vel_raw;
         vel_raw << msg->velocity.x / 1000.0, msg->velocity.y / 1000.0, msg->velocity.z / 1000.0;
@@ -770,7 +770,7 @@ private:
             last_ik_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(
                                std::chrono::steady_clock::now() - ik_t0)
                                .count() / 1000.0;
-            RCLCPP_INFO(this->get_logger(), "Tiempo IK: %.3f ms", last_ik_ms_);
+            //RCLCPP_INFO(this->get_logger(), "Tiempo IK: %.3f ms", last_ik_ms_);
 
             // === INTERPOLACIÓN ADAPTATIVA PARA COMANDOS ALEJADOS ===
             // Inicializar target interpolado en el primer ciclo
@@ -859,7 +859,7 @@ private:
             last_loop_ms_ = std::chrono::duration_cast<std::chrono::microseconds>(
                         std::chrono::steady_clock::now() - loop_t0)
                         .count() / 1000.0;
-
+            //std::cout<<"Tiempo total del ciclo de control: "<<last_loop_ms_<<" ms"<<std::endl;
             // === WATCHDOG: Detectar delays del loop ===
             if (last_loop_ms_ > loop_timeout_ms_) {
                 consecutive_loop_delays_++;
@@ -891,6 +891,10 @@ private:
             if (csv_logger_.isEnabled()) {
                 try {
                     rclcpp::Time now_ros = this->now();
+                    if (start_time_.nanoseconds() == 0) {
+                        start_time_ = now_ros;
+                        last_log_time_ = now_ros;
+                    }
                     const double t = (now_ros - start_time_).seconds();
                     const double dt = (now_ros - last_log_time_).seconds();
                     last_log_time_ = now_ros;
