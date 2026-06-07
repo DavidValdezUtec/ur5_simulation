@@ -1,4 +1,5 @@
 # --- 3. Instalación de Drivers de Geomagic Touch ---
+sudo apt install -y build-essential cmake git curl
 info "Instalando drivers de Geomagic Touch..."
 
 # Crear un directorio temporal para las descargas
