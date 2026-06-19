@@ -176,6 +176,49 @@ install(TARGETS controller_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# Ejecutable: controller_velocity (QP_vel controller)
+add_executable(controller_velocity 
+  src/controller_velocity.cpp
+)
+
+target_include_directories(controller_velocity PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIR}
+)
+
+ament_target_dependencies(controller_velocity
+  rclcpp
+  sensor_msgs
+  trajectory_msgs
+  controller_manager_msgs
+  geometry_msgs
+  omni_msgs
+  std_msgs
+  pinocchio
+  Eigen3
+  ament_index_cpp
+  ur5_kinematics
+  ur5_impedance
+  ur5_sliding
+)
+
+target_link_libraries(controller_velocity
+  trajectory_generator
+  csv_logger
+  joint_state_mapper
+  initial_motion_publisher
+  parameter_manager
+  controller_switch_coordinator
+  ur5_kinematics::ur5_kinematics
+  ur5_impedance::ur5_impedance
+  ur5_sliding::ur5_sliding
+)
+
+install(TARGETS controller_velocity
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # Nuevo ejecutable: manual_ik_node
 add_executable(manual_ik_node
   src/manual_ik_node.cpp

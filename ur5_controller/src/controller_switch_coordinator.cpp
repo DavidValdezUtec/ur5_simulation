@@ -27,6 +27,11 @@ bool ControllerSwitchCoordinator::scaledActive() const
   return scaled_controller_active_;
 }
 
+bool ControllerSwitchCoordinator::velocityActive() const
+{
+  return velocity_controller_active_;
+}
+
 void ControllerSwitchCoordinator::requestSwitch(
   const std::vector<std::string> & activate_controllers,
   const std::vector<std::string> & deactivate_controllers,
@@ -126,6 +131,46 @@ void ControllerSwitchCoordinator::requestForwardIfNeeded(const std::function<voi
         RCLCPP_ERROR(
           logger_,
           "El switch_controller fue rechazado por controller_manager.");
+      }
+    });
+}
+
+void ControllerSwitchCoordinator::requestVelocityIfNeeded(const std::function<void()> & on_velocity_activated)
+{
+  if (velocity_controller_active_) {
+    return;
+  }
+
+  // Deactivate forward_position_controller if active, activate forward_velocity_controller
+  std::vector<std::string> activate_controllers = {"forward_velocity_controller"};
+  std::vector<std::string> deactivate_controllers;
+  std::string switch_description;
+
+  if (forward_controller_active_) {
+    deactivate_controllers.push_back("forward_position_controller");
+    switch_description = "deactivate forward_position_controller -> activate forward_velocity_controller";
+  } else {
+    switch_description = "activate forward_velocity_controller";
+  }
+
+  requestSwitch(
+    activate_controllers,
+    deactivate_controllers,
+    switch_to_velocity_requested_,
+    switch_description,
+    [this, on_velocity_activated](bool ok) {
+      if (ok) {
+        velocity_controller_active_ = true;
+        forward_controller_active_ = false;
+        scaled_controller_active_ = false;
+        on_velocity_activated();
+        RCLCPP_INFO(
+          logger_,
+          "Switch completado: forward_velocity_controller está activo.");
+      } else {
+        RCLCPP_ERROR(
+          logger_,
+          "El switch_controller a forward_velocity_controller fue rechazado.");
       }
     });
 }

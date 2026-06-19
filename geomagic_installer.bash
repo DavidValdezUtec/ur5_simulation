@@ -1,3 +1,4 @@
+#!/bin/bash
 # --- 3. Instalación de Drivers de Geomagic Touch ---
 sudo apt install -y build-essential cmake git curl
 info "Instalando drivers de Geomagic Touch..."
@@ -112,3 +113,50 @@ rm -rf "$TEMP_DRIVER_DIR"
 info "Instalando dependencias gráficas para los drivers..."
 sudo apt update
 sudo apt install -y build-essential libncurses5-dev freeglut3-dev zlib1g-dev libncurses5
+
+# --- 4. Crear accesos directos (.desktop) ---
+info "Creando accesos directos de la interfaz gráfica..."
+
+APPS_DIR="$HOME/.local/share/applications"
+mkdir -p "$APPS_DIR"
+
+# Verificamos si estamos dentro de Distrobox (revisando si existe .containerenv)
+if [ -f /run/containerenv ]; then
+    EXEC_CMD="/usr/bin/distrobox enter ubuntu22 -- $HOME/.local/share/geomagic/bin/TouchCheckup"
+else
+    EXEC_CMD="$HOME/.local/share/geomagic/bin/TouchCheckup"
+fi
+
+DESKTOP_FILE="$APPS_DIR/Geomagic_Touch.desktop"
+
+cat <<EOF > "$DESKTOP_FILE"
+[Desktop Entry]
+Encoding=UTF-8
+Version=1.0
+Type=Application
+Terminal=false
+Exec=$EXEC_CMD
+Name=Geomagic Touch
+Categories=Application;
+Comment=Interfaz grafica de Geomagic Touch
+EOF
+
+chmod +x "$DESKTOP_FILE"
+
+# Identificar la carpeta del Escritorio
+if command -v xdg-user-dir >/dev/null 2>&1; then
+    DESKTOP_DIR=$(xdg-user-dir DESKTOP)
+elif [ -d "$HOME/Escritorio" ]; then
+    DESKTOP_DIR="$HOME/Escritorio"
+else
+    DESKTOP_DIR="$HOME/Desktop"
+fi
+
+# Copiar al Escritorio si el directorio existe
+if [ -n "$DESKTOP_DIR" ] && [ -d "$DESKTOP_DIR" ]; then
+    cp "$DESKTOP_FILE" "$DESKTOP_DIR/"
+    chmod +x "$DESKTOP_DIR/Geomagic_Touch.desktop"
+    info "Acceso directo creado en: $DESKTOP_DIR"
+fi
+
+

@@ -78,7 +78,7 @@ Eigen::VectorXd UR5Kinematics::solveQPIK_Velocity(
     
     // Límites operativos del UR5
     const double joint_limit = 2.0 * M_PI; // Límite de posición física
-    const double dq_max_motor = 3.14;      // Límite de velocidad máxima (rad/s)
+    const double dq_max_motor = 0.5;      // Límite de velocidad máxima (rad/s)
 
     for(int j = 0; j < n; ++j) {
         // Velocidad máxima permitida en este dt para NO exceder el límite físico
@@ -218,7 +218,7 @@ Eigen::VectorXd UR5Kinematics::computeVelocityControlStep(
     Eigen::VectorXd error = error_motion.toVector(); 
 
     // Opcional: Condición de parada suave si el dispositivo externo deja de enviar objetivos
-    if (error.norm() < 1e-4) {
+    if (error.norm() < 1e-5) {
         return Eigen::VectorXd::Zero(model_->nv);
     }
 
@@ -234,7 +234,7 @@ Eigen::VectorXd UR5Kinematics::computeVelocityControlStep(
 
     // 5. Resolver el problema cuadrático para obtener las velocidades articulares (dq en rad/s)
     Eigen::VectorXd dq_command = solveQPIK_Velocity(J, x_dot_des, q_real, dt);
-
+    std::cout << "dq: " << dq_command.transpose() << " norm: " << dq_command.norm() << std::endl;
     return dq_command;
 }
 

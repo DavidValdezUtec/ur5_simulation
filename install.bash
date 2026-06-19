@@ -13,6 +13,49 @@ info() {
     echo "================================================================================"
 }
 
+# --- 0. Detección y Configuración del Entorno (Host vs Distrobox) ---
+if [ ! -f /run/.containerenv ]; then
+    # No estamos en un contenedor
+    if [ -f /etc/os-release ]; then
+        source /etc/os-release
+    fi
+
+    if [[ "$ID" == "ubuntu" && "$VERSION_ID" == "22.04" ]]; then
+        info "Se ha detectado Ubuntu 22.04 en el host."
+        read -p "¿Deseas instalar nativamente en el host (h) o en un contenedor Distrobox (d)? [h/d] (por defecto: h): " choice
+        if [[ "$choice" == "d" || "$choice" == "D" ]]; then
+            USE_DISTROBOX=true
+        else
+            USE_DISTROBOX=false
+        fi
+    else
+        info "Sistema operativo distinto a Ubuntu 22.04 detectado ($PRETTY_NAME)."
+        info "Se requiere el uso de Distrobox (Ubuntu 22.04) para garantizar la compatibilidad."
+        USE_DISTROBOX=true
+    fi
+
+    if [ "$USE_DISTROBOX" = true ]; then
+        if ! command -v distrobox &> /dev/null; then
+            echo "ERROR: Distrobox no está instalado en tu sistema host."
+            echo "Por favor, instálalo antes de continuar (ej. curl -s https://raw.githubusercontent.com/89luca89/distrobox/main/install | sudo sh)."
+            exit 1
+        fi
+        
+        # Verificar si el contenedor ya existe
+        if ! distrobox list | grep -q 'ubuntu22'; then
+            info "Creando contenedor Distrobox 'ubuntu22' a partir de Ubuntu 22.04..."
+            distrobox create --name ubuntu22 --image ubuntu:22.04
+        fi
+        
+        info "Relanzando la instalación dentro del contenedor Distrobox 'ubuntu22'..."
+        SCRIPT_PATH=$(realpath "$0")
+        exec distrobox enter ubuntu22 -- bash -c "$SCRIPT_PATH"
+        # La ejecución en el host finaliza aquí
+    fi
+else
+    info "Ejecución dentro de un contenedor detectada. Continuando instalación..."
+fi
+
 # --- 1. Creación del Workspace y Clonación de Repositorios ---
 info "Creando workspace y clonando repositorios..."
 mkdir -p ~/tesis_ws/src

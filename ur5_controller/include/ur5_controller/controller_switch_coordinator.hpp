@@ -25,9 +25,11 @@ public:
 
   bool forwardActive() const;
   bool scaledActive() const;
+  bool velocityActive() const;
 
   void requestScaledIfNeeded(const std::function<void()> & on_scaled_activated);
   void requestForwardIfNeeded(const std::function<void()> & on_forward_activated);
+  void requestVelocityIfNeeded(const std::function<void()> & on_velocity_activated);
 
 private:
   void requestSwitch(
@@ -43,8 +45,10 @@ private:
 
   bool switch_to_forward_requested_ = false;
   bool switch_to_scaled_requested_ = false;
+  bool switch_to_velocity_requested_ = false;
   bool forward_controller_active_ = false;
   bool scaled_controller_active_ = false;
+  bool velocity_controller_active_ = false;
 };
 
 }  // namespace ur5_controller
