@@ -2,8 +2,8 @@
 #include "ur5_controller/structs.hpp"
 #include "ur5_controller/joint_state_mapper.hpp"
 
-#include <pinocchio/multibody/model.hpp>
-#include <pinocchio/multibody/data.hpp>
+//#include <pinocchio/deprecated/pinocchio/multibody/model.hpp>
+#include <pinocchio/multibody.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <Eigen/Geometry>
 #include <iostream>

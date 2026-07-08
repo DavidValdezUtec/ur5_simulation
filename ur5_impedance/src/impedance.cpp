@@ -5,7 +5,7 @@
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/crba.hpp>
 #include <pinocchio/algorithm/rnea.hpp>
-#include <pinocchio/spatial/explog.hpp>
+#include <pinocchio/spatial.hpp>
 #include <stdexcept>
 #include <iostream>
 
@@ -232,6 +232,7 @@ ControlOutput UR5Impedance::calculateControlCommand(
 
     ControlOutput output;
     output.q_desired = q_next;
+    output.qd_desired = qd_next;
     output.tau = tau;
     output.q_ddot_desired = qdd;
     return output;

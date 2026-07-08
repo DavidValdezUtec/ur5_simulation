@@ -2,13 +2,13 @@
 #define UR5_KINEMATICS_HPP
 
 #include <pinocchio/fwd.hpp>
-#include <pinocchio/multibody/model.hpp>
-#include <pinocchio/multibody/data.hpp>
+#include <pinocchio/multibody.hpp>
+//#include <pinocchio/multibody/data.hpp>
 #include <pinocchio/parsers/urdf.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/spatial/explog.hpp> // Necesario para pinocchio::log6
+#include <pinocchio/spatial.hpp> // Necesario para pinocchio::log6
 #include <cmath>
 #include <algorithm>
 
@@ -28,6 +28,8 @@ public:
         const Eigen::VectorXd& q_real,
         const Eigen::Vector3d& desired_pos,
         const Eigen::Matrix3d& desired_orient,
+        const Eigen::Vector3d& feedforward_lin_vel, // \dot{r} lineal
+        const Eigen::Vector3d& feedforward_ang_vel, // \dot{r} angular (cero en predefinidas)
         double Kp_pos,
         double Kp_orient,
         double dt); 
@@ -61,7 +63,12 @@ private:
         const Eigen::VectorXd& current_q,
         const Eigen::MatrixXd& W);
         //const Eigen::VectorXd& q);
-    Eigen::VectorXd solveQPIK_Velocity(  const Eigen::MatrixXd& J, const Eigen::VectorXd& x_dot_des, const Eigen::VectorXd& current_q, double dt) ;
+    Eigen::VectorXd solveQPIK_Velocity(  
+        const Eigen::MatrixXd& J, 
+        const Eigen::VectorXd& x_dot_des, 
+        const Eigen::VectorXd& current_q,
+        const Eigen::MatrixXd& W_e, 
+        double dt) ;
 };
 
 #endif // UR5_KINEMATICS_HPP

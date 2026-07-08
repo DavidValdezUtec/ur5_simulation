@@ -8,8 +8,8 @@
 #include <Eigen/Dense>
 #include <vector>
 #include <memory>
-#include <pinocchio/multibody/model.hpp>
-#include <pinocchio/multibody/data.hpp>
+#include <pinocchio/multibody.hpp>
+//#include <pinocchio/deprecated/pinocchio/multibody/data.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 
 // Forward declarations

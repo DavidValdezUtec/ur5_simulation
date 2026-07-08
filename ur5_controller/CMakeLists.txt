@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.8)
 project(ur5_controller)
 
+add_compile_definitions(
+  BOOST_MPL_CFG_NO_PREPROCESSED_HEADERS
+  BOOST_MPL_LIMIT_LIST_SIZE=30
+  BOOST_MPL_LIMIT_VECTOR_SIZE=30
+)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -162,9 +168,9 @@ ament_target_dependencies(controller_node
 
 target_link_libraries(controller_node
   trajectory_generator
-  csv_logger
-  joint_state_mapper
+  csv_logger  
   initial_motion_publisher
+  joint_state_mapper
   parameter_manager
   controller_switch_coordinator
   ur5_kinematics::ur5_kinematics
@@ -206,8 +212,8 @@ ament_target_dependencies(controller_velocity
 target_link_libraries(controller_velocity
   trajectory_generator
   csv_logger
-  joint_state_mapper
   initial_motion_publisher
+  joint_state_mapper
   parameter_manager
   controller_switch_coordinator
   ur5_kinematics::ur5_kinematics

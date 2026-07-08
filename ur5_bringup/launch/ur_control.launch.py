@@ -300,7 +300,7 @@ def launch_setup(context, *args, **kwargs):
                     "force_torque_sensor_broadcaster",
                     "joint_state_broadcaster",
                     "speed_scaling_state_broadcaster",
-                    #"tcp_pose_broadcaster",
+                    "tcp_pose_broadcaster", # This controller is not compatible with the fake hardware, as it relies on actual robot states. It will be automatically deactivated if 'use_fake_hardware' is set to true.
                     "ur_configuration_controller",
                 ]
             },
@@ -341,10 +341,10 @@ def launch_setup(context, *args, **kwargs):
 
     controllers_active = [
         "joint_state_broadcaster",
-        "io_and_status_controller",
+        #"io_and_status_controller",
         "speed_scaling_state_broadcaster",
         "force_torque_sensor_broadcaster",
-        #"tcp_pose_broadcaster",
+        "tcp_pose_broadcaster", # This controller is not compatible with the fake hardware, as it relies on actual robot states. It will be automatically deactivated if 'use_fake_hardware' is set to true.
         "ur_configuration_controller",
     ]
     controllers_inactive = [

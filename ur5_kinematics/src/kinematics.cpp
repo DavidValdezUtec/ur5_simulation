@@ -46,7 +46,7 @@ Eigen::Matrix<double, 6, 1> UR5Kinematics::computePoseError2(const pinocchio::SE
     // // Pinocchio devuelve un objeto Motion, lo pasamos a VectorXd
     // return error_motion.toVector();
 }
-
+/*
 Eigen::VectorXd UR5Kinematics::solveQPIK_Velocity(
     const Eigen::MatrixXd& J, 
     const Eigen::VectorXd& x_dot_des, 
@@ -119,6 +119,71 @@ Eigen::VectorXd UR5Kinematics::solveQPIK_Velocity(
     }
 
     // El resultado devuelto es estrictamente una VELOCIDAD (rad/s)
+    return solver.getSolution(); 
+}
+*/
+
+Eigen::VectorXd UR5Kinematics::solveQPIK_Velocity(
+    const Eigen::MatrixXd& J, 
+    const Eigen::VectorXd& x_dot_des, 
+    const Eigen::VectorXd& current_q,
+    const Eigen::MatrixXd& W_e, // NUEVO: Matriz de pesos cartesianos
+    double dt) 
+{
+    static OsqpEigen::Solver solver;
+    static bool initialized = false;
+    static int last_n = -1;
+    const int n = static_cast<int>(J.cols()); 
+
+
+    // 1. Aplicar la ponderación cartesiana W_e
+    Eigen::MatrixXd J_w = W_e * J;
+    Eigen::VectorXd x_dot_w = W_e * x_dot_des;
+
+    // 2. Hessiana: P = J^T * W_e * J + W_v (donde W_v = lambda * I)
+    Eigen::MatrixXd A_hessian = J_w.transpose() * J_w;
+    const double lambda = 1e-6; // Este es tu peso W_v (suavidad)
+    A_hessian.noalias() += lambda * Eigen::MatrixXd::Identity(n, n);
+    
+    Eigen::SparseMatrix<double> H_qp = A_hessian.sparseView();
+    
+    // 3. Gradiente: g = -J^T * W_e * x_dot_des
+    Eigen::VectorXd g_qp = -J_w.transpose() * x_dot_w;
+
+    // ... (El resto de las restricciones A_qp, lower_bound, upper_bound
+    // y la configuración del solver se mantienen EXACTAMENTE IGUAL que en tu código original) ...
+    Eigen::SparseMatrix<double> A_qp = Eigen::MatrixXd::Identity(n, n).sparseView();
+    Eigen::VectorXd lower_bound(n);
+    Eigen::VectorXd upper_bound(n);
+    const double joint_limit = 2.0 * M_PI; 
+    const double dq_max_motor = 0.5;      
+
+    for(int j = 0; j < n; ++j) {
+        double dq_limit_down = (-joint_limit - current_q(j)) / dt;
+        double dq_limit_up   = ( joint_limit - current_q(j)) / dt;
+        lower_bound(j) = std::max(-dq_max_motor, dq_limit_down);
+        upper_bound(j) = std::min( dq_max_motor, dq_limit_up);
+    }
+
+    if (!initialized || last_n != n) {
+        solver.settings()->setVerbosity(false);
+        solver.settings()->setWarmStart(true);
+        solver.data()->setNumberOfVariables(n);
+        solver.data()->setNumberOfConstraints(n); 
+        solver.data()->setHessianMatrix(H_qp);
+        solver.data()->setGradient(g_qp);
+        solver.data()->setLinearConstraintsMatrix(A_qp);
+        solver.data()->setLowerBound(lower_bound);
+        solver.data()->setUpperBound(upper_bound);
+        if (!solver.initSolver()) throw std::runtime_error("Failed to initialize QP solver");
+        initialized = true;
+        last_n = n;
+    } else {
+        solver.updateHessianMatrix(H_qp);
+        solver.updateGradient(g_qp);
+        solver.updateBounds(lower_bound, upper_bound); 
+    }
+    solver.solveProblem();
     return solver.getSolution(); 
 }
 
@@ -197,7 +262,7 @@ Eigen::VectorXd UR5Kinematics::solveQPIK(
     return solver.getSolution();
 }
 
-
+/*
 Eigen::VectorXd UR5Kinematics::computeVelocityControlStep(
     const Eigen::VectorXd& q_real,
     const Eigen::Vector3d& desired_pos,
@@ -221,6 +286,7 @@ Eigen::VectorXd UR5Kinematics::computeVelocityControlStep(
     if (error.norm() < 1e-5) {
         return Eigen::VectorXd::Zero(model_->nv);
     }
+    std::cout << "Error espacial: " << error.transpose() << " norm: " << error.norm() << std::endl;
 
     // 3. Ley de Control Proporcional (Convertir error geométrico en velocidad cartesiana)
     Eigen::VectorXd x_dot_des(6);
@@ -237,7 +303,50 @@ Eigen::VectorXd UR5Kinematics::computeVelocityControlStep(
     std::cout << "dq: " << dq_command.transpose() << " norm: " << dq_command.norm() << std::endl;
     return dq_command;
 }
+*/
+Eigen::VectorXd UR5Kinematics::computeVelocityControlStep(
+    const Eigen::VectorXd& q_real,
+    const Eigen::Vector3d& desired_pos,
+    const Eigen::Matrix3d& desired_orient,
+    const Eigen::Vector3d& feedforward_lin_vel, // \dot{r} lineal
+    const Eigen::Vector3d& feedforward_ang_vel, // \dot{r} angular (cero en predefinidas)
+    double Kp_pos,
+    double Kp_orient,
+    double dt) 
+{
+    pinocchio::forwardKinematics(*model_, *data_, q_real);
+    pinocchio::updateFramePlacement(*model_, *data_, tool_frame_id_);
+    const pinocchio::SE3 current_pose = data_->oMf[tool_frame_id_];
 
+    pinocchio::SE3 desired_pose(desired_orient, desired_pos);
+    pinocchio::Motion error_motion = pinocchio::log6(current_pose.inverse() * desired_pose);
+    Eigen::VectorXd error = error_motion.toVector(); // Esto es (r - f(q))
+
+
+    if (error.norm() < 1e-5 && feedforward_lin_vel.norm() < 1e-5 && feedforward_ang_vel.norm() < 1e-5) {
+        return Eigen::VectorXd::Zero(model_->nv);
+    }
+    if (error.norm() > 1.0 && feedforward_lin_vel.norm() > 1.0 && feedforward_ang_vel.norm() >1.0) {
+        return Eigen::VectorXd::Zero(model_->nv);
+    }
+    std::cout<< "Error espacial: " << error.transpose() << " norm: " << error.norm() << std::endl;
+
+    // LEY DE CONTROL COMPLETA: x_dot_des = \dot{r} + Kp * e
+    Eigen::VectorXd x_dot_des(6);
+    x_dot_des.head(3) = feedforward_lin_vel + (Kp_pos * error.head(3));
+    x_dot_des.tail(3) = feedforward_ang_vel + (Kp_orient * error.tail(3));
+
+    pinocchio::Data::Matrix6x J(6, model_->nv);
+    J.setZero();
+    pinocchio::computeFrameJacobian(*model_, *data_, q_real, tool_frame_id_, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, J);
+
+    // Definición de W_e (Prioridad del espacio de tarea)
+    // Usamos Identidad asumiendo misma prioridad. Puedes bajar los de orientación si lo deseas.
+    Eigen::MatrixXd W_e = Eigen::MatrixXd::Identity(6, 6);
+
+    Eigen::VectorXd dq_command = solveQPIK_Velocity(J, x_dot_des, q_real, W_e, dt);
+    return dq_command;
+}
 
 Eigen::VectorXd UR5Kinematics::inverseKinematicsQP2(
     const Eigen::VectorXd& q_initial,

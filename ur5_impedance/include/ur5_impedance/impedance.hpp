@@ -2,8 +2,8 @@
 #define UR5_IMPEDANCE_HPP
 
 #include <pinocchio/fwd.hpp>
-#include <pinocchio/multibody/model.hpp>
-#include <pinocchio/multibody/data.hpp>
+#include <pinocchio/multibody.hpp>
+// #include <pinocchio/multibody/data.hpp>
 
 #include <Eigen/Dense>
 #include <string>
@@ -16,6 +16,7 @@ namespace ur5_impedance {
  */
 struct ControlOutput {
     Eigen::VectorXd q_desired;      ///< Posiciones articulares deseadas [6x1]
+    Eigen::VectorXd qd_desired;     ///< Velocidades articulares deseadas [6x1]
     Eigen::VectorXd tau;             ///< Pares de control calculados [6x1]
     Eigen::VectorXd q_ddot_desired;  ///< Aceleraciones articulares deseadas [6x1]
 };

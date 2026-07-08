@@ -241,13 +241,19 @@ def generate_launch_description():
             "r2_rot_z", default_value="3.14", description="Robot 2 Z Rotation"
         ),
         DeclareLaunchArgument(
-            "launch_feedback", default_value="true", description="Launch haptic force feedback nodes"
+            "launch_feedback", default_value="false", description="Launch haptic force feedback nodes"
         ),
         DeclareLaunchArgument(
             "r1_force_filter_alpha", default_value="0.2", description="LPF alpha for r1 feedback (0..1)"
         ),
         DeclareLaunchArgument(
             "r2_force_filter_alpha", default_value="0.2", description="LPF alpha for r2 feedback (0..1)"
+        ),
+        DeclareLaunchArgument(
+            "r1_initial_controller", default_value="forward_position_controller", description="Initial controller for robot 1"
+        ),
+        DeclareLaunchArgument(
+            "r2_initial_controller", default_value="joint_trajectory_controller", description="Initial controller for robot 2"
         ),
         r1_launch,
         r2_launch,

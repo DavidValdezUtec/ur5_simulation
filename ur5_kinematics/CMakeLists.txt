@@ -20,16 +20,14 @@ add_library(${PROJECT_NAME} SHARED
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
-  ${PINOCCHIO_INCLUDE_DIRS}
   ${OsqpEigen_INCLUDE_DIRS}
 )
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
-  ${PINOCCHIO_LIBRARIES}
+  pinocchio::pinocchio
   Eigen3::Eigen
   OsqpEigen::OsqpEigen
 )
-
 # Instalar la biblioteca, cabeceras y recursos
 install(TARGETS ${PROJECT_NAME}
   EXPORT export_${PROJECT_NAME}
