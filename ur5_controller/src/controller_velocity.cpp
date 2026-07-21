@@ -1188,16 +1188,16 @@ public:
             const double r_y = A.y();
 
             // Start the circle from the current point instead of jumping to the perimeter.
-            state.position.x() = x_init.x() + r_x * (cos_wn_t - 1.0);
-            state.position.y() = x_init.y() + r_y * sin_wn_t;
+            state.position.x() = x_init.x() + r_x * sin_wn_t;
+            state.position.y() = x_init.y() + r_y * (cos_wn_t - 1.0);
             state.position.z() = x_init.z();
 
-            state.velocity.x() = -r_x * wn * sin_wn_t;
-            state.velocity.y() = r_y * wn * cos_wn_t;
+            state.velocity.x() = r_x * wn * cos_wn_t;
+            state.velocity.y() = -r_y * wn * sin_wn_t;
             state.velocity.z() = 0.0;
 
-            state.acceleration.x() = -r_x * wn * wn * cos_wn_t;
-            state.acceleration.y() = -r_y * wn * wn * sin_wn_t;
+            state.acceleration.x() = -r_x * wn * wn * sin_wn_t;
+            state.acceleration.y() = -r_y * wn * wn * cos_wn_t;
             state.acceleration.z() = 0.0;
         }
 
@@ -1537,8 +1537,8 @@ private:
             int ee_frame_id = model_->nframes - 1;
             MatrixXd jacobian = MatrixXd::Zero(6, model_->nv);
             
-            pinocchio::computeFrameJacobian(*model_, *data_, q_, ee_frame_id, jacobian);
-
+            pinocchio::computeFrameJacobian(*model_, *data_, q_, tool_frame_id_, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED,jacobian);
+            //pinocchio::computeFrameJacobian(*model_, *data_, q_, ee_frame_id, jacobian);
             // Ejemplo: Cinemática inversa diferencial con objetivo de movimiento
             // calculo de error
 
@@ -1579,8 +1579,8 @@ private:
 
             // double Kp_pos = 10.0;  // Ganancia proporcional para posición
             // double Kp_orient = 15.0;  // Ganancia proporcional para orientación
-            v_ee_desired_.head(3) = Kp_pos * position_error; //+ velocity_reference + ;// + Kd_pos * d_position_error;
-            v_ee_desired_.tail(3) = Kp_orient * orientation_error;// + Kd_orient * d_orientation_error;
+            v_ee_desired_.head(3) = Kp_pos * position_error+ Kd_pos * d_position_error;//+ velocity_reference  ;
+            v_ee_desired_.tail(3) = Kp_orient * orientation_error + Kd_orient * d_orientation_error;
 
             // Calcular pseudoinversa del Jacobiano con damping
             // J_pinv = J^T * (J*J^T + lambda^2*I)^-1
