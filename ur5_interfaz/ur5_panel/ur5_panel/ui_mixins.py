@@ -2,6 +2,8 @@ from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtWidgets import *
 from PyQt5 import QtCore
 
+from ur5_panel import config_store
+
 class UIMixin:
     """
     Mixin para la configuración de la interfaz de usuario de InterfazRviz.
@@ -22,53 +24,60 @@ class UIMixin:
         self.haptic2_ready = False
         self.camera_ready = False
         
-        # Configuración Robot 1
-        self.r1_config = {
-            "ur_type": "ur5e",
-            "robot_ip": "192.168.10.104",
-            "description_package": "ur5_description",
-            "tf_prefix": "r1_",
-            "runtime_config_package": "ur5_bringup",
-            "controllers_file": ["ur_controllers_", "r1", ".yaml"],
-            "kinematics_params_file": ["/home/david/my_robot_calibration_", "ur5e", ".yaml"],
-            "use_fake_hardware": "true",  # Empezamos en modo simulación
-            "launch_dashboard_client": "true",
-            "launch_rviz": "false",
-            "reverse_port": "50001",
-            "script_sender_port": "50002",
-            "trajectory_port": "50003",
-            "script_command_port": "50004",
-            "pos_x": "0.0",
-            "pos_y": "0.9",
-            "pos_z": "0.0",
-            "rot_x": "0.0",
-            "rot_y": "0.0",
-            "rot_z": "0.0",
+        # Configuracion de robots: se carga desde ~/.ros/ur5_panel/config.json
+        # (creado la primera vez a partir de la plantilla del paquete). Los
+        # dicts de abajo son solo el respaldo si no hay plantilla ni archivo
+        # de usuario, y completan claves nuevas que un archivo viejo no tenga.
+        default_robot_configs = {
+            "r1": {
+                "ur_type": "ur5e",
+                "robot_ip": "192.168.10.104",
+                "description_package": "ur5_description",
+                "tf_prefix": "r1_",
+                "runtime_config_package": "ur5_bringup",
+                "controllers_file": ["ur_controllers_", "r1", ".yaml"],
+                "kinematics_params_file": ["/home/david/my_robot_calibration_", "ur5e", ".yaml"],
+                "use_fake_hardware": "true",  # Empezamos en modo simulación
+                "launch_dashboard_client": "true",
+                "launch_rviz": "false",
+                "reverse_port": "50001",
+                "script_sender_port": "50002",
+                "trajectory_port": "50003",
+                "script_command_port": "50004",
+                "pos_x": "0.0",
+                "pos_y": "0.9",
+                "pos_z": "0.0",
+                "rot_x": "0.0",
+                "rot_y": "0.0",
+                "rot_z": "0.0",
+            },
+            "r2": {
+                "ur_type": "ur5e",
+                "robot_ip": "192.168.10.103",
+                "description_package": "ur5_description",
+                "tf_prefix": "r2_",
+                "runtime_config_package": "ur5_bringup",
+                "controllers_file": ["ur_controllers_", "r2", ".yaml"],
+                "kinematics_params_file": ["/home/david/my_robot_calibration_", "ur5e", ".yaml"],
+                "use_fake_hardware": "true",  # Empezamos en modo simulación
+                "launch_dashboard_client": "true",
+                "launch_rviz": "false",
+                "reverse_port": "50011",
+                "script_sender_port": "50012",
+                "trajectory_port": "50013",
+                "script_command_port": "50014",
+                "pos_x": "0.0",
+                "pos_y": "-0.9",
+                "pos_z": "0.0",
+                "rot_x": "0.0",
+                "rot_y": "0.0",
+                "rot_z": "0.0",
+            },
         }
-        # Configuración Robot 2
-        self.r2_config = {
-            "ur_type": "ur5e",
-            "robot_ip": "192.168.10.103",
-            "description_package": "ur5_description",
-            "tf_prefix": "r2_",
-            "runtime_config_package": "ur5_bringup",
-            "controllers_file": ["ur_controllers_", "r2", ".yaml"],
-            "kinematics_params_file": ["/home/david/my_robot_calibration_", "ur5e", ".yaml"],
-            "use_fake_hardware": "true",  # Empezamos en modo simulación
-            "launch_dashboard_client": "true",
-            "launch_rviz": "false",
-            "reverse_port": "50011",
-            "script_sender_port": "50012",
-            "trajectory_port": "50013",
-            "script_command_port": "50014",
-            "pos_x": "0.0",
-            "pos_y": "-0.9",
-            "pos_z": "0.0",
-            "rot_x": "0.0",
-            "rot_y": "0.0",
-            "rot_z": "0.0",
-        }
-        
+        loaded_robot_configs = config_store.load_config(default_robot_configs)
+        self.r1_config = loaded_robot_configs["r1"]
+        self.r2_config = loaded_robot_configs["r2"]
+
         self.r1_control_config = {
             "control_topic": "/forward_position_controller/commands",
             "ur":"ur5e",
@@ -269,15 +278,17 @@ class UIMixin:
         r1_buttons2_widget.setLayout(r1_buttons2_layout)
         self.r1_type_input = QComboBox()
         self.r1_type_input.addItems(["ur5e", "ur5"])
+        self.r1_type_input.setCurrentText(self.r1_config["ur_type"])
         self.r1_mode_input = QComboBox()
         self.r1_mode_input.addItems(["Simulation","Real"])
+        self.r1_mode_input.setCurrentText("Simulation" if self.r1_config["use_fake_hardware"] == "true" else "Real")
         n = 40
-        self.r1_x_input = QLineEdit(); self.r1_x_input.setText("0.0"); self.r1_x_input.setFixedWidth(n)
-        self.r1_y_input = QLineEdit(); self.r1_y_input.setText("0.9"); self.r1_y_input.setFixedWidth(n)
-        self.r1_z_input = QLineEdit(); self.r1_z_input.setText("0.0"); self.r1_z_input.setFixedWidth(n)
-        self.r1_rx_input = QLineEdit(); self.r1_rx_input.setText("0.0"); self.r1_rx_input.setFixedWidth(n)
-        self.r1_ry_input = QLineEdit(); self.r1_ry_input.setText("0.0"); self.r1_ry_input.setFixedWidth(n)
-        self.r1_rz_input = QLineEdit(); self.r1_rz_input.setText("0.0"); self.r1_rz_input.setFixedWidth(n)
+        self.r1_x_input = QLineEdit(); self.r1_x_input.setText(self.r1_config["pos_x"]); self.r1_x_input.setFixedWidth(n)
+        self.r1_y_input = QLineEdit(); self.r1_y_input.setText(self.r1_config["pos_y"]); self.r1_y_input.setFixedWidth(n)
+        self.r1_z_input = QLineEdit(); self.r1_z_input.setText(self.r1_config["pos_z"]); self.r1_z_input.setFixedWidth(n)
+        self.r1_rx_input = QLineEdit(); self.r1_rx_input.setText(self.r1_config["rot_x"]); self.r1_rx_input.setFixedWidth(n)
+        self.r1_ry_input = QLineEdit(); self.r1_ry_input.setText(self.r1_config["rot_y"]); self.r1_ry_input.setFixedWidth(n)
+        self.r1_rz_input = QLineEdit(); self.r1_rz_input.setText(self.r1_config["rot_z"]); self.r1_rz_input.setFixedWidth(n)
         
         r1_buttons2_layout.addWidget(QLabel("Type:"))
         r1_buttons2_layout.addWidget(self.r1_type_input)
@@ -315,8 +326,8 @@ class UIMixin:
         self.r1_layout.addTab(self.r1_adv_widget, "Robot 1 Advanced")
         r1_adv_buttons_layout = QVBoxLayout()
         r1_adv_buttons_layout.addWidget(QLabel("Robot IP"))
-        self.r1_IP_input = QLineEdit(); self.r1_IP_input.setText("192.168.1.1")
-        self.r1_TCP_input = QLineEdit(); self.r1_TCP_input.setText("50002")
+        self.r1_IP_input = QLineEdit(); self.r1_IP_input.setText(self.r1_config["robot_ip"])
+        self.r1_TCP_input = QLineEdit(); self.r1_TCP_input.setText(self.r1_config["script_sender_port"])
         r1_adv_buttons_layout.addWidget(self.r1_IP_input)
         r1_adv_buttons_layout.addWidget(self.r1_TCP_input)
         
@@ -334,15 +345,17 @@ class UIMixin:
         
         self.r2_type_input = QComboBox()
         self.r2_type_input.addItems(["ur5e", "ur5"])
+        self.r2_type_input.setCurrentText(self.r2_config["ur_type"])
         self.r2_mode_input = QComboBox()
         self.r2_mode_input.addItems(["Simulation","Real"])
+        self.r2_mode_input.setCurrentText("Simulation" if self.r2_config["use_fake_hardware"] == "true" else "Real")
         n = 40
-        self.r2_x_input = QLineEdit(); self.r2_x_input.setText("0.0"); self.r2_x_input.setFixedWidth(n)
-        self.r2_y_input = QLineEdit(); self.r2_y_input.setText("-0.9"); self.r2_y_input.setFixedWidth(n)
-        self.r2_z_input = QLineEdit(); self.r2_z_input.setText("0.0"); self.r2_z_input.setFixedWidth(n)
-        self.r2_rx_input = QLineEdit(); self.r2_rx_input.setText("0.0"); self.r2_rx_input.setFixedWidth(n)
-        self.r2_ry_input = QLineEdit(); self.r2_ry_input.setText("0.0"); self.r2_ry_input.setFixedWidth(n)
-        self.r2_rz_input = QLineEdit(); self.r2_rz_input.setText("0.0"); self.r2_rz_input.setFixedWidth(n)
+        self.r2_x_input = QLineEdit(); self.r2_x_input.setText(self.r2_config["pos_x"]); self.r2_x_input.setFixedWidth(n)
+        self.r2_y_input = QLineEdit(); self.r2_y_input.setText(self.r2_config["pos_y"]); self.r2_y_input.setFixedWidth(n)
+        self.r2_z_input = QLineEdit(); self.r2_z_input.setText(self.r2_config["pos_z"]); self.r2_z_input.setFixedWidth(n)
+        self.r2_rx_input = QLineEdit(); self.r2_rx_input.setText(self.r2_config["rot_x"]); self.r2_rx_input.setFixedWidth(n)
+        self.r2_ry_input = QLineEdit(); self.r2_ry_input.setText(self.r2_config["rot_y"]); self.r2_ry_input.setFixedWidth(n)
+        self.r2_rz_input = QLineEdit(); self.r2_rz_input.setText(self.r2_config["rot_z"]); self.r2_rz_input.setFixedWidth(n)
         
         r2_buttons2_layout.addWidget(QLabel("Type:"))
         r2_buttons2_layout.addWidget(self.r2_type_input)
@@ -380,8 +393,8 @@ class UIMixin:
         self.r2_layout.addTab(self.r2_adv_widget, "Robot 2 Advanced")
         r2_adv_buttons_layout = QVBoxLayout()
         r2_adv_buttons_layout.addWidget(QLabel("Robot IP"))
-        self.r2_IP_input = QLineEdit(); self.r2_IP_input.setText("192.168.1.2")
-        self.r2_TCP_input = QLineEdit(); self.r2_TCP_input.setText("50012")
+        self.r2_IP_input = QLineEdit(); self.r2_IP_input.setText(self.r2_config["robot_ip"])
+        self.r2_TCP_input = QLineEdit(); self.r2_TCP_input.setText(self.r2_config["script_sender_port"])
         r2_adv_buttons_layout.addWidget(self.r2_IP_input)
         r2_adv_buttons_layout.addWidget(self.r2_TCP_input)
         self.r2_adv_widget.setLayout(r2_adv_buttons_layout)
@@ -423,11 +436,13 @@ class UIMixin:
         )
 
     def update_config(self, robot_id, key, value):
-        """Actualiza una clave en el diccionario de configuración del robot especificado."""
+        """Actualiza una clave en el diccionario de configuración del robot especificado
+        y persiste el cambio en ~/.ros/ur5_panel/config.json."""
         config = getattr(self, f"{robot_id}_config")
         if key in config:
             config[key] = value
             print(f"{robot_id.upper()} Config updated: {key} = {value}") # Opcional: para depuración
+            config_store.save_config({"r1": self.r1_config, "r2": self.r2_config})
         else:
             print(f"Warning: La clave '{key}' no existe en {robot_id}_config.")
     

@@ -13,7 +13,7 @@ setup(
         (os.path.join('share', 'ament_index', 'resource_index', 'packages'),
             ['resource/' + package_name]),
         (os.path.join('share', package_name), ['package.xml']),
-        (os.path.join('share', package_name, 'config'), glob('config/*.qss')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.qss') + glob('config/*.json')),
         (os.path.join('share', package_name, 'resource/icons'), glob('resource/icons/*.svg')),
     ],
     install_requires=['setuptools'],

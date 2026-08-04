@@ -39,6 +39,7 @@ ament_target_dependencies(feedback_node
 target_link_libraries(feedback_node
   ${PINOCCHIO_LIBRARIES}
   Eigen3::Eigen
+  pinocchio::pinocchio
 )
 
 install(TARGETS feedback_node

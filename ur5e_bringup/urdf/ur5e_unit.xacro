@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <!--
+    Macro que instancia un UR completo (cadena cinematica + ros2_control)
+    y lo fija a un link padre existente. Pensado para poder llamarse varias
+    veces desde un mismo xacro y así montar una celda con varios robots.
+
+    name        : nombre único del robot (ej. "ur5e_1")
+    tf_prefix   : prefijo de TF, normalmente "<name>_" para no chocar frames
+    parent      : link al que se fija la base del robot (ej. "world")
+    xyz / rpy   : pose del robot respecto a 'parent'
+    ur_type     : modelo UR (ej. "ur5e", "ur5"), selecciona los yaml de
+                  ur_description/config/<ur_type>/
+    robot_ip    : IP del controlador real (ur_robot_driver). Ignorada si
+                  use_fake_hardware=true
+  -->
+  <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro" />
+
+  <xacro:macro name="ur5e_unit" params="
+      name
+      tf_prefix
+      parent
+      xyz:='0 0 0'
+      rpy:='0 0 0'
+      ur_type:=ur5e
+      robot_ip:=0.0.0.0
+      use_fake_hardware:=true
+      headless_mode:=true
+      safety_limits:=true
+      safety_pos_margin:=0.15
+      safety_k_position:=20">
+
+    <link name="${name}_base_mount" />
+    <joint name="${name}_base_mount_joint" type="fixed">
+      <parent link="${parent}" />
+      <child link="${name}_base_mount" />
+      <origin xyz="${xyz}" rpy="${rpy}" />
+    </joint>
+
+    <xacro:ur_robot
+      name="${name}"
+      tf_prefix="${tf_prefix}"
+      parent="${name}_base_mount"
+      joint_limits_parameters_file="$(find ur_description)/config/${ur_type}/joint_limits.yaml"
+      kinematics_parameters_file="$(find ur_description)/config/${ur_type}/default_kinematics.yaml"
+      physical_parameters_file="$(find ur_description)/config/${ur_type}/physical_parameters.yaml"
+      visual_parameters_file="$(find ur_description)/config/${ur_type}/visual_parameters.yaml"
+      safety_limits="${safety_limits}"
+      safety_pos_margin="${safety_pos_margin}"
+      safety_k_position="${safety_k_position}"
+      use_fake_hardware="${use_fake_hardware}"
+      headless_mode="${headless_mode}"
+      robot_ip="${robot_ip}"
+      script_filename="to_be_filled_by_ur_robot_driver"
+      output_recipe_filename="to_be_filled_by_ur_robot_driver"
+      input_recipe_filename="to_be_filled_by_ur_robot_driver">
+      <origin xyz="0 0 0" rpy="0 0 0" />
+    </xacro:ur_robot>
+
+  </xacro:macro>
+</robot>

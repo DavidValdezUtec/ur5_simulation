@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<!--
+  Descripcion de UN solo UR5e, pensada para ser generada por linea de
+  comandos (xacro ur5e_single.urdf.xacro name:=r1 tf_prefix:=r1_ ...) desde
+  el launch, de forma que cada robot tenga su propio robot_description y por
+  lo tanto su propio controller_manager independiente.
+-->
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="ur5e_single">
+
+  <xacro:include filename="$(find ur5e_bringup)/urdf/ur5e_unit.xacro" />
+
+  <xacro:arg name="name" default="ur5e" />
+  <xacro:arg name="tf_prefix" default="" />
+  <xacro:arg name="x" default="0" />
+  <xacro:arg name="y" default="0" />
+  <xacro:arg name="z" default="0" />
+  <xacro:arg name="rx" default="0" />
+  <xacro:arg name="ry" default="0" />
+  <xacro:arg name="rz" default="0" />
+  <xacro:arg name="ur_type" default="ur5e" />
+  <xacro:arg name="robot_ip" default="0.0.0.0" />
+  <xacro:arg name="use_fake_hardware" default="true" />
+  <xacro:arg name="headless_mode" default="true" />
+
+  <!-- 'world' local a este robot; el offset xyz posiciona su base dentro de
+       la celda. Cada robot publica su propio arbol de TF pero como todos
+       comparten el nombre de frame raiz 'world', las transformadas de ambos
+       robots terminan coexistiendo en el mismo frame global al publicarse
+       en el topico compartido /tf. -->
+  <link name="world" />
+
+  <xacro:ur5e_unit
+    name="$(arg name)"
+    tf_prefix="$(arg tf_prefix)"
+    parent="world"
+    xyz="$(arg x) $(arg y) $(arg z)"
+    rpy="$(arg rx) $(arg ry) $(arg rz)"
+    ur_type="$(arg ur_type)"
+    robot_ip="$(arg robot_ip)"
+    use_fake_hardware="$(arg use_fake_hardware)"
+    headless_mode="$(arg headless_mode)" />
+
+</robot>

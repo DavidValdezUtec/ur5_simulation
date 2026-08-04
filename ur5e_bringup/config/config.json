@@ -1,0 +1,28 @@
+[
+    {
+        "name": "r1",
+        "tf_prefix": "r1_",
+        "xyz": [
+            "0",
+            "0",
+            "0"
+        ],
+        "ur_type": "ur5e",
+        "robot_ip": "192.168.1.102",
+        "tcp_port": "30002",
+        "use_fake_hardware": "true"
+    },
+    {
+        "name": "r2",
+        "tf_prefix": "r2_",
+        "xyz": [
+            "2.0",
+            "0",
+            "0"
+        ],
+        "ur_type": "ur5",
+        "robot_ip": "192.168.1.103",
+        "tcp_port": "30002",
+        "use_fake_hardware": "true"
+    }
+]
