@@ -41,7 +41,7 @@ public:
         int max_iterations,
         double alpha,
         double weight_pos = 1.0,
-        double weight_orient = 0.9
+        double weight_orient = 1.0
     );
 
     // Control de Impedancia

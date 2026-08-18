@@ -205,8 +205,8 @@ Eigen::VectorXd UR5Kinematics::solveQPIK(
 
     // Formular el problema como min ||W_p * (J_p * dq - e_p)||^2 + ||W_o * (J_o * dq - e_o)||^2 + 
     // Equivalente a: min 0.5 dq^T H dq + g^T dq
-    Eigen::MatrixXd A = (W * J_w).transpose() * (W * J_w);
-    Eigen::VectorXd g_qp = -(W * J_w).transpose() * (W * e_w);
+    Eigen::MatrixXd A = (J_w).transpose() * (J_w);
+    Eigen::VectorXd g_qp = -(J_w).transpose() * (e_w);
 
     // Regularización para asegurar definida positiva, evita riesgos en singularidades o colapsos del jacobiano
     const double lambda = 1e-6;

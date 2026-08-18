@@ -177,4 +177,16 @@ def main():
 if __name__ == "__main__":
 	main()
 
+'''  /home/david/.ros/ur5_logs/  - Graficadora de datos de UR5
+Impedancia - Linea Recta
+ur5_log_r1_20260226_211610.csv
 
+Impedancia - Curva Helicoidal
+ur5_log_r1_20260226_213503.csv
+
+Sliding Mode - Linea Recta
+ur5_log_r1_20260226_211041.csv
+
+Sliding Mode - Curva Helicoidal
+ur5_log_r1_20260226_212134.csv
+'''
