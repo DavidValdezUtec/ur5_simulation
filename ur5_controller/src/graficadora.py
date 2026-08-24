@@ -189,4 +189,13 @@ ur5_log_r1_20260226_211041.csv
 
 Sliding Mode - Curva Helicoidal
 ur5_log_r1_20260226_212134.csv
+
+Optimización Cuadrática - Linea Recta
+ur5_log_r1_20260226_204540.csv
+
+Optimización Cuadrática - Curva Helicoidal
+ur5_log_r1_20260226_214436.csv
+
+Optimización Cuadrática - Teleoperación
+ur5_log_r1_20260226_215740.csv
 '''
