@@ -580,6 +580,18 @@ private:
             }
             if (!config_.use_geomagic && config_.use_ur5_pos_init && config_.initial_motion_done && !controller_switch_coordinator_->forwardActive()) {
                 controller_switch_coordinator_->requestForwardIfNeeded([this]() {
+                    // Recapturar la pose inicial con el q más reciente justo antes de
+                    // activar la trayectoria: entre on_target_reached() y este momento
+                    // (espera de 1s + cambio de controlador asíncrono) el robot sigue
+                    // convergiendo a q_target, por lo que la pose capturada antes queda
+                    // desactualizada y produce un salto entre x_meas y x_des en t=0.
+                    pinocchio::forwardKinematics(*pinocchio_.model, *pinocchio_.data, robot_state_.q);
+                    pinocchio::updateFramePlacement(*pinocchio_.model, *pinocchio_.data, pinocchio_.tool_frame_id);
+                    const auto& frame_now = pinocchio_.data->oMf[pinocchio_.tool_frame_id];
+                    cartesian_state_.position_initial = frame_now.translation();
+                    cartesian_state_.rotation_matrix_initial = frame_now.rotation();
+                    cartesian_state_.orientation_initial = Eigen::Quaterniond(frame_now.rotation());
+
                     trajectory_active_ = true;
                     trajectory_start_time_ = this->now();
                     t_traj_ = 0.0;

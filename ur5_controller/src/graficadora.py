@@ -61,6 +61,7 @@ def graficar_trayectoria_3d(df: pd.DataFrame, guardar: bool = False, salida: pat
 	ax.set_title("Trayectoria 3D del End-Effector", fontsize=14)
 	ax.legend(fontsize=12)
 	ax.grid(True, linestyle='--', alpha=0.4)
+	ax.view_init(elev=30, azim=-60)  # Ajusta la vista para mejor visualización
 
 	if guardar:
 		if salida is None:
@@ -120,13 +121,12 @@ def graficar_posiciones(df: pd.DataFrame, guardar: bool = False, salida: pathlib
 	etiquetas = ["X", "Y", "Z"]
 	for i in range(3):
 		ax = axes[i]
-		ax.plot(t, x_des[:, i], label=f"${{{etiquetas[i].lower()}}}_{{des}}$", linewidth=1.0)
-		ax.plot(t, x_meas[:, i], label=f"${{{etiquetas[i].lower()}}}_{{med}}$", linewidth=1.0, alpha=0.8, ls="--")
+		ax.plot(t, x_des[:, i], label=f"${{{etiquetas[i].lower()}}}_{{des}}$", linewidth=1.5)
+		ax.plot(t, x_meas[:, i], label=f"${{{etiquetas[i].lower()}}}_{{med}}$", linewidth=1.5, alpha=0.8, ls="--")
 		ax.set_ylabel(f"Posición {etiquetas[i]} (m)", fontsize=12)
 		ax.grid(True, linestyle='--', alpha=0.4)
 		ax.legend(bbox_to_anchor=(1, 0.8), loc='upper left', fontsize=12)
-	for ax in axes[:-1]:
-		ax.set_xlabel("t (s)", fontsize=12)
+	axes[-1].set_xlabel("t (s)", fontsize=12)
 	fig.suptitle("Posición Deseada vs Medida", fontsize=14)
 	fig.tight_layout(rect=(0, 0, 0.88, 0.97))  # deja espacio para leyenda a la derecha
 
