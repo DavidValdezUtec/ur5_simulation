@@ -22,15 +22,13 @@ from launch.actions import (
     SetLaunchConfiguration,
     TimerAction,
 )
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import AnyLaunchDescriptionSource
 from launch.substitutions import (
-    AndSubstitution,
     Command,
     FindExecutable,
     LaunchConfiguration,
-    NotSubstitution,
     PathJoinSubstitution,
 )
 from launch_ros.actions import Node, PushRosNamespace
@@ -68,12 +66,25 @@ def _robot_group(robot, context):
     name = robot["name"]
     tf_prefix = name+"_"
     x, y, z = robot["xyz"]
+    rx, ry, rz = robot.get("rpy", ("0", "0", "0"))
     ur_type = robot.get("ur_type", DEFAULT_UR_TYPE)
 
-    use_fake_hardware = LaunchConfiguration("use_fake_hardware")
+    # Puerto base del robot (script_sender_port); el resto se deriva con los
+    # mismos offsets que usaba el driver original (ur_control.launch.py).
+    tcp_port = int(robot.get("tcp_port", "50002"))
+    reverse_port = tcp_port - 1
+    script_sender_port = tcp_port
+    trajectory_port = tcp_port + 1
+    script_command_port = tcp_port + 2
+
     headless_mode = LaunchConfiguration("headless_mode")
     launch_dashboard_client = LaunchConfiguration("launch_dashboard_client")
-    is_fake = use_fake_hardware.perform(context) == "true"
+    # Cada robot puede fijar su propio use_fake_hardware en config.json; si no
+    # lo trae, se usa el argumento global del launch como respaldo.
+    use_fake_hardware = robot.get(
+        "use_fake_hardware", LaunchConfiguration("use_fake_hardware").perform(context)
+    )
+    is_fake = str(use_fake_hardware) == "true"
 
     robot_description_content = Command(
         [
@@ -85,11 +96,15 @@ def _robot_group(robot, context):
             " name:=", name,
             " tf_prefix:=", tf_prefix,
             " x:=", x, " y:=", y, " z:=", z,
+            " rx:=", rx, " ry:=", ry, " rz:=", rz,
             " ur_type:=", ur_type,
-            " tcp_port:=", robot["tcp_port"],
             " robot_ip:=", robot["robot_ip"],
             " use_fake_hardware:=", use_fake_hardware,
             " headless_mode:=", headless_mode,
+            " reverse_port:=", str(reverse_port),
+            " script_sender_port:=", str(script_sender_port),
+            " trajectory_port:=", str(trajectory_port),
+            " script_command_port:=", str(script_command_port),
         ]
     )
     robot_description = {
@@ -110,11 +125,10 @@ def _robot_group(robot, context):
             robot_description,
             update_rate_config_file,
             ParameterFile(controllers_file, allow_substs=True),
-            {"verify_payload_on_set": NotSubstitution(use_fake_hardware)},
+            {"verify_payload_on_set": not is_fake},
         ],
         output="screen",
-        condition=IfCondition(use_fake_hardware),
-    )
+    ) if is_fake else None
 
     ur_control_node = Node(
         package="ur_robot_driver",
@@ -123,40 +137,35 @@ def _robot_group(robot, context):
             robot_description,
             update_rate_config_file,
             ParameterFile(controllers_file, allow_substs=True),
-            {"verify_payload_on_set": NotSubstitution(use_fake_hardware)},
+            {"verify_payload_on_set": not is_fake},
         ],
         output="screen",
-        condition=UnlessCondition(use_fake_hardware),
-    )
+    ) if not is_fake else None
 
     dashboard_client_node = IncludeLaunchDescription(
-        condition=IfCondition(
-            AndSubstitution(launch_dashboard_client, NotSubstitution(use_fake_hardware))
-        ),
+        condition=IfCondition(launch_dashboard_client),
         launch_description_source=AnyLaunchDescriptionSource(
             PathJoinSubstitution(
                 [FindPackageShare("ur_robot_driver"), "launch", "ur_dashboard_client.launch.py"]
             )
         ),
         launch_arguments={"robot_ip": robot["robot_ip"]}.items(),
-    )
+    ) if not is_fake else None
 
     robot_state_helper_node = Node(
         package="ur_robot_driver",
         executable="robot_state_helper",
         name="ur_robot_state_helper",
         output="screen",
-        condition=UnlessCondition(use_fake_hardware),
         parameters=[{"headless_mode": headless_mode}, {"robot_ip": robot["robot_ip"]}],
-    )
+    ) if not is_fake else None
 
     urscript_interface = Node(
         package="ur_robot_driver",
         executable="urscript_interface",
         parameters=[{"robot_ip": robot["robot_ip"]}],
-        condition=UnlessCondition(use_fake_hardware),
         output="screen",
-    )
+    ) if not is_fake else None
 
     controller_stopper_node = Node(
         package="ur_robot_driver",
@@ -164,7 +173,6 @@ def _robot_group(robot, context):
         name="controller_stopper",
         output="screen",
         emulate_tty=True,
-        condition=UnlessCondition(use_fake_hardware),
         parameters=[
             {"headless_mode": headless_mode},
             {"joint_controller_active": True},
@@ -179,7 +187,7 @@ def _robot_group(robot, context):
                 ]
             },
         ],
-    )
+    ) if not is_fake else None
 
     robot_state_publisher_node = Node(
         package="robot_state_publisher",
@@ -253,21 +261,20 @@ def _robot_group(robot, context):
         )
     )
 
-    return GroupAction(
-        [
-            PushRosNamespace(name),
-            SetLaunchConfiguration("tf_prefix", tf_prefix),
-            control_node,
-            ur_control_node,
-            dashboard_client_node,
-            robot_state_helper_node,
-            urscript_interface,
-            controller_stopper_node,
-            robot_state_publisher_node,
-            delayed_active_spawner,
-            chained_inactive_spawner,
-        ]
-    )
+    actions = [
+        PushRosNamespace(name),
+        SetLaunchConfiguration("tf_prefix", tf_prefix),
+        control_node,
+        ur_control_node,
+        dashboard_client_node,
+        robot_state_helper_node,
+        urscript_interface,
+        controller_stopper_node,
+        robot_state_publisher_node,
+        delayed_active_spawner,
+        chained_inactive_spawner,
+    ]
+    return GroupAction([a for a in actions if a is not None])
 
 
 def _launch_setup(context, *args, **kwargs):

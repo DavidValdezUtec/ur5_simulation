@@ -21,6 +21,10 @@
   <xacro:arg name="robot_ip" default="0.0.0.0" />
   <xacro:arg name="use_fake_hardware" default="true" />
   <xacro:arg name="headless_mode" default="true" />
+  <xacro:arg name="reverse_port" default="50001" />
+  <xacro:arg name="script_sender_port" default="50002" />
+  <xacro:arg name="trajectory_port" default="50003" />
+  <xacro:arg name="script_command_port" default="50004" />
 
   <!-- 'world' local a este robot; el offset xyz posiciona su base dentro de
        la celda. Cada robot publica su propio arbol de TF pero como todos
@@ -38,6 +42,10 @@
     ur_type="$(arg ur_type)"
     robot_ip="$(arg robot_ip)"
     use_fake_hardware="$(arg use_fake_hardware)"
-    headless_mode="$(arg headless_mode)" />
+    headless_mode="$(arg headless_mode)"
+    reverse_port="$(arg reverse_port)"
+    script_sender_port="$(arg script_sender_port)"
+    trajectory_port="$(arg trajectory_port)"
+    script_command_port="$(arg script_command_port)" />
 
 </robot>

@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+  <xacro:macro name="tool" params="
+      parent_link
+      tf_prefix:=''
+      xyz:='0 0 0'
+      rpy:='0 0 0'
+      mesh_gap:=0.0819
+      tip_length:=0.6313
+      tip_x:=0
+      tip_z:=0.0529">
+    <!--
+      El mesh (tool.dae) trae pegado un remanente del wrist3 del UR5
+      original: un cilindro + brida (Y 0.047-0.082 en el frame del
+      archivo) que no pertenece a la herramienta. mesh_gap desplaza la
+      malla hacia atras (-Y local) para que tool_link_base quede pegado
+      al inicio real del cilindro de la herramienta (justo donde termina
+      la cara de la brida con los agujeros de tornillo), no al origen
+      del archivo.
+
+      tip_length es la distancia, en Y local de tool_link_base (ya con
+      el hueco cerrado), hasta la punta de las quijadas. El vastago
+      final no corre por el eje central del cilindro: desde Y=0.393 en
+      el archivo original esta corrido tip_z en Z, por eso el joint de
+      tool_tip lleva ese offset. Usa tool_tip para todos los calculos
+      cinematicos/objetivo, no tool_link_base.
+    -->
+    <link name="${tf_prefix}tool_link_base">
+      <visual>
+        <origin xyz="0 ${-mesh_gap} 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://ur5e_bringup/meshes/tool/tool.dae"/>
+        </geometry>
+      </visual>
+      <collision>
+        <origin xyz="0 ${-mesh_gap} 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://ur5e_bringup/meshes/tool/tool.dae"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.2"/>
+        <inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/>
+      </inertial>
+    </link>
+
+    <joint name="${tf_prefix}tool_joint" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="${tf_prefix}tool_link_base"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+
+    <!-- Frame de trabajo: punta de las quijadas -->
+    <link name="${tf_prefix}tool_tip">
+      <inertial>
+        <mass value="0.001"/>
+        <inertia ixx="1e-8" ixy="0" ixz="0" iyy="1e-8" iyz="0" izz="1e-8"/>
+      </inertial>
+    </link>
+
+    <joint name="${tf_prefix}tool_tip_joint" type="fixed">
+      <parent link="${tf_prefix}tool_link_base"/>
+      <child link="${tf_prefix}tool_tip"/>
+      <origin xyz="${tip_x} ${tip_length} ${tip_z}" rpy="0 0 0"/>
+    </joint>
+
+  </xacro:macro>
+</robot>

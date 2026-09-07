@@ -19,6 +19,8 @@ setup(
             glob('urdf/*')),
         (os.path.join('share', package_name, 'config'),
             glob('config/*')),
+        (os.path.join('share', package_name, 'meshes', 'tool'),
+            glob('meshes/tool/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

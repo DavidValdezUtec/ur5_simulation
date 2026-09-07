@@ -29,7 +29,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'prueba2 = ur5_panel.prueba2:main',
+            'panel = ur5_panel.panel:main',
         ],
     },
 )

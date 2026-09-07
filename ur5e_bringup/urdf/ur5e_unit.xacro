@@ -16,6 +16,7 @@
                   use_fake_hardware=true
   -->
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro" />
+  <xacro:include filename="$(find ur5e_bringup)/urdf/tool.urdf.xacro" />
 
   <xacro:macro name="ur5e_unit" params="
       name
@@ -29,7 +30,14 @@
       headless_mode:=true
       safety_limits:=true
       safety_pos_margin:=0.15
-      safety_k_position:=20">
+      safety_k_position:=20
+      attach_tool:=true
+      tool_xyz:='0 0 0'
+      tool_rpy:='1.57 0 0'
+      reverse_port:=50001
+      script_sender_port:=50002
+      trajectory_port:=50003
+      script_command_port:=50004">
 
     <link name="${name}_base_mount" />
     <joint name="${name}_base_mount_joint" type="fixed">
@@ -52,11 +60,23 @@
       use_fake_hardware="${use_fake_hardware}"
       headless_mode="${headless_mode}"
       robot_ip="${robot_ip}"
+      reverse_port="${reverse_port}"
+      script_sender_port="${script_sender_port}"
+      trajectory_port="${trajectory_port}"
+      script_command_port="${script_command_port}"
       script_filename="to_be_filled_by_ur_robot_driver"
       output_recipe_filename="to_be_filled_by_ur_robot_driver"
       input_recipe_filename="to_be_filled_by_ur_robot_driver">
       <origin xyz="0 0 0" rpy="0 0 0" />
     </xacro:ur_robot>
+
+    <xacro:if value="${attach_tool}">
+      <xacro:tool
+        parent_link="${tf_prefix}tool0"
+        tf_prefix="${tf_prefix}"
+        xyz="${tool_xyz}"
+        rpy="${tool_rpy}" />
+    </xacro:if>
 
   </xacro:macro>
 </robot>

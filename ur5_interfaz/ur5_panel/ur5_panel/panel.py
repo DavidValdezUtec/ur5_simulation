@@ -4,14 +4,10 @@ import sys
 import atexit
 import subprocess
 import signal
-import cv2
-from cv_bridge import CvBridge
 import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import Image
 
-from PyQt5.QtCore import Qt, QTimer, QSize
-from PyQt5.QtGui import QPixmap, QImage, QTransform
+from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtGui import QPixmap, QTransform
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QPixmap, QIcon, QPainter, QColor
 from PyQt5.QtSvg import QSvgRenderer
@@ -26,6 +22,9 @@ except Exception:
 # Import funciones from the same package
 from ur5_panel.funciones import *
 from ur5_panel.ui_mixins import UIMixin
+from ur5_panel.modulos.camera import CameraModule
+from ur5_panel.modulos.haptic import HapticModule
+from ur5_panel.modulos.robots_launch import RobotsLaunchModule
 
 # Import RVizQtWidget from the installed ur5_interfaz_library package
 try:
@@ -38,45 +37,20 @@ except ImportError as e:
     print("  2. Sourced the workspace: source install/setup.bash")
     sys.exit(1)
 
-class CameraSubscriber(Node):
-    """Nodo ROS2 para suscribirse al tópico de la cámara"""
-    def __init__(self, callback):
-        super().__init__('camera_subscriber_node')
-        self.bridge = CvBridge()
-        self.callback = callback
-        self.subscription = self.create_subscription(
-            Image,
-            '/camera/usb/image_raw',  # Ajusta este tópico según tu configuración
-            self.image_callback,
-            10
-        )
-        self.get_logger().info('Camera subscriber initialized')
-    
-    def image_callback(self, msg):
-        try:
-            # Convertir imagen ROS a formato OpenCV
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            # Llamar al callback con la imagen
-            self.callback(cv_image)
-        except Exception as e:
-            self.get_logger().error(f'Error converting image: {e}')
-
-
-
-
 class InterfazRviz(QMainWindow, UIMixin):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("INTERFAZ")
         self.resize(1600, 800)
         
-        #Diccionario de estados:
-        self.launch_processes = {
-            'multi_haptic': None,
-            'single_haptic': None,
-            'camera': None,
-            'robots': None
-        }
+        # Modulos de composicion: cada uno maneja su propio proceso externo.
+        # self.camera se crea sin video_label todavia (set_devices_menu, mas
+        # adelante en setup_ui, ya llama a buscar_dispositivos() y necesita
+        # poder detener/lanzar el launch de camara); set_camara_widget le
+        # asigna el label real y arranca la suscripcion ROS2 cuando existe.
+        # self.robots se crea en setup_ui, una vez existe el rviz_widget.
+        self.camera = CameraModule(video_label=None)
+        self.haptic = HapticModule()
         self.robots_running = False
         
         # Inicializar ROS2 para el nodo de la cámara
@@ -187,6 +161,8 @@ class InterfazRviz(QMainWindow, UIMixin):
             self.rviz_widget.setAlignment(Qt.AlignCenter)
             raise
 
+        self.robots = RobotsLaunchModule(self.rviz_widget)
+
         # Configurar menú lateral
         self.cargar_iconos()
         self.setup_menu()
@@ -216,30 +192,6 @@ class InterfazRviz(QMainWindow, UIMixin):
         self.main_layout.setRowStretch(0, 1)
 
     
-    def update_video(self, cv_image):
-        """Actualiza el widget de video con una nueva imagen de OpenCV"""
-        try:
-            # Convertir de BGR (OpenCV) a RGB (Qt)
-            rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
-            h, w, ch = rgb_image.shape
-            bytes_per_line = ch * w
-            
-            # Convertir a QImage
-            qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
-            
-            # Escalar imagen manteniendo aspect ratio
-            scaled_pixmap = QPixmap.fromImage(qt_image).scaled(
-                self.video_label.width(), 
-                self.video_label.height(), 
-                Qt.KeepAspectRatio, 
-                Qt.SmoothTransformation
-            )
-            
-            # Mostrar en el QLabel
-            self.video_label.setPixmap(scaled_pixmap)
-        except Exception as e:
-            print(f"Error updating video: {e}")
-    
     def set_camara_widget(self):
         """Configura el widget de cámara como QDockWidget"""
         # Crear widget interno para el contenido
@@ -264,13 +216,11 @@ class InterfazRviz(QMainWindow, UIMixin):
         # Configurar tamaño del dock widget (cuando está flotando)
         self.video_widget.resize(800, 600)  # Ancho x Alto cuando está flotante
         
-        # Crear nodo suscriptor de cámara
-        self.camera_node = CameraSubscriber(self.update_video)
-        
-        # Timer para procesar callbacks de ROS2
-        self.ros_timer = QTimer()
-        self.ros_timer.timeout.connect(lambda: rclpy.spin_once(self.camera_node, timeout_sec=0.01))
-        self.ros_timer.start(30)  # 30ms (~33 fps)
+        # self.camera ya existe (creado en __init__ sin video_label); ahora
+        # que el label real existe, se lo asignamos y arrancamos la
+        # suscripcion ROS2 + el timer que la bombea.
+        self.camera.video_label = self.video_label
+        self.camera.iniciar_suscripcion()
     
     
     
@@ -410,307 +360,89 @@ class InterfazRviz(QMainWindow, UIMixin):
             print("  → Modo Cartesian activo")
         
     def cambiar_controller_topic(self, robot_id):
-        
+        # NOTA pre-existente: este proceso no es un dispositivo haptico, pero
+        # ya se guardaba bajo la clave 'single_haptic'; se mantiene el mismo
+        # comportamiento para no cambiar la logica de detener_todos_los_launches.
         process = subprocess.Popen(
-                    ['ros2', 'control', 'switch_controllers', '--controller-manager', f'/{robot_id}/controller_manager', 
-                     '--deactivate', f'/{robot_id}/forward_position_controller', 
+                    ['ros2', 'control', 'switch_controllers', '--controller-manager', f'/{robot_id}/controller_manager',
+                     '--deactivate', f'/{robot_id}/forward_position_controller',
                      '--activate', f'/{robot_id}/scaled_joint_trajectory_controller'],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     preexec_fn=os.setsid  # Crear nuevo grupo de procesos
                 )
-        self.launch_processes['single_haptic'] = process
+        self.haptic.single_process = process
         print(f"Haptic launch iniciado (PID: {process.pid})")
-        
+
     def buscar_dispositivos(self):
         #apagar nodos hápticos antes de buscar
-        
         print("[Main] Stopping any active haptic nodes before searching...")
-        self.detener_camera_launch()
-        self.detener_haptic_launch()
-        
+        self.camera.detener_launch()
+        self.haptic.detener_launch()
+
         print("[Main] Searching for haptic devices...")
-        resultado = buscar_dispositivos()
+        resultado = self.haptic.buscar()
         resultado_camara = buscar_camara()
         print(f"[Main] Search result: {resultado}")
         print("Numero de dispositivos hapticos encontrados:", resultado["num_dispositivos"])
-        if resultado["num_dispositivos"] == 1:
-            self.haptic1_ready = True
+
+        if self.haptic.haptic1_ready and self.haptic.haptic2_ready:
             self.led_haptic1.setStyleSheet("background-color: green; border-radius: 10px;")
-            self.haptic2_ready = False
-            self.led_haptic2.setStyleSheet("background-color: red; border-radius: 10px;")
-            
-        elif resultado["num_dispositivos"] == 2:
-            self.haptic1_ready = True
-            self.led_haptic1.setStyleSheet("background-color: green; border-radius: 10px;")
-            self.haptic2_ready = True
             self.led_haptic2.setStyleSheet("background-color: green; border-radius: 10px;")
-            #lanzar_nodos_haptico(2)
-        else:
-            self.haptic1_ready = False
-            self.led_haptic1.setStyleSheet("background-color: red; border-radius: 10px;")
-            self.haptic2_ready = False
+        elif self.haptic.haptic1_ready:
+            self.led_haptic1.setStyleSheet("background-color: green; border-radius: 10px;")
             self.led_haptic2.setStyleSheet("background-color: red; border-radius: 10px;")
-            self.detener_camera_launch()
-            
-        self.lanzar_haptic_launch()
+        else:
+            self.led_haptic1.setStyleSheet("background-color: red; border-radius: 10px;")
+            self.led_haptic2.setStyleSheet("background-color: red; border-radius: 10px;")
+            self.camera.detener_launch()
+
+        self.haptic.lanzar_launch()
         if resultado_camara["num_dispositivos"] > 1: #no se contará camara de la laptop
             self.camera_ready = True
             print("Camara encontrada")
-            self.lanzar_camera_launch()
-           
-    def lanzar_haptic_launch(self):
-        """Lanza el archivo launch de dispositivos hápticos"""
-        if self.haptic1_ready and self.haptic2_ready:
-            
-            if self.launch_processes['multi_haptic'] is not None:
-                print("Haptic launch ya está corriendo")
-                return
-            
-            try:
-                process = subprocess.Popen(
-                    ['ros2', 'launch', 'omni_common', 'ddual.launch.py'],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    preexec_fn=os.setsid  # Crear nuevo grupo de procesos
-                )
-                self.launch_processes['multi_haptic'] = process
-                print(f"Haptic launch iniciado (PID: {process.pid})")
-            except Exception as e:
-                print(f"Error al lanzar haptic: {e}")
-        elif self.haptic1_ready:
-            
-            if self.launch_processes['single_haptic'] is not None:
-                print("Haptic launch ya está corriendo")
-                return
-            
-            try:
-                process = subprocess.Popen(
-                    ['ros2', 'launch', 'omni_common', 'single_omni_state.launch.py'],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    preexec_fn=os.setsid  # Crear nuevo grupo de procesos
-                )
-                self.launch_processes['single_haptic'] = process
-                print(f"Haptic launch iniciado (PID: {process.pid})")
-            except Exception as e:
-                print(f"Error al lanzar haptic: {e}")
-        else:
-            print("No hay dispositivos hápticos disponibles para lanzar")
-            
-    def detener_haptic_launch(self):
-        """Detiene el launch de dispositivos hápticos"""
-        if self.launch_processes['multi_haptic'] is not None:
-            self._terminar_proceso_gracefully(self.launch_processes['multi_haptic'], 'multi_haptic')
-            self.launch_processes['multi_haptic'] = None
-        
-        if self.launch_processes['single_haptic'] is not None:
-            self._terminar_proceso_gracefully(self.launch_processes['single_haptic'], 'single_haptic')
-            self.launch_processes['single_haptic'] = None
-    
-    def lanzar_camera_launch(self):
-        """Lanza el archivo launch de la cámara"""
-        if self.launch_processes['camera'] is not None:
-            print("Camera launch ya está corriendo")
-            return
-        
-        try:
-            process = subprocess.Popen(
-                ['ros2', 'launch', 'ur5_bringup', 'launch_camera.launch.py'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                preexec_fn=os.setsid  # Crear nuevo grupo de procesos
-            )
-            self.launch_processes['camera'] = process
-            print(f"Camera launch iniciado (PID: {process.pid})")
-        except Exception as e:
-            print(f"Error al lanzar camera: {e}")
-            
-    def detener_camera_launch(self):
-        """Detiene el launch de la cámara"""
-        if self.launch_processes['camera'] is not None:
-            self._terminar_proceso_gracefully(self.launch_processes['camera'], 'camera')
-            self.launch_processes['camera'] = None
-    
-    def _terminar_proceso_gracefully(self, proceso, nombre):
-        """Termina un proceso de forma gradual: SIGINT -> SIGTERM -> SIGKILL"""
-        if proceso is None:
-            return
-        
-        try:
-            pgid = os.getpgid(proceso.pid)
-            
-            # Intento 1: SIGINT (Ctrl+C) - permite cleanup limpio
-            print(f"[Shutdown] Enviando SIGINT a {nombre}...")
-            os.killpg(pgid, signal.SIGINT)
-            try:
-                proceso.wait(timeout=8)
-                print(f"[Shutdown] {nombre} cerrado correctamente")
-                return
-            except subprocess.TimeoutExpired:
-                print(f"[Shutdown] {nombre} no respondió a SIGINT, escalando...")
-            
-            # Intento 2: SIGTERM - terminación estándar
-            print(f"[Shutdown] Enviando SIGTERM a {nombre}...")
-            os.killpg(pgid, signal.SIGTERM)
-            try:
-                proceso.wait(timeout=5)
-                print(f"[Shutdown] {nombre} cerrado con SIGTERM")
-                return
-            except subprocess.TimeoutExpired:
-                print(f"[Shutdown] {nombre} no respondió a SIGTERM, forzando cierre...")
-            
-            # Intento 3: SIGKILL - forzar cierre inmediato
-            print(f"[Shutdown] Enviando SIGKILL a {nombre}...")
-            os.killpg(pgid, signal.SIGKILL)
-            proceso.wait(timeout=2)
-            print(f"[Shutdown] {nombre} terminado forzosamente")
-            
-        except ProcessLookupError:
-            print(f"[Shutdown] {nombre} ya no existe")
-        except Exception as e:
-            print(f"[Shutdown] Error al detener {nombre}: {e}")
-    
+            self.camera.lanzar_launch()
+
     def detener_todos_los_launches(self):
         """Detiene todos los launches activos"""
         print("[Shutdown] Deteniendo todos los procesos launch...")
-        for nombre, proceso in self.launch_processes.items():
-            if proceso is not None:
-                self._terminar_proceso_gracefully(proceso, nombre)
-        
-        # Resetear todos los procesos
-        self.launch_processes = {k: None for k in self.launch_processes}
+        self.camera.detener_launch()
+        self.haptic.detener_launch()
+        self.robots.detener()
         print("[Shutdown] Todos los launches detenidos")
     
     def iniciar_robots(self):
         """Reinicia los robots: detiene si están corriendo y luego lanza"""
         print("[Robots] Reiniciando robots...")
-        self.detener_robots()
+        self.robots.detener()
         self.lanzar_robots()
-    
+
     def lanzar_robots(self):
-        """Lanza los launches de ambos robots simultáneamente"""
+        """Lanza el launch de ambos robots (ur5e_bringup multi_ur5e.launch.py)"""
         launch_feedback = "true"
         if hasattr(self, 'feedback_checkbox'):
             launch_feedback = "true" if self.feedback_checkbox.isChecked() else "false"
 
-        # Construir comando con argumentos desde la interfaz
-        command = [
-            'ros2', 'launch', 'ur5_bringup', 'dual_control.launch.py',
-            f'r1_type:={self.r1_config["ur_type"]}',
-            f'r2_type:={self.r2_config["ur_type"]}',
-            f'use_fake_hardware_r1:={self.r1_config["use_fake_hardware"]}',
-            f'use_fake_hardware_r2:={self.r2_config["use_fake_hardware"]}',
-            f'r1_IP:={self.r1_config["robot_ip"]}',
-            f'r2_IP:={self.r2_config["robot_ip"]}',
-            f'r1_TCP_port:={self.r1_config["script_sender_port"]}',
-            f'r2_TCP_port:={self.r2_config["script_sender_port"]}',
-            # Posiciones y orientaciones desde inputs   
-            f'r1_x_pos:={self.r1_config["pos_x"]}',
-            f'r1_y_pos:={self.r1_config["pos_y"]}',
-            f'r1_z_pos:={self.r1_config["pos_z"]}',
-            f'r1_rot_x:={self.r1_config["rot_x"]}',
-            f'r1_rot_y:={self.r1_config["rot_y"]}',
-            f'r1_rot_z:={self.r1_config["rot_z"]}',
-            f'r2_x_pos:={self.r2_config["pos_x"]}',
-            f'r2_y_pos:={self.r2_config["pos_y"]}',
-            f'r2_z_pos:={self.r2_config["pos_z"]}',
-            f'r2_rot_x:={self.r2_config["rot_x"]}',
-            f'r2_rot_y:={self.r2_config["rot_y"]}',
-            f'r2_rot_z:={self.r2_config["rot_z"]}',
-            f'launch_feedback:={launch_feedback}',
-            #Controlador inicial:
-            f'r1_initial_controller:={"forward_position_controller"}',
-            f'r2_initial_controller:={"forward_position_controller"}',
-            # Agrega más argumentos según necesites
-        ]
-            
-        try:
-            print("[Robots] Iniciando launch de robots...")
-            print(f"[Robots] Comando: {' '.join(command)}")
-            
-            # Lanzar el proceso
-            self.launch_processes['robots'] = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                preexec_fn=os.setsid
-            )
-            self.robots_running = True
-            print(f"[Robots] Proceso lanzado (PID: {self.launch_processes['robots'].pid})")
-            
-            # Iniciar timer para verificar tópicos periódicamente
-            self.robot_topics_attempts = 0
-            self.robot_topics_timer = QTimer()
-            self.robot_topics_timer.timeout.connect(self.verificar_y_agregar_robots)
-            self.robot_topics_timer.start(500)  # Verificar cada 500ms
-            
-        except Exception as e:
-            print(f"[Robots] Error al lanzar robots: {e}")
-            self.launch_processes['robots'] = None
-    
-    def verificar_y_agregar_robots(self):
-        """Verifica si los tópicos de robots están disponibles y los agrega a RViz"""
-        self.robot_topics_attempts += 1
-        
-        # Timeout después de 20 intentos (10 segundos)
-        if self.robot_topics_attempts > 20:
-            print("[Robots] Timeout esperando tópicos de robots")
-            self.robot_topics_timer.stop()
-            return
-        
-        try:
-            # Verificar si los tópicos existen
-            result = subprocess.run(
-                ['ros2', 'topic', 'list'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            
-            topics = result.stdout.strip().split('\n')
-            r1_ready = '/r1/robot_description' in topics
-            r2_ready = '/r2/robot_description' in topics
-            
-            if r1_ready and r2_ready:
-                print("[Robots] Tópicos detectados, agregando robots a RViz...")
-                self.robot_topics_timer.stop()
-                
-                # Agregar robots dinámicamente
-                self.rviz_widget.add_robot("/r1/robot_description")
-                print("[Robots] Robot 1 agregado")
-                self.rviz_widget.add_robot("/r2/robot_description")
-                print("[Robots] Robot 2 agregado")
-                print("[Robots] ¡Robots cargados exitosamente en RViz!")
-            else:
-                print(f"[Robots] Esperando tópicos... (intento {self.robot_topics_attempts}/20)")
-                
-        except Exception as e:
-            print(f"[Robots] Error verificando tópicos: {e}")
-    
-    def detener_robots(self):
-        """Detiene los launches de ambos robots"""
-        if self.launch_processes['robots'] is not None:
-            self._terminar_proceso_gracefully(self.launch_processes['robots'], 'robots')
-            self.launch_processes['robots'] = None    
-                
+        # NOTA: launch_feedback / initial_controller por robot ya no tienen
+        # equivalente en ur5e_bringup (multi_ur5e.launch.py no los soporta
+        # todavia); quedan pendientes de migrar, ver aviso en consola.
+        if launch_feedback == "true":
+            print("[Robots] Aviso: el feedback de fuerza (ur5_torque) no se "
+                  "lanza con ur5e_bringup todavia; el checkbox no tiene efecto.")
+
+        self.robots.lanzar(self.r1_config, self.r2_config)
+        self.robots_running = self.robots.running
+
     def shutdown(self):
         print("[Main] Application closing...")
         
         try:
-            # Detener timer de ROS
-            if hasattr(self, 'ros_timer'):
-                self.ros_timer.stop()
+            # Detener timer de ROS y destruir nodo de cámara
+            if hasattr(self, 'camera'):
+                self.camera.detener_todo()
         except Exception as e:
-            print(f"[Shutdown] Error deteniendo timer: {e}")
-        
-        try:
-            # Destruir nodo de cámara
-            if hasattr(self, 'camera_node'):
-                self.camera_node.destroy_node()
-        except Exception as e:
-            print(f"[Shutdown] Error destruyendo nodo de cámara: {e}")
-        
+            print(f"[Shutdown] Error deteniendo cámara: {e}")
+
         try:
             self.detener_todos_los_launches()
         except Exception as e:
