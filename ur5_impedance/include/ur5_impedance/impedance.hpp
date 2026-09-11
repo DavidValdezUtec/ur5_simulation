@@ -29,8 +29,10 @@ struct ControlOutput {
  */
 class UR5Impedance {
 public:
-    // El constructor carga el modelo del robot.
-    explicit UR5Impedance(const std::string& urdf_path);
+    // El constructor carga el modelo del robot a partir del XML del URDF ya
+    // resuelto (post-xacro) y el nombre del frame del efector final
+    // (prefijado por robot, ej. "r1_tool_tip"). Por defecto "tool0".
+    explicit UR5Impedance(const std::string& urdf_xml, const std::string& tool_frame_name = "tool0");
     
     // El método principal que calcula la siguiente posición articular.
     ControlOutput calculateControlCommand(

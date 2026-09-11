@@ -3,16 +3,16 @@
 #include <OsqpEigen/OsqpEigen.h>
 #include <Eigen/Sparse>
 
-UR5Kinematics::UR5Kinematics(const std::string& urdf_path) {
+UR5Kinematics::UR5Kinematics(const std::string& urdf_xml, const std::string& tool_frame_name) {
     model_ = std::make_unique<pinocchio::Model>();
-    pinocchio::urdf::buildModel(urdf_path, *model_);
+    pinocchio::urdf::buildModelFromXML(urdf_xml, *model_);
     data_ = std::make_unique<pinocchio::Data>(*model_);
-    tool_frame_id_ = model_->getFrameId("tool0");
 
-    if (!model_->existFrame("tool0")) {
-        throw std::runtime_error("El frame 'tool0' no existe en el modelo URDF."); 
+    if (!model_->existFrame(tool_frame_name)) {
+        throw std::runtime_error("El frame '" + tool_frame_name + "' no existe en el modelo URDF.");
     }
-    std::cout << "Modelo cinemático cargado correctamente desde " << urdf_path << std::endl;
+    tool_frame_id_ = model_->getFrameId(tool_frame_name);
+    std::cout << "Modelo cinematico cargado correctamente (frame " << tool_frame_name << " encontrado)" << std::endl;
 }
 
 pinocchio::SE3 UR5Kinematics::forwardKinematics(const Eigen::VectorXd& q) {

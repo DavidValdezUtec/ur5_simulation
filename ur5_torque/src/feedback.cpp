@@ -10,7 +10,9 @@
 #include <iostream>
 #include <algorithm>
 #include <array>
+#include <fstream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -23,14 +25,16 @@
 
 using namespace std;
 
-
-void initializeUR5(std::unique_ptr<pinocchio::Model>& model,  std::unique_ptr<pinocchio::Data>& data, pinocchio::FrameIndex& tool_frame_id, const std::string& urdf_path) {     model = std::make_unique<pinocchio::Model>();
+// El frame de referencia se mantiene en "wrist_3_link" (ultimo eslabon del
+// robot, antes de la herramienta): ahi es donde va montado el sensor de
+// F/T real, independientemente de la herramienta que traiga el xacro de
+// cada robot.
+void initializeUR5(std::unique_ptr<pinocchio::Model>& model,  std::unique_ptr<pinocchio::Data>& data, pinocchio::FrameIndex& tool_frame_id, const std::string& urdf_xml, const std::string& sensor_frame_name) {     model = std::make_unique<pinocchio::Model>();
 
     auto logger = rclcpp::get_logger("UR5Kinematics");
-    RCLCPP_INFO(logger, "Intentando cargar URDF desde: %s", urdf_path.c_str());
 
     try {
-        pinocchio::urdf::buildModel(urdf_path, *model);
+        pinocchio::urdf::buildModelFromXML(urdf_xml, *model);
         RCLCPP_INFO(logger, "URDF cargado exitosamente!");
     } catch (const std::exception& e) {
         RCLCPP_ERROR(logger, "Error cargando URDF: %s", e.what());
@@ -38,11 +42,11 @@ void initializeUR5(std::unique_ptr<pinocchio::Model>& model,  std::unique_ptr<pi
     }
 
     data = std::make_unique<pinocchio::Data>(*model); // crea un puntero a los datos de pinocchio
-    tool_frame_id = model->getFrameId("wrist_3_link"); // Obtener el ID del marco del efector final
+    tool_frame_id = model->getFrameId(sensor_frame_name); // Frame del sensor F/T (ultimo eslabon, antes de la herramienta)
 
     if (tool_frame_id == static_cast<pinocchio::FrameIndex>(model->nframes)) {
-        RCLCPP_ERROR(logger, "Error: Marco 'tool0' no encontrado en el URDF!");
-        throw std::runtime_error("Frame wrist_3_link no encontrado");
+        RCLCPP_ERROR(logger, "Error: Marco '%s' no encontrado en el URDF!", sensor_frame_name.c_str());
+        throw std::runtime_error("Frame " + sensor_frame_name + " no encontrado");
     }
 }
 
@@ -53,6 +57,16 @@ std::string get_file_path(const std::string& package_name, const std::string& re
     } catch (const std::exception& e) {
         throw std::runtime_error("No se pudo encontrar el paquete: " + package_name);
     }
+}
+
+std::string read_urdf_file(const std::string& urdf_path) {
+    std::ifstream file(urdf_path);
+    if (!file.is_open()) {
+        throw std::runtime_error("No se pudo abrir el archivo URDF: " + urdf_path);
+    }
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
 }
 
 static bool ends_with(const std::string& str, const std::string& suffix) {
@@ -78,8 +92,31 @@ public:
                      this->declare_parameter<double>("sign_z", 1.0)};
 
         std::string joint_state_topic = namespace_.empty() ? std::string("/force_torque_sensor_broadcaster/wrench") : std::string("/"+namespace_+"/force_torque_sensor_broadcaster/wrench");
-        
-        initializeUR5(model, data, tool_frame_id, urdf_path);    
+
+        // El URDF puede llegar ya resuelto (post-xacro) vía el parámetro
+        // estándar 'robot_description', o via 'urdf_path' (archivo). Si
+        // ninguno se especifica, se usa el ur5e.urdf genérico del paquete
+        // ur5_description.
+        std::string robot_description_param = this->declare_parameter<std::string>("robot_description", "");
+        std::string urdf_path_param = this->declare_parameter<std::string>("urdf_path", "");
+        std::string urdf_xml;
+        std::string sensor_frame_name;
+        if (!robot_description_param.empty()) {
+            urdf_xml = robot_description_param;
+            // El URDF dinámico (post-xacro) prefija todos los links por robot
+            // (tf_prefix = "<namespace>_"), incluido 'wrist_3_link'.
+            const std::string tf_prefix = namespace_.empty() ? std::string("") : (namespace_ + "_");
+            sensor_frame_name = tf_prefix + "wrist_3_link";
+        } else {
+            std::string urdf_path = urdf_path_param.empty()
+                ? get_file_path("ur5_description", "urdf/ur5e.urdf")
+                : urdf_path_param;
+            urdf_xml = read_urdf_file(urdf_path);
+            // URDF legado: genérico, sin tf_prefix.
+            sensor_frame_name = "wrist_3_link";
+        }
+
+        initializeUR5(model, data, tool_frame_id, urdf_xml, sensor_frame_name);
         force_feedback_pub_ = this->create_publisher<omni_msgs::msg::OmniFeedback>("/"+phantom_namespace+"/force_feedback", 10);
         ur5e_force_sub_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(joint_state_topic, 10,
             std::bind(&FuerzaFeedback::ur5e_force_callback, this, std::placeholders::_1));
@@ -232,7 +269,6 @@ private:
 
     void publish_force_feedback() {        
         auto message = omni_msgs::msg::OmniFeedback();
-        // Saturar la fuerza a ±3.3 N por componente
         message.force.x = last_ur5e_force_.x;//<std::max(-3.3, std::min(3.3, last_ur5e_force_.x/10));
         message.force.y = last_ur5e_force_.y;//std::max(-3.3, std::min(3.3, last_ur5e_force_.y/10));
         message.force.z = last_ur5e_force_.z;//std::max(-3.3, std::min(3.3, last_ur5e_force_.z/10));
@@ -306,7 +342,6 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr ur5e_force_sub_;
     rclcpp::TimerBase::SharedPtr timer_;
     geometry_msgs::msg::Vector3 last_ur5e_force_;
-    std::string urdf_path = get_file_path("ur5_description",   "urdf/ur5e.urdf");
     std::unique_ptr<pinocchio::Model> model; // declarar puntero único para el modelo
     std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos  
     pinocchio::FrameIndex tool_frame_id; 

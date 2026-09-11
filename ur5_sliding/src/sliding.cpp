@@ -2,17 +2,16 @@
 
 namespace ur5_sliding {
 
-UR5Sliding::UR5Sliding(const std::string& urdf_path) {
+UR5Sliding::UR5Sliding(const std::string& urdf_xml, const std::string& tool_frame_name) {
     model_ = std::make_unique<pinocchio::Model>();
-    pinocchio::urdf::buildModel(urdf_path, *model_);
+    pinocchio::urdf::buildModelFromXML(urdf_xml, *model_);
     data_ = std::make_unique<pinocchio::Data>(*model_);
-    
+
     // Buscar el frame del efector final
-    tool_frame_id_ = model_->getFrameId("tool0");
-    
-    if (!model_->existFrame("tool0")) {
-        throw std::runtime_error("El frame 'tool0' no existe en el modelo URDF.");
+    if (!model_->existFrame(tool_frame_name)) {
+        throw std::runtime_error("El frame '" + tool_frame_name + "' no existe en el modelo URDF.");
     }
+    tool_frame_id_ = model_->getFrameId(tool_frame_name);
 
     // Inicializar el Jacobiano previo
     J_previous_ = Eigen::MatrixXd::Zero(6, model_->nv);

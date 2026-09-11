@@ -227,37 +227,67 @@ class InterfazRviz(QMainWindow, UIMixin):
     
 
     '''
-    ros2 run ur5_controller controller_node --ros-args \
-  -p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory" \
+ros2 run ur5_controller controller_node --ros-args \
+  -p geomagic:=true \
   -p ur:="ur5e" \
-  -p nmspace:="r1" \
-  -p geomagic:="true" \
-  -p geomagic_topic:="/phantom1/state" \
-  -p geomagic_button_topic:="/phantom1/button" \
-  -p csv_log_enable:="true" \
+  -p nmspace:="ur5e" \
+  -p urdf_path:="/ruta/al/robot.urdf" \
+  -p robot_description:="" \
+  -p geomagic_topic:="/phantom/state" \
+  -p geomagic_button_topic:="/phantom/button" \
+  -p use_ur5_pos_init:=true \
+  -p q_target:="[0.0, -1.57, 1.57, 0.0, 1.57, 0.0]" \
+  -p q_target_time:=3.0 \
+  -p csv_log_enable:=true \
+  -p csv_log_dir:="/tmp/ur5_logs" \
+  -p csv_log_prefix:="run" \
+  -p traj_A:="[0.1, 0.1, 0.1]" \
+  -p traj_wn:=1.0 \
+  -p traj_c0:=0.5 \
   -p traj_mode:=1 \
-  -p q_target:="[-1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0]" \
-  -p map_x:=1 \
-  -p map_y:=0 \
-  -p map_z:=2 \
-  -p sign_x:=-1.0 \
-  -p sign_y:=1.0 \
-  -p sign_z:=1.0 \
-  -p map_roll:=0 \
-  -p map_pitch:=1 \
-  -p map_yaw:=2 \
-  -p sign_roll:=-1.0 \
-  -p sign_pitch:=1.0 \
-  -p sign_yaw:=1.0
+  -p controller_type:="QP" \
+  -p Kp:="[1850.0, 1850.0, 1850.0, 500.0, 500.0, 500.0, 5000.0]" \
+  -p Kd:="[10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]" \
+  -p lambda:="[0.5, 0.5, 0.5, 0.5, 0.5, 0.5]" \
+  -p k:="[50.0, 50.0, 50.0, 50.0, 50.0, 50.0]" \
+  -p k2:="[10.0, 10.0, 10.0, 10.0, 10.0, 10.0]" \
+  -p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory" \
+  -p alpha:=0.01 \
+  -p damping_factor:=0.01 \
+  -p dt:=0.01 \
+  -p ctrl_hz:=500.0 \
+  -p max_joint_step_rad:=0.05 \
+  -p large_error_threshold_rad:=0.15 \
+  -p map_x:=2.0 -p map_y:=0.0 -p map_z:=1.0 \
+  -p sign_x:=-1.0 -p sign_y:=-1.0 -p sign_z:=1.0 \
+  -p map_roll:=2.0 -p map_pitch:=0.0 -p map_yaw:=1.0 \
+  -p sign_roll:=1.0 -p sign_pitch:=1.0 -p sign_yaw:=1.0
+
 
 
     '''    
     def start_controller(self, robot_id):
         """Inicia el nodo controlador con los parámetros de la interfaz"""
         print(f"[R{robot_id} Controller] Iniciando nodo controlador para Robot {robot_id}...")
-        
+
         control_config = getattr(self, f"{robot_id}_control_config")
-        
+        robot_config = getattr(self, f"{robot_id}_config")
+
+        # El controlador necesita el URDF real del robot (con su herramienta,
+        # definida en ur5e_single.urdf.xacro) para que la cinemática/dinámica
+        # de Pinocchio coincida con lo que ya está corriendo en ur5e_bringup.
+        # Se re-genera localmente con xacro (mismos argumentos que usa
+        # multi_ur5e.launch.py) en vez de leerlo del tópico /robot_description,
+        # para no depender de que el robot ya esté lanzado.
+        params_file = None
+        try:
+            robot_description_xml = self.robots.generar_robot_description(robot_id, robot_config)
+            params_file = self.robots.escribir_params_robot_description(robot_id, robot_description_xml)
+        except Exception as e:
+            print(f"[{robot_id} Controller] Error generando robot_description: {e}")
+            print(f"[{robot_id} Controller] El controlador arrancará con el URDF genérico "
+                  f"de respaldo (sin herramienta) en vez del real del robot.")
+
         # Construir comando con parámetros desde la interfaz
         # IMPORTANTE: -p y el parámetro deben ser argumentos separados
         command = [
@@ -289,9 +319,11 @@ class InterfazRviz(QMainWindow, UIMixin):
             '-p', f'k:={control_config["k"]}', 
             '-p', f'alpha:={control_config["alpha"]}',
             '-p', f'traj_A:=[0.1,0.1,0.2]',
-            
+
         ]
-        
+        if params_file is not None:
+            command += ['--params-file', params_file]
+
         try:
             print(f"[{robot_id} Controller] Comando: {' '.join(command)}")
             # Lanzar el proceso del controlador en su propio grupo

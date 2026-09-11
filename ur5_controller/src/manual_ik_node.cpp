@@ -48,14 +48,13 @@ using namespace ur5_controller;
 #define M_PI 3.14159265358979323846
 
 
-void initializeUR5(PinocchioResources& pinocchio, const std::string& urdf_path) {
+void initializeUR5(PinocchioResources& pinocchio, const std::string& urdf_xml) {
     pinocchio.model = std::make_unique<pinocchio::Model>();
 
     auto logger = rclcpp::get_logger("ManualIKNode");
-    RCLCPP_INFO(logger, "Intentando cargar URDF desde: %s", urdf_path.c_str());
 
     try {
-        pinocchio::urdf::buildModel(urdf_path, *pinocchio.model);
+        pinocchio::urdf::buildModelFromXML(urdf_xml, *pinocchio.model);
         RCLCPP_INFO(logger, "URDF cargado exitosamente!");
     } catch (const std::exception& e) {
         RCLCPP_ERROR(logger, "Error cargando URDF: %s", e.what());
@@ -90,6 +89,16 @@ std::string get_file_path(const std::string& package_name, const std::string& re
     } catch (const std::exception& e) {
         throw std::runtime_error("No se pudo encontrar el paquete: " + package_name);
     }
+}
+
+std::string read_urdf_file(const std::string& urdf_path) {
+    std::ifstream file(urdf_path);
+    if (!file.is_open()) {
+        throw std::runtime_error("No se pudo abrir el archivo URDF: " + urdf_path);
+    }
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
 }
 
 class ManualIKNode : public rclcpp::Node
@@ -178,12 +187,13 @@ public:
         // Inicializar URDF
         std::string urdf_package = "ur5_description";
         std::string urdf_path = get_file_path(urdf_package, "urdf/ur5e.urdf");
-        initializeUR5(pinocchio_, urdf_path);
-        
+        std::string urdf_xml = read_urdf_file(urdf_path);
+        initializeUR5(pinocchio_, urdf_xml);
+
         // Inicializar controladores
-        kinematics_solver_ = std::make_unique<UR5Kinematics>(urdf_path);
-        impedance_controller_ = std::make_unique<ur5_impedance::UR5Impedance>(urdf_path);
-        sliding_controller_ = std::make_unique<ur5_sliding::UR5Sliding>(urdf_path);
+        kinematics_solver_ = std::make_unique<UR5Kinematics>(urdf_xml);
+        impedance_controller_ = std::make_unique<ur5_impedance::UR5Impedance>(urdf_xml);
+        sliding_controller_ = std::make_unique<ur5_sliding::UR5Sliding>(urdf_xml);
         
         // Subscriber a joint_states
         std::string joint_states_topic = namespace_.empty() ? "/joint_states" : ("/" + namespace_ + "/joint_states");

@@ -13,15 +13,15 @@
 
 namespace ur5_impedance {
 
-UR5Impedance::UR5Impedance(const std::string& urdf_path) {
+UR5Impedance::UR5Impedance(const std::string& urdf_xml, const std::string& tool_frame_name) {
     model_ = std::make_unique<pinocchio::Model>();
-    pinocchio::urdf::buildModel(urdf_path, *model_);
-    data_ = std::make_unique<pinocchio::Data>(*model_);    
-    tool_frame_id_ = model_->getFrameId("tool0");
-     
-    if (!model_->existFrame("tool0")) {
-        throw std::runtime_error("El frame 'tool0' no existe en el modelo URDF.");
+    pinocchio::urdf::buildModelFromXML(urdf_xml, *model_);
+    data_ = std::make_unique<pinocchio::Data>(*model_);
+
+    if (!model_->existFrame(tool_frame_name)) {
+        throw std::runtime_error("El frame '" + tool_frame_name + "' no existe en el modelo URDF.");
     }
+    tool_frame_id_ = model_->getFrameId(tool_frame_name);
 
     J_previous_ = Eigen::MatrixXd::Zero(6, model_->nv);
     std::cout << "Modelo de impedancia cargado correctamente." << std::endl;

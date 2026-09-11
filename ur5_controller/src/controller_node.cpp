@@ -65,14 +65,13 @@ std::string make_namespaced_path(const std::string& namespace_name, const std::s
 }  // namespace
 
 
-void initializeUR5(PinocchioResources& pinocchio, const std::string& urdf_path) {
+void initializeUR5(PinocchioResources& pinocchio, const std::string& urdf_xml, const std::string& tool_frame_name) {
     pinocchio.model = std::make_unique<pinocchio::Model>();
 
     auto logger = rclcpp::get_logger("UR5Kinematics");
-    RCLCPP_INFO(logger, "Intentando cargar URDF desde: %s", urdf_path.c_str());
 
     try {
-        pinocchio::urdf::buildModel(urdf_path, *pinocchio.model);
+        pinocchio::urdf::buildModelFromXML(urdf_xml, *pinocchio.model);
         RCLCPP_INFO(logger, "URDF cargado exitosamente!");
     } catch (const std::exception& e) {
         RCLCPP_ERROR(logger, "Error cargando URDF: %s", e.what());
@@ -80,8 +79,9 @@ void initializeUR5(PinocchioResources& pinocchio, const std::string& urdf_path) 
     }
 
     pinocchio.data = std::make_unique<pinocchio::Data>(*pinocchio.model);
-    
-    // Obtener frame de la base
+
+    // Obtener frame de la base ('world' es la raíz compartida, sin prefijo,
+    // incluso en el esquema multi-robot con tf_prefix).
     pinocchio.base_frame_id = pinocchio.model->getFrameId("world");
     if (pinocchio.base_frame_id == static_cast<pinocchio::FrameIndex>(pinocchio.model->nframes)) {
         RCLCPP_WARN(logger, "Frame 'base_link' no encontrado, se usará el frame 0 (universe)");
@@ -89,14 +89,15 @@ void initializeUR5(PinocchioResources& pinocchio, const std::string& urdf_path) 
     } else {
         RCLCPP_INFO(logger, "Frame base 'base_link' encontrado con ID: %d", pinocchio.base_frame_id);
     }
-    
-    // Obtener frame del efector final
-    pinocchio.tool_frame_id = pinocchio.model->getFrameId("tool0");
+
+    // Obtener frame del efector final (prefijado por robot, ej. "r1_tool_tip":
+    // punta real de la herramienta, no "tool0" que es la brida del robot).
+    pinocchio.tool_frame_id = pinocchio.model->getFrameId(tool_frame_name);
     if (pinocchio.tool_frame_id == static_cast<pinocchio::FrameIndex>(pinocchio.model->nframes)) {
-        RCLCPP_ERROR(logger, "Error: Marco 'tool0' no encontrado en el URDF!");
-        throw std::runtime_error("Frame tool0 no encontrado");
+        RCLCPP_ERROR(logger, "Error: Marco '%s' no encontrado en el URDF!", tool_frame_name.c_str());
+        throw std::runtime_error("Frame " + tool_frame_name + " no encontrado");
     } else {
-        RCLCPP_INFO(logger, "Frame efector 'tool0' encontrado con ID: %d", pinocchio.tool_frame_id);
+        RCLCPP_INFO(logger, "Frame efector '%s' encontrado con ID: %d", tool_frame_name.c_str(), pinocchio.tool_frame_id);
     }
 }
 
@@ -108,6 +109,18 @@ std::string get_file_path(const std::string& package_name, const std::string& re
     } catch (const std::exception& e) {
         throw std::runtime_error("No se pudo encontrar el paquete: " + package_name);
     }
+}
+
+// Lee el contenido completo de un archivo URDF (fallback para cuando no se
+// recibe el XML ya resuelto vía el parámetro 'robot_description').
+std::string read_urdf_file(const std::string& urdf_path) {
+    std::ifstream file(urdf_path);
+    if (!file.is_open()) {
+        throw std::runtime_error("No se pudo abrir el archivo URDF: " + urdf_path);
+    }
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
 }
 
 
@@ -122,6 +135,7 @@ public:
     config_.ur_model = this->declare_parameter<std::string>("ur", config_.ur_model);
     config_.nmspace = this->declare_parameter<std::string>("nmspace", config_.nmspace);
     std::string urdf_param = this->declare_parameter<std::string>("urdf_path", "");
+    std::string robot_description_param = this->declare_parameter<std::string>("robot_description", "");
     std::string geomagic_topic = this->declare_parameter<std::string>("geomagic_topic", "/phantom/state");
     std::string geomagic_button_topic = this->declare_parameter<std::string>("geomagic_button_topic", "/phantom/button");
     config_.use_ur5_pos_init = this->declare_parameter<bool>("use_ur5_pos_init", config_.use_ur5_pos_init);
@@ -217,17 +231,40 @@ public:
         config_.k2 << 10.0, 10.0, 10.0, 10.0, 10.0, 10.0;
     }
 
-    if (urdf_param.empty()) {
-        config_.urdf_path = get_file_path("ur5_description", "urdf/" + config_.ur_model + ".urdf");
+    // El URDF puede llegar ya resuelto (post-xacro) vía el parámetro estándar
+    // 'robot_description' -- lo que permite que cada robot traiga su propia
+    // herramienta definida en su .urdf.xacro sin generar un archivo intermedio.
+    // Si no se recibe, se cae al comportamiento legado: leer un archivo URDF
+    // (explícito via 'urdf_path' o el genérico del paquete ur5_description).
+    // El frame del efector real: con el URDF dinámico (post-xacro) queda
+    // prefijado por robot (tf_prefix = "<nmspace>_", igual que ya usa
+    // JointStateMapper para los joints) y ya no es 'tool0' -- ese es la
+    // brida estándar del UR, previa a la herramienta; la punta real es
+    // '<tf_prefix>tool_tip' (ver tool.urdf.xacro). El URDF legado (archivo
+    // genérico de ur5_description, sin tf_prefix ni herramienta) sigue
+    // usando 'tool0' tal cual, sin prefijo.
+    std::string urdf_xml;
+    std::string tool_frame_name;
+    if (!robot_description_param.empty()) {
+        urdf_xml = robot_description_param;
+        config_.urdf_path = "<robot_description parameter>";
+        const std::string tf_prefix = config_.nmspace.empty() ? std::string("") : (config_.nmspace + "_");
+        tool_frame_name = tf_prefix + "tool_tip";
     } else {
-        config_.urdf_path = urdf_param;
+        if (urdf_param.empty()) {
+            config_.urdf_path = get_file_path("ur5_description", "urdf/" + config_.ur_model + ".urdf");
+        } else {
+            config_.urdf_path = urdf_param;
+        }
+        urdf_xml = read_urdf_file(config_.urdf_path);
+        tool_frame_name = "tool0";
     }
 
     // Inicializar Pinocchio
-    initializeUR5(pinocchio_, config_.urdf_path);
-    kinematics_solver_ = std::make_unique<UR5Kinematics>(config_.urdf_path);
-    impedance_controller_ = std::make_unique<ur5_impedance::UR5Impedance>(config_.urdf_path);
-    sliding_controller_ = std::make_unique<ur5_sliding::UR5Sliding>(config_.urdf_path);
+    initializeUR5(pinocchio_, urdf_xml, tool_frame_name);
+    kinematics_solver_ = std::make_unique<UR5Kinematics>(urdf_xml, tool_frame_name);
+    impedance_controller_ = std::make_unique<ur5_impedance::UR5Impedance>(urdf_xml, tool_frame_name);
+    sliding_controller_ = std::make_unique<ur5_sliding::UR5Sliding>(urdf_xml, tool_frame_name);
     std::string forward_command_topic = make_namespaced_path(config_.nmspace, config_.control_topic);
     std::string initial_trajectory_topic = make_namespaced_path(
         config_.nmspace, "/scaled_joint_trajectory_controller/joint_trajectory");

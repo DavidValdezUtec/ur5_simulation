@@ -42,9 +42,11 @@ class UR5Sliding {
 public:
     /**
      * @brief Constructor que carga el modelo URDF del robot
-     * @param urdf_path Ruta al archivo URDF del robot
+     * @param urdf_xml Contenido XML del URDF ya resuelto (post-xacro)
+     * @param tool_frame_name Nombre del frame del efector final (prefijado
+     *        por robot, ej. "r1_tool_tip"). Por defecto "tool0".
      */
-    UR5Sliding(const std::string& urdf_path);
+    UR5Sliding(const std::string& urdf_xml, const std::string& tool_frame_name = "tool0");
 
     /**
      * @brief Calcula el comando de control usando modo deslizante

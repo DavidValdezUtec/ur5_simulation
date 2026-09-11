@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 
+import yaml
 from PyQt5.QtCore import QTimer
 
 try:
@@ -114,6 +115,76 @@ class RobotsLaunchModule:
                 print(f"[Robots] Esperando tópicos... (intento {self._intentos}/20)")
         except Exception as e:
             print(f"[Robots] Error verificando tópicos: {e}")
+
+    def generar_robot_description(self, robot_id, robot_config):
+        """Corre xacro localmente con los mismos argumentos que arma
+        multi_ur5e.launch.py para 'robot_id', y devuelve el URDF resuelto
+        (string). Se usa para pasarle el XML directo a controller_node vía
+        '-p robot_description:=...', sin depender de que el robot ya este
+        corriendo (no lee el topico /robot_description).
+
+        IMPORTANTE: si se cambian los argumentos que recibe la macro
+        ur5e_unit en multi_ur5e.launch.py, hay que reflejar el mismo cambio
+        aca para que el controlador siga viendo el mismo robot que el
+        driver/rviz.
+        """
+        share_dir = get_package_share_directory("ur5e_bringup")
+        xacro_path = os.path.join(share_dir, "urdf", "ur5e_single.urdf.xacro")
+
+        # Misma derivacion de puertos que _robot_group() en
+        # multi_ur5e.launch.py: el unico puerto base que se persiste es
+        # script_sender_port (ahi guardado como "tcp_port" en config.json).
+        tcp_port = int(robot_config["script_sender_port"])
+        reverse_port = tcp_port - 1
+        script_sender_port = tcp_port
+        trajectory_port = tcp_port + 1
+        script_command_port = tcp_port + 2
+
+        xacro_args = [
+            f"name:={robot_id}",
+            f"tf_prefix:={robot_config['tf_prefix']}",
+            f"x:={robot_config['pos_x']}",
+            f"y:={robot_config['pos_y']}",
+            f"z:={robot_config['pos_z']}",
+            f"rx:={robot_config['rot_x']}",
+            f"ry:={robot_config['rot_y']}",
+            f"rz:={robot_config['rot_z']}",
+            f"ur_type:={robot_config['ur_type']}",
+            f"robot_ip:={robot_config['robot_ip']}",
+            f"use_fake_hardware:={robot_config['use_fake_hardware']}",
+            "headless_mode:=true",
+            f"reverse_port:={reverse_port}",
+            f"script_sender_port:={script_sender_port}",
+            f"trajectory_port:={trajectory_port}",
+            f"script_command_port:={script_command_port}",
+        ]
+
+        result = subprocess.run(
+            ["xacro", xacro_path, *xacro_args],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"xacro fallo para '{robot_id}': {result.stderr.strip()}")
+        return result.stdout
+
+    def escribir_params_robot_description(self, robot_id, robot_description_xml):
+        """Vuelca 'robot_description_xml' a un YAML de parametros en
+        ~/.ros/ur5_panel/, para pasarselo a controller_node via
+        '--params-file' en vez de '-p robot_description:=...': el XML trae
+        ':' y '\"' (ej. xmlns:xacro=\"...\") que el parser YAML de '-p k:=v'
+        de la CLI de ROS 2 puede interpretar mal. Un archivo YAML, volcado
+        con PyYAML, escapa el string correctamente sin ese riesgo.
+        """
+        params_dir = os.path.join(os.path.expanduser('~'), '.ros', 'ur5_panel')
+        os.makedirs(params_dir, exist_ok=True)
+        params_path = os.path.join(params_dir, f'{robot_id}_controller_params.yaml')
+
+        params = {'/**': {'ros__parameters': {'robot_description': robot_description_xml}}}
+        with open(params_path, 'w') as f:
+            yaml.safe_dump(params, f, default_flow_style=False)
+        return params_path
 
     def detener(self):
         if self._timer is not None:

@@ -21,8 +21,11 @@
 
 class UR5Kinematics {
 public:
-    // El constructor ahora toma la ruta al archivo URDF.
-    explicit UR5Kinematics(const std::string& urdf_path);
+    // El constructor toma el contenido XML del URDF ya resuelto (post-xacro)
+    // y el nombre del frame del efector final (prefijado por robot, ej.
+    // "r1_tool_tip"). Por defecto "tool0" para compatibilidad con URDFs sin
+    // herramienta ni tf_prefix.
+    explicit UR5Kinematics(const std::string& urdf_xml, const std::string& tool_frame_name = "tool0");
 
     Eigen::VectorXd computeVelocityControlStep(
         const Eigen::VectorXd& q_real,

@@ -225,7 +225,7 @@ def _robot_group(robot, context):
         "force_torque_sensor_broadcaster",
         "ur_configuration_controller",
         "friction_model_controller",
-        "scaled_joint_trajectory_controller",
+        "forward_position_controller",
     ]
     if not is_fake:
         # tcp_pose_broadcaster depende de datos reales del controlador UR
@@ -234,12 +234,12 @@ def _robot_group(robot, context):
     controllers_inactive = [
         "joint_trajectory_controller",
         "forward_velocity_controller",
-        "forward_position_controller",
         "forward_effort_controller",
         "force_mode_controller",
         "passthrough_trajectory_controller",
         "freedrive_mode_controller",
         "tool_contact_controller",
+        "scaled_joint_trajectory_controller",
     ]
 
     # Los dos spawner (activos/inactivos) hablan con el MISMO controller_manager.

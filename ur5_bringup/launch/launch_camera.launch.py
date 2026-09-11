@@ -25,7 +25,7 @@ def generate_launch_description():
             }]
         )
 
-    # Nodo para la cámara USB externa
+    # Nodo para la cámara USB externa 
     usb_camera_node = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
