@@ -21,7 +21,11 @@ except Exception:
 
 # Import funciones from the same package
 from ur5_panel.funciones import *
-from ur5_panel.ui_mixins import UIMixin
+from ur5_panel.modulos.ui_menu import UIMenuMixin
+from ur5_panel.modulos.ui_robot_config import UIRobotConfigMixin
+from ur5_panel.modulos.mapping_matrix import MappingMatrixMixin
+from ur5_panel.modulos.ui_controller_config import UIControllerConfigMixin
+from ur5_panel.modulos.ui_joint_ik_control import UIJointIkControlMixin
 from ur5_panel.modulos.camera import CameraModule
 from ur5_panel.modulos.haptic import HapticModule
 from ur5_panel.modulos.robots_launch import RobotsLaunchModule
@@ -37,11 +41,18 @@ except ImportError as e:
     print("  2. Sourced the workspace: source install/setup.bash")
     sys.exit(1)
 
-class InterfazRviz(QMainWindow, UIMixin):
+class InterfazRviz(
+    QMainWindow,
+    UIMenuMixin,
+    UIRobotConfigMixin,
+    MappingMatrixMixin,
+    UIControllerConfigMixin,
+    UIJointIkControlMixin,
+):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("INTERFAZ")
-        self.resize(1600, 800)
+        #self.resize(1600, 800)
         
         # Modulos de composicion: cada uno maneja su propio proceso externo.
         # self.camera se crea sin video_label todavia (set_devices_menu, mas
@@ -162,7 +173,8 @@ class InterfazRviz(QMainWindow, UIMixin):
             raise
 
         self.robots = RobotsLaunchModule(self.rviz_widget)
-
+        # Configurar menu superior
+        
         # Configurar menú lateral
         self.cargar_iconos()
         self.setup_menu()
@@ -203,7 +215,7 @@ class InterfazRviz(QMainWindow, UIMixin):
         self.video_label = QLabel("Esperando video de cámara...")
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setStyleSheet("background-color: black; color: white; font-size: 14px;")
-        self.video_label.setMinimumSize(640, 480)
+        self.video_label.setMinimumSize(480, 480)
         self.video_layout.addWidget(self.video_label)
         
         # Crear QDockWidget y asignarle el widget interno
@@ -214,7 +226,7 @@ class InterfazRviz(QMainWindow, UIMixin):
         self.video_widget.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
         
         # Configurar tamaño del dock widget (cuando está flotando)
-        self.video_widget.resize(800, 600)  # Ancho x Alto cuando está flotante
+        #self.video_widget.resize(800, 600)  # Ancho x Alto cuando está flotante
         
         # self.camera ya existe (creado en __init__ sin video_label); ahora
         # que el label real existe, se lo asignamos y arrancamos la
@@ -294,7 +306,7 @@ ros2 run ur5_controller controller_node --ros-args \
             'ros2', 'run', 'ur5_controller', 'controller_node',
             '--ros-args',
             '-p', 'control_topic:=/forward_position_controller/commands',
-            '-p', f'ur:={control_config["ur"]}',
+            '-p', f'ur:={robot_config["ur_type"]}',
             '-p', f'nmspace:={robot_id}',
             '-p', f'geomagic:={control_config["geomagic"]}',
             '-p', f'geomagic_topic:={"phantom1" if robot_id == "r1" else "phantom2"}/state',
@@ -430,7 +442,7 @@ ros2 run ur5_controller controller_node --ros-args \
             self.camera.detener_launch()
 
         self.haptic.lanzar_launch()
-        if resultado_camara["num_dispositivos"] > 1: #no se contará camara de la laptop
+        if resultado_camara["num_dispositivos"] > 1: #>1: no se contará camara de la laptop, >0: si contará cámara de la laptop 
             self.camera_ready = True
             print("Camara encontrada")
             self.camera.lanzar_launch()

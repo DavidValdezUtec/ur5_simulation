@@ -38,6 +38,6 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        #laptop_camera_node,
+        laptop_camera_node,
         usb_camera_node
     ])

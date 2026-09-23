@@ -19,7 +19,33 @@
         "pos_z": "0.0",
         "rot_x": "0.0",
         "rot_y": "0.0",
-        "rot_z": "0.0"
+        "rot_z": "0.0",
+        "controller":{
+            "control_topic": "/forward_position_controller/commands",
+            "ur":"ur5e",
+            "nmspace":"r1",
+            "geomagic":"true",
+            "geomagic_topic":"/phantom1/pose",
+            "csv_log_enable":"true",
+            "traj_mode":"1",
+            "q_target":"[-1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0]",
+            "map_x":"0",
+            "map_y":"1",
+            "map_z":"2",
+            "sign_x":"1.0",
+            "sign_y":"1.0",
+            "sign_z":"1.0",
+            "map_roll":"0.0",
+            "map_pitch":"1.0",
+            "map_yaw":"2.0",
+            "sign_roll":"1.0",
+            "sign_pitch":"1.0",
+            "sign_yaw":"1.0",
+            "controller_type":"QP",
+            "lambda":"[20.0,20.0,20.0,20.0,20.0,20.0]",
+            "k":"[60.0,60.0,60.0,60.0,60.0,60.0,60.0]",
+            "alpha":"10.0"
+        }
     },
     "r2": {
         "ur_type": "ur5e",
@@ -41,6 +67,32 @@
         "pos_z": "0.0",
         "rot_x": "0.0",
         "rot_y": "0.0",
-        "rot_z": "0.0"
+        "rot_z": "0.0",
+        "controller":{
+            "control_topic": "/forward_position_controller/commands",
+            "ur":"ur5e",
+            "nmspace":"r2",
+            "geomagic":"true",
+            "geomagic_topic":"/phantom2/pose",
+            "csv_log_enable":"true",
+            "traj_mode":"1",
+            "q_target":"[-1.57, -1.90771733, 1.57, -1.777, -1.57, 0.0]",
+            "map_x":"0",
+            "map_y":"1",
+            "map_z":"2",
+            "sign_x":"1.0",
+            "sign_y":"1.0",
+            "sign_z":"1.0",
+            "map_roll":"0.0",
+            "map_pitch":"1.0",
+            "map_yaw":"2.0",
+            "sign_roll":"1.0",
+            "sign_pitch":"1.0",
+            "sign_yaw":"1.0",
+            "controller_type":"QP",
+            "lambda":"[20.0,20.0,20.0,20.0,20.0,20.0]",
+            "k":"[60.0,60.0,60.0,60.0,60.0,60.0,60.0]",
+            "alpha":"10.0"
+        }
     }
 }

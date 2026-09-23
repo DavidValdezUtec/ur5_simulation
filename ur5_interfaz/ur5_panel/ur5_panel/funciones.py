@@ -123,8 +123,3 @@ def verificar_configuracion():
     
     archivos = os.listdir(config_dir)
     return len(archivos) > 0
-    
-
-
-resultado = buscar_dispositivos()
-resultado["num_dispositivos"]
