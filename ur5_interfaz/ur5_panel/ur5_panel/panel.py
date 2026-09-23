@@ -404,9 +404,8 @@ ros2 run ur5_controller controller_node --ros-args \
             print("  → Modo Cartesian activo")
         
     def cambiar_controller_topic(self, robot_id):
-        # NOTA pre-existente: este proceso no es un dispositivo haptico, pero
-        # ya se guardaba bajo la clave 'single_haptic'; se mantiene el mismo
-        # comportamiento para no cambiar la logica de detener_todos_los_launches.
+        """Cambia el controlador activo del robot (forward_position_controller <-> scaled_joint_trajectory_controller)"""
+        print(f"[{robot_id}] Cambiando controlador activo...")
         process = subprocess.Popen(
                     ['ros2', 'control', 'switch_controllers', '--controller-manager', f'/{robot_id}/controller_manager',
                      '--deactivate', f'/{robot_id}/forward_position_controller',

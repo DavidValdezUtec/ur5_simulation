@@ -37,6 +37,7 @@ class UIControllerConfigMixin:
         self.r1_controles = QComboBox(); self.r1_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
         self.r1_q_target = QLineEdit(); self.r1_q_target.setText(self.r1_control_config["q_target"][1:-1])
         #self.r1_A_input = QLineEdit(); self.r1_A_input.setText("1.0")
+        
 
 
         r1_mode_layout = QGridLayout()
@@ -50,8 +51,11 @@ class UIControllerConfigMixin:
         botones_widget = QWidget(); botones_widget.setLayout(botones_layout)
         boton_start_controller = QPushButton("Start Controller")
         boton_detener_controller = QPushButton("Stop Controller")
+        boton_home = QPushButton("Home")
+        
         boton_start_controller.clicked.connect(lambda: self.start_controller("r1"))
         boton_detener_controller.clicked.connect(lambda: self.stop_controller("r1"))
+        boton_home.clicked.connect(lambda: self.home_controller("r1"))
 
         botones_layout.addWidget(boton_start_controller)
         botones_layout.addWidget(boton_detener_controller)
@@ -59,15 +63,15 @@ class UIControllerConfigMixin:
 
         r1_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
         r1_mode_layout.addWidget(self.r1_control_mode_input, 0, 1)
+        r1_mode_layout.addWidget(boton_home, 3, 0)
+        r1_mode_layout.addWidget(self.r1_q_target, 3, 1)
 
         if self.r1_control_mode_input.currentText() == "Trayectoria":
-            r1_mode_layout.addWidget(QLabel("Trajectory Type:"), 2, 0)
             r1_mode_layout.addWidget(self.r1_trayectories, 2, 1)
-            r1_mode_layout.addWidget(QLabel("Q Target:"), 3, 0)
-            r1_mode_layout.addWidget(self.r1_q_target, 3, 1)
+            
         else:
             r1_mode_layout.addWidget(QLabel(""), 2, 0); r1_mode_layout.addWidget(QLabel(""), 2, 1) # Espaciadores para mantener el diseño
-            r1_mode_layout.addWidget(QLabel(""), 3, 0); r1_mode_layout.addWidget(QLabel(""), 3, 1) # Espaciadores para mantener el diseño
+            #r1_mode_layout.addWidget(QLabel(""), 3, 0); r1_mode_layout.addWidget(QLabel(""), 3, 1) # Espaciadores para mantener el diseño
 
 
         r1_mode_layout.addWidget(self.r1_checkbox_safe_trayectory, 1, 0)
@@ -143,21 +147,24 @@ class UIControllerConfigMixin:
         boton_start_controller.clicked.connect(lambda: self.start_controller("r2"))
         boton_stop_controller = QPushButton("Stop Controller")
         boton_stop_controller.clicked.connect(lambda: self.stop_controller("r2"))
+        boton_home = QPushButton("Home")
+        boton_home.clicked.connect(lambda: self.home_controller("r2"))
 
         botones_layout.addWidget(boton_start_controller)
         botones_layout.addWidget(boton_stop_controller)
 
         r2_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
         r2_mode_layout.addWidget(self.r2_control_mode_input, 0, 1)
+        r2_mode_layout.addWidget(boton_home, 3, 0)
+        r2_mode_layout.addWidget(self.r2_q_target, 3, 1)
 
         if self.r2_control_mode_input.currentText() == "Trayectoria" :
-            r2_mode_layout.addWidget(QLabel("Trajectory Type:"), 2, 0)
+            #r2_mode_layout.addWidget(QLabel("Trajectory Type:"), 2, 0)
             r2_mode_layout.addWidget(self.r2_trayectories, 2, 1)
-            r2_mode_layout.addWidget(QLabel("Q Target:"), 3, 0)
-            r2_mode_layout.addWidget(self.r2_q_target, 3, 1)
+            
         else:
             r2_mode_layout.addWidget(QLabel(""), 2, 0); r2_mode_layout.addWidget(QLabel(""), 2, 1) # Espaciadores para mantener el diseño
-            r2_mode_layout.addWidget(QLabel(""), 3, 0); r2_mode_layout.addWidget(QLabel(""), 3, 1) # Espaciadores para mantener el diseño
+            #r2_mode_layout.addWidget(QLabel(""), 3, 0); r2_mode_layout.addWidget(QLabel(""), 3, 1) # Espaciadores para mantener el diseño
 
         r2_mode_layout.addWidget(self.r2_checkbox_safe_trayectory, 1, 0)
         r2_mode_layout.addWidget(self.r2_controles, 1, 1)
@@ -328,20 +335,20 @@ class UIControllerConfigMixin:
         en esas posiciones exactas del grid (2,1)/(3,0)/(3,1) al construirlo."""
         if new_mode == self.control_mode_r1[0]: #new_mode = "Teleoperation"
             getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 1).widget().setParent(None) # Elimina el widget actual en esa posición
-            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 0).widget().setParent(None) # Elimina el widget de "Save Trajectory"
-            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 1).widget().setParent(None) # Elimina el widget de botones
+            #getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 0).widget().setParent(None) # Elimina el widget de "Save Trajectory"
+            #getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 1).widget().setParent(None) # Elimina el widget de botones
             getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 2, 0) # Espaciador para mantener el diseño
             getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 2, 1) # Espaciador para mantener el diseño
-            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 3, 0) # Espaciador para mantener el diseño
-            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 3, 1) # Espaciador para mantener el diseño
+            # getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 3, 0) # Espaciador para mantener el diseño
+            # getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel(""), 3, 1) # Espaciador para mantener el diseño
 
         elif new_mode == self.control_mode_r1[1]:
             getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(2, 1).widget().setParent(None) # Elimina el widget actual en esa posición
             getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_trayectories"), 2, 1)
-            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 0).widget().setParent(None) # Elimina el widget de "Save Trajectory"
-            getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 1).widget().setParent(None) # Elimina el widget de botones
-            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QLabel("Home"), 3, 0) # Espaciador para mantener el diseño
-            getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_q_target"), 3, 1)
+            # getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 0).widget().setParent(None) # Elimina el widget de "Save Trajectory"
+            # getattr(self, f"{robot_id}_controller_widget").layout().itemAtPosition(3, 1).widget().setParent(None) # Elimina el widget de botones
+            # getattr(self, f"{robot_id}_controller_widget").layout().addWidget(QPushButton("Home"), 3, 0) # Espaciador para mantener el diseño
+            # getattr(self, f"{robot_id}_controller_widget").layout().addWidget(getattr(self, f"{robot_id}_q_target"), 3, 1)
 
     def set_controller_menu(self):
         """Punto de entrada de la sección: arma set_r1_controller/
@@ -351,3 +358,91 @@ class UIControllerConfigMixin:
         self.robots_controller_layout.addWidget(self.r2_controller_layout)
         self.set_r1_controller()
         self.set_r2_controller()
+
+    def home_controller(self, robot_id):
+        """Activa scaled_joint_trajectory_controller (desactivando el
+        controlador de articulaciones activo) y publica q_target como
+        trayectoria de home. Corre en un hilo para no congelar la GUI."""
+        import threading
+        threading.Thread(target=self._home_controller_worker, args=(robot_id,), daemon=True).start()
+
+    def _home_controller_worker(self, robot_id):
+        import subprocess
+        home_controller = "scaled_joint_trajectory_controller"
+        previos = self.controller_changer(robot_id, home_controller)
+        if previos is None:
+            return
+
+        try:
+            print(f"[{robot_id}] Enviando trayectoria de home...")
+            q_target = getattr(self, f"{robot_id}_control_config")["q_target"]
+            # Los joints del controlador llevan el tf_prefix del robot (p.ej. r1_shoulder_pan_joint)
+            prefix = getattr(self, f"{robot_id}_config")["tf_prefix"]
+            joints = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+                      "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+            joint_names = ", ".join(f'"{prefix}{j}"' for j in joints)
+            goal = (f'{{trajectory: {{joint_names: [{joint_names}], '
+                    f'points: [{{positions: {q_target}, time_from_start: {{sec: 5, nanosec: 0}}}}]}}}}')
+            # Se usa la accion (no el topico) porque send_goal bloquea hasta que la
+            # trayectoria termina: asi sabemos cuando es seguro volver al controlador inicial
+            result = subprocess.run(['ros2', 'action', 'send_goal',
+                                     f'/{robot_id}/{home_controller}/follow_joint_trajectory',
+                                     'control_msgs/action/FollowJointTrajectory', goal],
+                                    capture_output=True, text=True, timeout=60)
+            if "SUCCEEDED" in result.stdout:
+                print(f"[{robot_id}] Home alcanzado: {q_target}")
+            else:
+                print(f"[{robot_id}] Error en trayectoria de home: {result.stdout.strip()} {result.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            print(f"[{robot_id}] Timeout esperando la trayectoria de home")
+        finally:
+            # Regresar al controlador que estaba activo antes del home
+            if previos and previos != [home_controller]:
+                self.controller_changer(robot_id, previos[0])
+
+    def controller_changer(self, robot_id, new_controller_type):
+        """Activa new_controller_type en /{robot_id}/controller_manager,
+        desactivando los controladores de articulaciones que esten activos.
+        Devuelve la lista de controladores de articulaciones que estaban
+        activos antes del cambio (para poder regresar a ellos), o None si
+        el cambio fallo. Bloquea: llamarla desde un hilo, no desde la GUI."""
+        import subprocess, re
+        cm = f'/{robot_id}/controller_manager'
+        joint_controllers = ["scaled_joint_trajectory_controller", "joint_trajectory_controller",
+                             "forward_position_controller", "forward_velocity_controller",
+                             "passthrough_trajectory_controller"]
+
+        # Identificar controlador activo (la salida trae codigos de color ANSI)
+        result = subprocess.run(['ros2', 'control', 'list_controllers', '-c', cm],
+                                capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"[{robot_id}] Error al listar controladores: {result.stderr.strip()}")
+            return None
+        estados = {}
+        for linea in re.sub(r'\x1b\[[0-9;]*m', '', result.stdout).splitlines():
+            campos = linea.split()
+            if len(campos) >= 3:
+                estados[campos[0]] = campos[-1]
+        activos = [c for c in joint_controllers if estados.get(c) == "active"]
+        print(f"[{robot_id}] Controladores de articulaciones activos: {activos}")
+
+        if new_controller_type not in estados:
+            print(f"[{robot_id}] {new_controller_type} no esta cargado en {cm}")
+            return None
+
+        if activos == [new_controller_type]:
+            return activos
+
+        print(f"[{robot_id}] Cambiando a {new_controller_type}...")
+        # Los nombres van SIN namespace: el controller_manager ya es /{robot_id}/...
+        cmd = ['ros2', 'control', 'switch_controllers', '-c', cm, '--strict',
+               '--activate', new_controller_type]
+        desactivar = [c for c in activos if c != new_controller_type]
+        if desactivar:
+            cmd += ['--deactivate'] + desactivar
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        print(f"[{robot_id}] Salida del cambio de controlador: {result.stdout.strip()}")
+        if result.returncode != 0:
+            print(f"[{robot_id}] Error al cambiar de controlador: {result.stderr.strip()}")
+            return None
+        return activos
