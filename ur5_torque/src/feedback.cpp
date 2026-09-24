@@ -91,8 +91,9 @@ public:
                      this->declare_parameter<double>("sign_y", 1.0),
                      this->declare_parameter<double>("sign_z", 1.0)};
 
-        std::string joint_state_topic = namespace_.empty() ? std::string("/force_torque_sensor_broadcaster/wrench") : std::string("/"+namespace_+"/force_torque_sensor_broadcaster/wrench");
-
+        // Crear el topic de estado de articulaciones
+        std::string force_torque_topic = namespace_.empty() ? std::string("/force_torque_sensor_broadcaster/wrench") : std::string("/"+namespace_+"/force_torque_sensor_broadcaster/wrench");
+        std::string joint_states_topic = namespace_.empty() ? std::string("/joint_states") : std::string("/"+namespace_+"/joint_states");
         // El URDF puede llegar ya resuelto (post-xacro) vía el parámetro
         // estándar 'robot_description', o via 'urdf_path' (archivo). Si
         // ninguno se especifica, se usa el ur5e.urdf genérico del paquete
@@ -118,9 +119,9 @@ public:
 
         initializeUR5(model, data, tool_frame_id, urdf_xml, sensor_frame_name);
         force_feedback_pub_ = this->create_publisher<omni_msgs::msg::OmniFeedback>("/"+phantom_namespace+"/force_feedback", 10);
-        ur5e_force_sub_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(joint_state_topic, 10,
-            std::bind(&FuerzaFeedback::ur5e_force_callback, this, std::placeholders::_1));
-        subscription_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10, std::bind(&FuerzaFeedback::update_joint_positions, this, std::placeholders::_1));            
+        ur5e_force_sub_ = this->create_subscription<geometry_msgs::msg::WrenchStamped>(force_torque_topic, 10,
+            std::bind(&FuerzaFeedback::ur5e_force_callback, this, std::placeholders::_1)); 
+        joint_states_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(joint_states_topic, 10, std::bind(&FuerzaFeedback::update_joint_positions, this, std::placeholders::_1));
         timer_ = this->create_wall_timer(
             std::chrono::milliseconds(100), std::bind(&FuerzaFeedback::publish_force_feedback, this));
     }
@@ -346,7 +347,7 @@ private:
     std::unique_ptr<pinocchio::Data> data; // declarar puntero único para los datos  
     pinocchio::FrameIndex tool_frame_id; 
     sensor_msgs::msg::JointState::SharedPtr last_joint_state_;    
-    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr subscription_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
 
 
 
