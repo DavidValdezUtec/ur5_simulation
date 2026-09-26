@@ -3,7 +3,7 @@
 Software de teleoperación de dos robots **UR5e** mediante dos dispositivos hápticos **Geomagic Touch**, en ROS 2 Humble. Incluye instalador automatizado (host Ubuntu 22.04 o Distrobox), simulación en Gazebo y driver para los robots reales.
 
 Capturas de pantalla:
-![Interfaz](image[\screenshot\interfaz.png])
+![Interfaz](screenshot/interfaz.png)
 ---
 
 
