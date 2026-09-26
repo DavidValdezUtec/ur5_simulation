@@ -32,10 +32,13 @@
           <mesh filename="package://ur5e_bringup/meshes/tool/tool.dae"/>
         </geometry>
       </visual>
+      <!-- tool_collision.dae = tool.dae sin su bloque <lines> (12 aristas
+           sueltas, sin volumen): el detector de colisiones de Gazebo
+           (DART/ODE) asume solo triangulos y hace segfault con ellas. -->
       <collision>
         <origin xyz="0 ${-mesh_gap} 0" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="package://ur5e_bringup/meshes/tool/tool.dae"/>
+          <mesh filename="package://ur5e_bringup/meshes/tool/tool_collision.dae"/>
         </geometry>
       </collision>
       <inertial>

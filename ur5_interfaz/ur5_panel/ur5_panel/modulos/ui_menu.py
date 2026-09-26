@@ -55,11 +55,10 @@ class UIMenuMixin:
                 "ur_type": "ur5e",
                 "robot_ip": "192.168.10.104",
                 "description_package": "ur5_description",
-                "tf_prefix": "r1_",
                 "runtime_config_package": "ur5_bringup",
                 "controllers_file": ["ur_controllers_", "r1", ".yaml"],
                 "kinematics_params_file": ["/home/david/my_robot_calibration_", "ur5e", ".yaml"],
-                "use_fake_hardware": "true",  # Empezamos en modo simulación
+                "mode": "fake",  # Empezamos en modo simulación (ver config_store.MODE_LABELS)
                 "launch_dashboard_client": "true",
                 "launch_rviz": "false",
                 "reverse_port": "50001",
@@ -106,11 +105,10 @@ class UIMenuMixin:
                 "ur_type": "ur5e",
                 "robot_ip": "192.168.10.103",
                 "description_package": "ur5_description",
-                "tf_prefix": "r2_",
                 "runtime_config_package": "ur5_bringup",
                 "controllers_file": ["ur_controllers_", "r2", ".yaml"],
                 "kinematics_params_file": ["/home/david/my_robot_calibration_", "ur5e", ".yaml"],
-                "use_fake_hardware": "true",  # Empezamos en modo simulación
+                "mode": "fake",  # Empezamos en modo simulación (ver config_store.MODE_LABELS)
                 "launch_dashboard_client": "true",
                 "launch_rviz": "false",
                 "reverse_port": "50011",
@@ -184,11 +182,12 @@ class UIMenuMixin:
 
     def create_menu1_structure(self):
 
-        """Pestaña 1 (Dispositivos + Robots): la única con scroll, porque es
-        la que más contenido acumula (LEDs hápticos, config de r1/r2, botón
-        Iniciar Robots). Deja listos robots_layout/robots_controller_layout,
-        que llenan set_robot_menu() (ui_robot_config.py) y set_controller_menu()
-        (ui_controller_config.py) más abajo."""
+        """Pestaña 1: la única con scroll. Su contenido anterior (LEDs de
+        dispositivos, config de r1/r2, botón Iniciar Robots) pasó a la barra
+        superior (modulos/dock.py) y a la ventana 'Configuración de robots';
+        se mantiene por ahora para los futuros modos teleoperación/desarrollo.
+        Deja listo robots_controller_layout, que llena set_controller_menu()
+        (ui_controller_config.py)."""
         # Widget interno del menú con scroll
         self.menu1_widget = QWidget()
         self.menu1_layout = QVBoxLayout()
@@ -253,9 +252,8 @@ class UIMenuMixin:
         self.boton_salir = QPushButton("Salir")
         self.boton_salir.clicked.connect(self.close)
 
-        # Widgets para botones principales
-        self.button_haptic = QPushButton("Buscar Dispositivos")
-        self.boton_iniciar_robots = QPushButton("Iniciar Robots")
+        # "Buscar dispositivos" e "Iniciar robots" estan en la barra
+        # superior (modulos/dock.py), no en el menu.
 
         # Widgets contenedores de secciones
         self.device_widget = QWidget()

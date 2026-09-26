@@ -22,6 +22,44 @@ USER_CONFIG_DIR = os.path.join(os.path.expanduser('~'), '.ros', PACKAGE_NAME)
 USER_CONFIG_PATH = os.path.join(USER_CONFIG_DIR, 'config.json')
 
 
+# Claves que ya no se configuran y se descartan al cargar un archivo viejo.
+#  - tf_prefix: se deriva siempre del id del robot (ver tf_prefix()).
+#  - use_fake_hardware: reemplazada por 'mode' (se migra en load_config).
+OBSOLETE_KEYS = ('tf_prefix', 'use_fake_hardware')
+
+# Modo de cada robot ('mode' en su config) -> texto del selector de la UI.
+#  - fake:   ur5e_bringup multi_ur5e.launch.py con use_fake_hardware:=true
+#  - real:   ur5e_bringup multi_ur5e.launch.py con el driver del UR real
+#  - gazebo: ur5e_bringup multi_ur5e_sim.launch.py (Ignition Gazebo)
+MODE_LABELS = {'fake': 'Simulation', 'real': 'Real', 'gazebo': 'Gazebo'}
+DEFAULT_MODE = 'fake'
+
+
+def mode_from_label(label):
+    """Texto del selector de la UI -> valor de 'mode'."""
+    return next((m for m, text in MODE_LABELS.items() if text == label), DEFAULT_MODE)
+
+
+def _migrate_robot_config(robot_cfg):
+    """Convierte claves de versiones anteriores del archivo de usuario:
+    use_fake_hardware ("true"/"false") -> mode ("fake"/"real")."""
+    if 'mode' not in robot_cfg and 'use_fake_hardware' in robot_cfg:
+        robot_cfg['mode'] = 'fake' if robot_cfg['use_fake_hardware'] == 'true' else 'real'
+    for key in OBSOLETE_KEYS:
+        robot_cfg.pop(key, None)
+    return robot_cfg
+
+
+def tf_prefix(robot_id):
+    """Prefijo de TF/joints de un robot: '<robot_id>_' (ej. 'r1_').
+
+    robot_id es a la vez el namespace ROS del robot (/r1) y su nombre en
+    ur5e_bringup. Es la misma convencion que usan ur5e_bringup
+    (launch_utils.base_xacro_args), ur5_controller y ur5_torque; no es
+    configurable para que el URDF de todos coincida siempre."""
+    return f"{robot_id}_"
+
+
 def _template_config_path():
     share_dir = None
     if get_package_share_directory is not None:
@@ -62,8 +100,12 @@ def load_config(defaults):
         print(f"[Config] Error leyendo {USER_CONFIG_PATH} ({e}); usando valores por defecto.")
         loaded = {}
 
+    # La migracion va ANTES de mezclar con 'defaults': si no, el 'mode' por
+    # defecto pisaria el que se deriva de un use_fake_hardware viejo.
     return {
-        robot_id: {**default_cfg, **loaded.get(robot_id, {})}
+        robot_id: _migrate_robot_config(
+            {**default_cfg, **_migrate_robot_config(dict(loaded.get(robot_id, {})))}
+        )
         for robot_id, default_cfg in defaults.items()
     }
 

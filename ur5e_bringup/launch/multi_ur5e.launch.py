@@ -10,6 +10,12 @@ directamente porque sus 'spawner' referencian el controller_manager con la
 ruta absoluta "/controller_manager", lo que rompe al namespacear el robot.
 Aqui se reconstruyen los mismos nodos usando una ruta relativa
 "controller_manager", que si respeta el namespace de cada robot.
+
+Los robots se leen del JSON del argumento 'config' (por defecto
+config/config.json del paquete; ur5_panel pasa el suyo).
+
+Para simular la celda en Gazebo ver multi_ur5e_sim.launch.py; lo comun a
+ambos (config.json, xacro, spawner) vive en ur5e_bringup/launch_utils.py.
 """
 
 from launch import LaunchDescription
@@ -25,49 +31,24 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import AnyLaunchDescriptionSource
-from launch.substitutions import (
-    Command,
-    FindExecutable,
-    LaunchConfiguration,
-    PathJoinSubstitution,
-)
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, PushRosNamespace
-from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
+from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
-import json 
 
-# Robots de la celda: nombre/namespace, prefijo de TF, pose respecto al
-# 'world' local de cada robot, su IP real y su modelo ("ur_type": "ur5e",
-# "ur5", etc; si se omite se usa DEFAULT_UR_TYPE). Para agregar un tercer
-# robot solo hay que añadir una entrada aqui.
-#importar json de config/config.json para obtener la configuracion de los robots
-with open(FindPackageShare("ur5e_bringup").find("ur5e_bringup") + "/config/config.json") as f:
-    config = json.load(f)
-ROBOTS = config if config else [
-    {"name": "r1",
-     "xyz": ("0", "0", "0"),
-     "ur_type": "ur5e",
-     "robot_ip": "192.168.1.102",
-     "tcp_port": "30002",
-     "use_fake_hardware": "true"},
-    {"name": "r2",
-     "xyz": ("1.2", "0", "0"),
-     "ur_type": "ur5",
-     "robot_ip": "192.168.1.103",
-     "tcp_port": "30002",
-     "use_fake_hardware": "true"},
-]
-
-# Modelo UR usado si un robot no especifica "ur_type" en config.json.
-DEFAULT_UR_TYPE = "ur5e"
-
+from ur5e_bringup.launch_utils import (
+    base_xacro_args,
+    declare_config_argument,
+    load_robots,
+    robot_description,
+    spawner,
+)
 
 def _robot_group(robot, context):
-    name = robot["name"]
-    tf_prefix = name+"_"
-    x, y, z = robot["xyz"]
-    rx, ry, rz = robot.get("rpy", ("0", "0", "0"))
-    ur_type = robot.get("ur_type", DEFAULT_UR_TYPE)
+    xacro_args = base_xacro_args(robot)
+    name = xacro_args["name"]
+    tf_prefix = xacro_args["tf_prefix"]
+    ur_type = xacro_args["ur_type"]
 
     # Puerto base del robot (script_sender_port); el resto se deriva con los
     # mismos offsets que usaba el driver original (ur_control.launch.py).
@@ -86,30 +67,16 @@ def _robot_group(robot, context):
     )
     is_fake = str(use_fake_hardware) == "true"
 
-    robot_description_content = Command(
-        [
-            PathJoinSubstitution([FindExecutable(name="xacro")]),
-            " ",
-            PathJoinSubstitution(
-                [FindPackageShare("ur5e_bringup"), "urdf", "ur5e_single.urdf.xacro"]
-            ),
-            " name:=", name,
-            " tf_prefix:=", tf_prefix,
-            " x:=", x, " y:=", y, " z:=", z,
-            " rx:=", rx, " ry:=", ry, " rz:=", rz,
-            " ur_type:=", ur_type,
-            " robot_ip:=", robot["robot_ip"],
-            " use_fake_hardware:=", use_fake_hardware,
-            " headless_mode:=", headless_mode,
-            " reverse_port:=", str(reverse_port),
-            " script_sender_port:=", str(script_sender_port),
-            " trajectory_port:=", str(trajectory_port),
-            " script_command_port:=", str(script_command_port),
-        ]
-    )
-    robot_description = {
-        "robot_description": ParameterValue(value=robot_description_content, value_type=str)
-    }
+    description = robot_description({
+        **xacro_args,
+        "robot_ip": robot["robot_ip"],
+        "use_fake_hardware": use_fake_hardware,
+        "headless_mode": headless_mode,
+        "reverse_port": reverse_port,
+        "script_sender_port": script_sender_port,
+        "trajectory_port": trajectory_port,
+        "script_command_port": script_command_port,
+    })
 
     update_rate_config_file = PathJoinSubstitution(
         [FindPackageShare("ur_robot_driver"), "config", f"{ur_type}_update_rate.yaml"]
@@ -122,7 +89,7 @@ def _robot_group(robot, context):
         package="controller_manager",
         executable="ros2_control_node",
         parameters=[
-            robot_description,
+            description,
             update_rate_config_file,
             ParameterFile(controllers_file, allow_substs=True),
             {"verify_payload_on_set": not is_fake},
@@ -134,7 +101,7 @@ def _robot_group(robot, context):
         package="ur_robot_driver",
         executable="ur_ros2_control_node",
         parameters=[
-            robot_description,
+            description,
             update_rate_config_file,
             ParameterFile(controllers_file, allow_substs=True),
             {"verify_payload_on_set": not is_fake},
@@ -193,27 +160,8 @@ def _robot_group(robot, context):
         package="robot_state_publisher",
         executable="robot_state_publisher",
         output="both",
-        parameters=[robot_description],
+        parameters=[description],
     )
-
-    def spawner(controllers, active=True):
-        # namespace absoluto y explicito: el spawner de inactivos se crea
-        # despues (via OnProcessExit) fuera del alcance del PushRosNamespace
-        # de este grupo, asi que no puede depender de ese contexto ambiental.
-        # Debe ser absoluto ("/r1") y no relativo ("r1"): el spawner activo
-        # SI corre dentro del PushRosNamespace, y un namespace relativo se
-        # apilaria con el del grupo (-> "/r1/r1").
-        return Node(
-            package="controller_manager",
-            executable="spawner",
-            namespace=f"/{name}",
-            arguments=[
-                "--controller-manager", "controller_manager",
-                "--controller-manager-timeout", "20",
-            ]
-            + ([] if active else ["--inactive"])
-            + controllers,
-        )
 
     # Misma cobertura de controladores que ur_control.launch.py: todo lo
     # necesario para control cinematico (trayectorias, velocidad, posicion,
@@ -251,9 +199,9 @@ def _robot_group(robot, context):
     # a veces se pierde si se dispara apenas el servicio aparece disponible
     # (el discovery DDS del lado servidor todavia no esta completamente
     # asentado aunque el cliente ya vea el servicio como disponible).
-    active_spawner = spawner(controllers_active)
+    active_spawner = spawner(name, controllers_active)
     delayed_active_spawner = TimerAction(period=3.0, actions=[active_spawner])
-    inactive_spawner = spawner(controllers_inactive, active=False)
+    inactive_spawner = spawner(name, controllers_inactive, active=False)
     chained_inactive_spawner = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=active_spawner,
@@ -278,11 +226,13 @@ def _robot_group(robot, context):
 
 
 def _launch_setup(context, *args, **kwargs):
-    return [_robot_group(robot, context) for robot in ROBOTS]
+    robots = load_robots(LaunchConfiguration("config").perform(context))
+    return [_robot_group(robot, context) for robot in robots]
 
 
 def generate_launch_description():
     declared_arguments = [
+        declare_config_argument(),
         DeclareLaunchArgument(
             "use_fake_hardware",
             default_value="true",

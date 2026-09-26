@@ -6,8 +6,9 @@ from ur5_panel import config_store
 
 class UIRobotConfigMixin:
     """
-    Config de robots (pose/tipo/modo/IP/puerto) por r1 y r2, mas la seccion
-    de dispositivos hapticos de la pestaña 1. Estos paneles leen/escriben
+    Config de robots (pose/tipo/modo/IP/puerto) por r1 y r2, en la ventana
+    flotante 'Configuración de robots' (boton de la barra superior), mas la
+    conexion de la busqueda de dispositivos. Estos paneles leen/escriben
     r{id}_config (persistido en ~/.ros/ur5_panel/config.json via
     config_store), que modulos/robots_launch.py traduce a config.json de
     ur5e_bringup al lanzar. set_r1_menu/set_r2_menu son practicamente
@@ -16,31 +17,12 @@ class UIRobotConfigMixin:
     """
 
     def set_devices_menu(self):
-        """Sección 'dispositivos' de la pestaña 1: boton de busqueda +
-        2 LEDs de estado haptico. Dispara una busqueda inicial al arrancar
-        (self.buscar_dispositivos() al final), ademas de la que dispara el
-        boton. La logica de busqueda/lanzamiento vive en panel.py e
-        internamente delega a modulos/haptic.py y modulos/camera.py."""
-        self.device_layout = QGridLayout()
-        self.device_widget.setLayout(self.device_layout)
-        self.device_layout.addWidget(QLabel("Haptic Device Menu Placeholder"))
-        self.device_layout.addWidget(self.button_haptic, 0,0,1,2)
-        self.button_haptic.clicked.connect(self.buscar_dispositivos)
-
-        #leds de estado 1/0 de los dispositivos hápticos
-        self.led_haptic1 = QLabel()
-        self.led_haptic1.setFixedSize(20, 20)
-        self.led_haptic1.setStyleSheet("background-color: red; border-radius: 10px;")
-
-        self.device_layout.addWidget(QLabel("Haptic Device 1:"), 1, 0)
-        self.device_layout.addWidget(self.led_haptic1, 1, 1)
-        self.led_haptic2 = QLabel()
-        self.led_haptic2.setFixedSize(20, 20)
-        self.led_haptic2.setStyleSheet("background-color: red; border-radius: 10px;")
-
-        self.device_layout.addWidget(QLabel("Haptic Device 2:"), 2, 0)
-        self.device_layout.addWidget(self.led_haptic2, 2, 1)
-
+        """Dispositivos: sus LEDs, el boton de busqueda y el checkbox de
+        feedback viven en la barra superior (modulos/dock.py). Aqui solo se
+        conecta el boton y se dispara una busqueda inicial al arrancar."""
+        self.dock.boton_buscar.clicked.connect(self.buscar_dispositivos)
+        # lanzar_robots() lee el checkbox con este nombre
+        self.feedback_checkbox = self.dock.feedback_checkbox
         self.buscar_dispositivos()
 
     def set_r1_menu(self):
@@ -56,8 +38,8 @@ class UIRobotConfigMixin:
         self.r1_type_input.addItems(["ur5e", "ur5"])
         self.r1_type_input.setCurrentText(self.r1_config["ur_type"])
         self.r1_mode_input = QComboBox()
-        self.r1_mode_input.addItems(["Simulation","Real"])
-        self.r1_mode_input.setCurrentText("Simulation" if self.r1_config["use_fake_hardware"] == "true" else "Real")
+        self.r1_mode_input.addItems(list(config_store.MODE_LABELS.values()))
+        self.r1_mode_input.setCurrentText(config_store.MODE_LABELS[self.r1_config["mode"]])
         n = 50
         self.r1_x_input = QLineEdit(); self.r1_x_input.setText(self.r1_config["pos_x"]); self.r1_x_input.setFixedWidth(n)
         self.r1_y_input = QLineEdit(); self.r1_y_input.setText(self.r1_config["pos_y"]); self.r1_y_input.setFixedWidth(n)
@@ -124,8 +106,8 @@ class UIRobotConfigMixin:
         self.r2_type_input.addItems(["ur5e", "ur5"])
         self.r2_type_input.setCurrentText(self.r2_config["ur_type"])
         self.r2_mode_input = QComboBox()
-        self.r2_mode_input.addItems(["Simulation","Real"])
-        self.r2_mode_input.setCurrentText("Simulation" if self.r2_config["use_fake_hardware"] == "true" else "Real")
+        self.r2_mode_input.addItems(list(config_store.MODE_LABELS.values()))
+        self.r2_mode_input.setCurrentText(config_store.MODE_LABELS[self.r2_config["mode"]])
         n = 50
         self.r2_x_input = QLineEdit(); self.r2_x_input.setText(self.r2_config["pos_x"]); self.r2_x_input.setFixedWidth(n)
         self.r2_y_input = QLineEdit(); self.r2_y_input.setText(self.r2_config["pos_y"]); self.r2_y_input.setFixedWidth(n)
@@ -185,7 +167,7 @@ class UIRobotConfigMixin:
             lambda text, r_id=robot_id: self.update_config(r_id, 'ur_type', text)
         )
         getattr(self, f"{robot_id}_mode_input").currentTextChanged.connect(
-            lambda text, r_id=robot_id: self.update_config(r_id, 'use_fake_hardware', 'true' if text == 'Simulation' else 'false')
+            lambda text, r_id=robot_id: self.update_config(r_id, 'mode', config_store.mode_from_label(text))
         )
         getattr(self, f"{robot_id}_x_input").textChanged.connect(
             lambda text, r_id=robot_id: self.update_config(r_id, 'pos_x', text)
@@ -224,18 +206,28 @@ class UIRobotConfigMixin:
             print(f"Warning: La clave '{key}' no existe en {robot_id}_config.")
 
     def set_robot_menu(self):
-        """Ensambla la sección 'robots' de la pestaña 1: paneles r1+r2,
-        checkbox de feedback háptico (ver nota en panel.py:lanzar_robots,
-        ese checkbox ya no tiene efecto real) y el botón que dispara
-        panel.py:iniciar_robots() -> modulos/robots_launch.py."""
-        self.robots_layout.addWidget(self.r1_layout)
-        self.robots_layout.addWidget(self.r2_layout)
+        """Configuracion de r1+r2 (tabs basico/avanzado de cada uno) en una
+        ventana flotante no modal que abre el boton 'Configurar robots' de
+        la barra superior; 'Iniciar robots' tambien esta en la barra y
+        dispara panel.py:iniciar_robots() -> modulos/robots_launch.py."""
         self.set_r1_menu()
         self.set_r2_menu()
 
-        self.feedback_checkbox = QCheckBox("Iniciar feedback haptico")
-        self.feedback_checkbox.setChecked(True)
-        self.robots_layout.addWidget(self.feedback_checkbox)
+        self.robots_config_dialog = QDialog(self)
+        self.robots_config_dialog.setWindowTitle("Configuración de robots")
+        dialog_layout = QVBoxLayout(self.robots_config_dialog)
+        dialog_layout.addWidget(self.r1_layout)
+        dialog_layout.addWidget(self.r2_layout)
+        boton_cerrar = QPushButton("Cerrar")
+        boton_cerrar.clicked.connect(self.robots_config_dialog.close)
+        dialog_layout.addWidget(boton_cerrar)
 
-        self.boton_iniciar_robots.clicked.connect(self.iniciar_robots)
-        self.robots_layout.addWidget(self.boton_iniciar_robots)
+        self.dock.boton_config.clicked.connect(self.mostrar_config_robots)
+        self.dock.boton_iniciar.clicked.connect(self.iniciar_robots)
+
+    def mostrar_config_robots(self):
+        """Abre (o trae al frente) la ventana de configuracion de robots.
+        No es modal: se puede seguir usando la interfaz con ella abierta."""
+        self.robots_config_dialog.show()
+        self.robots_config_dialog.raise_()
+        self.robots_config_dialog.activateWindow()

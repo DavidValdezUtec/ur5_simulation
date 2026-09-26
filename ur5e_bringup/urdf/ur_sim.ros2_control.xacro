@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <!--
+    Bloque <ros2_control> de UN robot para Gazebo (sim_ignition=true), en
+    reemplazo del que genera ur_description (ur.ros2_control.xacro).
+
+    Por que uno propio: el de ur_description quita en simulacion el sensor
+    tcp_fts_sensor, y ign_ros2_control no acepta un segundo <ros2_control>
+    solo con el sensor (IgnitionSystem::initSim falla si el bloque no tiene
+    joints). Los joints son identicos a los que genera ur_description con
+    sim_ignition=true (position/velocity de comando; position/velocity/
+    effort de estado); lo unico nuevo es el <sensor>.
+
+    El sensor debe llamarse igual que el <sensor type="force_torque"> de
+    Gazebo (ver ur5e_unit.xacro): IgnitionSystem los asocia por nombre.
+    Solo se usa en Gazebo; robot real y use_fake_hardware siguen usando el
+    bloque de ur_description.
+  -->
+  <xacro:macro name="ur_sim_joint" params="tf_prefix joint initial_value">
+    <joint name="${tf_prefix}${joint}">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">${initial_value}</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="ur_sim_ros2_control" params="
+      name
+      tf_prefix
+      initial_positions:=${dict(shoulder_pan_joint=0.0,shoulder_lift_joint=-1.57,elbow_joint=0.0,wrist_1_joint=-1.57,wrist_2_joint=0.0,wrist_3_joint=0.0)}">
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <plugin>ign_ros2_control/IgnitionSystem</plugin>
+      </hardware>
+      <xacro:ur_sim_joint tf_prefix="${tf_prefix}" joint="shoulder_pan_joint" initial_value="${initial_positions['shoulder_pan_joint']}"/>
+      <xacro:ur_sim_joint tf_prefix="${tf_prefix}" joint="shoulder_lift_joint" initial_value="${initial_positions['shoulder_lift_joint']}"/>
+      <xacro:ur_sim_joint tf_prefix="${tf_prefix}" joint="elbow_joint" initial_value="${initial_positions['elbow_joint']}"/>
+      <xacro:ur_sim_joint tf_prefix="${tf_prefix}" joint="wrist_1_joint" initial_value="${initial_positions['wrist_1_joint']}"/>
+      <xacro:ur_sim_joint tf_prefix="${tf_prefix}" joint="wrist_2_joint" initial_value="${initial_positions['wrist_2_joint']}"/>
+      <xacro:ur_sim_joint tf_prefix="${tf_prefix}" joint="wrist_3_joint" initial_value="${initial_positions['wrist_3_joint']}"/>
+
+      <sensor name="${tf_prefix}tcp_fts_sensor">
+        <state_interface name="force.x"/>
+        <state_interface name="force.y"/>
+        <state_interface name="force.z"/>
+        <state_interface name="torque.x"/>
+        <state_interface name="torque.y"/>
+        <state_interface name="torque.z"/>
+      </sensor>
+    </ros2_control>
+  </xacro:macro>
+</robot>

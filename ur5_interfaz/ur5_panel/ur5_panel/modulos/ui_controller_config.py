@@ -35,6 +35,7 @@ class UIControllerConfigMixin:
         self.r1_trayectories = QComboBox()
         self.r1_trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
         self.r1_controles = QComboBox(); self.r1_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
+        self.r1_controles.setCurrentText("Optimizador" if self.r1_control_config["controller_type"] == "QP" else ("Sliding" if self.r1_control_config["controller_type"] == "SLD" else "Impedancia"))
         self.r1_q_target = QLineEdit(); self.r1_q_target.setText(self.r1_control_config["q_target"][1:-1])
         #self.r1_A_input = QLineEdit(); self.r1_A_input.setText("1.0")
         
@@ -131,6 +132,7 @@ class UIControllerConfigMixin:
         self.r2_trayectories = QComboBox()
         self.r2_trayectories.addItems(["Curva Helicoidal", "Linea Recta", "Circunferencia"])
         self.r2_controles = QComboBox(); self.r2_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
+        self.r2_controles.setCurrentText("Optimizador" if self.r2_control_config["controller_type"] == "QP" else ("Sliding" if self.r2_control_config["controller_type"] == "SLD" else "Impedancia"))
         self.r2_q_target = QLineEdit(); self.r2_q_target.setText(self.r2_control_config["q_target"][1:-1])
 
 
@@ -377,12 +379,12 @@ class UIControllerConfigMixin:
             print(f"[{robot_id}] Enviando trayectoria de home...")
             q_target = getattr(self, f"{robot_id}_control_config")["q_target"]
             # Los joints del controlador llevan el tf_prefix del robot (p.ej. r1_shoulder_pan_joint)
-            prefix = getattr(self, f"{robot_id}_config")["tf_prefix"]
+            prefix = config_store.tf_prefix(robot_id)
             joints = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
                       "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
             joint_names = ", ".join(f'"{prefix}{j}"' for j in joints)
             goal = (f'{{trajectory: {{joint_names: [{joint_names}], '
-                    f'points: [{{positions: {q_target}, time_from_start: {{sec: 5, nanosec: 0}}}}]}}}}')
+                    f'points: [{{positions: {q_target}, time_from_start: {{sec: 3, nanosec: 0}}}}]}}}}')
             # Se usa la accion (no el topico) porque send_goal bloquea hasta que la
             # trayectoria termina: asi sabemos cuando es seguro volver al controlador inicial
             result = subprocess.run(['ros2', 'action', 'send_goal',

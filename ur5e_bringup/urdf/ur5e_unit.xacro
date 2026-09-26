@@ -13,10 +13,17 @@
     ur_type     : modelo UR (ej. "ur5e", "ur5"), selecciona los yaml de
                   ur_description/config/<ur_type>/
     robot_ip    : IP del controlador real (ur_robot_driver). Ignorada si
-                  use_fake_hardware=true
+                  use_fake_hardware=true o sim_ignition=true
+    sim_ignition: simular en Gazebo (Ignition Fortress) con ign_ros2_control
+                  en vez del driver real / mock. Excluyente con
+                  use_fake_hardware (ambos meterian su plugin en <hardware>)
+    simulation_controllers : ruta del yaml de controladores que recibe el
+                  controller_manager que crea el plugin de Gazebo (solo se
+                  usa con sim_ignition=true)
   -->
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro" />
   <xacro:include filename="$(find ur5e_bringup)/urdf/tool.urdf.xacro" />
+  <xacro:include filename="$(find ur5e_bringup)/urdf/ur_sim.ros2_control.xacro" />
 
   <xacro:macro name="ur5e_unit" params="
       name
@@ -27,6 +34,8 @@
       ur_type:=ur5e
       robot_ip:=0.0.0.0
       use_fake_hardware:=true
+      sim_ignition:=false
+      simulation_controllers:=''
       headless_mode:=true
       safety_limits:=true
       safety_pos_margin:=0.15
@@ -58,6 +67,7 @@
       safety_pos_margin="${safety_pos_margin}"
       safety_k_position="${safety_k_position}"
       use_fake_hardware="${use_fake_hardware}"
+      sim_ignition="${sim_ignition}"
       headless_mode="${headless_mode}"
       robot_ip="${robot_ip}"
       reverse_port="${reverse_port}"
@@ -66,9 +76,13 @@
       script_command_port="${script_command_port}"
       script_filename="to_be_filled_by_ur_robot_driver"
       output_recipe_filename="to_be_filled_by_ur_robot_driver"
-      input_recipe_filename="to_be_filled_by_ur_robot_driver">
+      input_recipe_filename="to_be_filled_by_ur_robot_driver"
+      generate_ros2_control_tag="${str(sim_ignition).lower() != 'true'}">
       <origin xyz="0 0 0" rpy="0 0 0" />
     </xacro:ur_robot>
+    <!-- En Gazebo el <ros2_control> lo arma ur_sim_ros2_control (abajo) en
+         vez de ur_description, para poder declarar el sensor F/T. -->
+    <xacro:property name="_is_sim" value="${str(sim_ignition).lower() == 'true'}" />
 
     <xacro:if value="${attach_tool}">
       <xacro:tool
@@ -76,6 +90,45 @@
         tf_prefix="${tf_prefix}"
         xyz="${tool_xyz}"
         rpy="${tool_rpy}" />
+    </xacro:if>
+
+    <!-- Gazebo: el plugin crea el controller_manager de ESTE robot dentro
+         del simulador, en el namespace /<name> (mismo que usa el launch),
+         y lee robot_description de /<name>/robot_state_publisher. -->
+    <xacro:if value="${_is_sim}">
+      <gazebo>
+        <plugin filename="libign_ros2_control-system.so"
+                name="ign_ros2_control::IgnitionROS2ControlPlugin">
+          <parameters>${simulation_controllers}</parameters>
+          <ros>
+            <namespace>/${name}</namespace>
+          </ros>
+        </plugin>
+      </gazebo>
+
+      <xacro:ur_sim_ros2_control name="${name}" tf_prefix="${tf_prefix}" />
+
+      <!-- Sensor F/T del TCP, como el del UR e-Series: en el joint
+           flange -> tool0, medido en el frame de tool0 (el driver real
+           publica la fuerza en el frame del TCP; con TCP nulo en el
+           pendant eso es tool0). child_to_parent = fuerza que el lado de la
+           herramienta ejerce sobre la brida: con la herramienta quieta es
+           la fuerza externa + su peso (como un payload sin compensar).
+           preserveFixedJoint: si no, Gazebo fusiona los joints fijos y el
+           sensor desaparece con el joint. Se llama igual que el <sensor>
+           de ur_sim_ros2_control, que es como IgnitionSystem lo asocia. -->
+      <gazebo reference="${tf_prefix}flange-tool0">
+        <preserveFixedJoint>true</preserveFixedJoint>
+        <sensor name="${tf_prefix}tcp_fts_sensor" type="force_torque">
+          <always_on>true</always_on>
+          <update_rate>500</update_rate>
+          <topic>/${name}/tcp_fts</topic>
+          <force_torque>
+            <frame>child</frame>
+            <measure_direction>child_to_parent</measure_direction>
+          </force_torque>
+        </sensor>
+      </gazebo>
     </xacro:if>
 
   </xacro:macro>

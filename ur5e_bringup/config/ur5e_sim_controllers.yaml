@@ -1,0 +1,129 @@
+# Controladores para simular cada UR5e en Gazebo (multi_ur5e_sim.launch.py).
+#
+# Subconjunto de ur5e_controllers.yaml con solo lo que funciona sobre
+# ign_ros2_control/IgnitionSystem: los controladores de ur_controllers
+# (GPIO, speed scaling, force mode, freedrive, ...) necesitan interfaces que
+# solo expone el hardware real del UR.
+#
+# Esto es una plantilla: el launch genera una copia por robot
+# (launch_utils.render_controllers_file) con la variable tf_prefix ya
+# reemplazada y el comodin de namespace cambiado por el del robot, y es esa
+# copia la que recibe el plugin de Gazebo.
+
+/**/controller_manager:
+  ros__parameters:
+    update_rate: 500  # Hz, igual que ur5e_update_rate.yaml del driver
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    force_torque_sensor_broadcaster:
+      type: force_torque_sensor_broadcaster/ForceTorqueSensorBroadcaster
+
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    # En Gazebo no hay interfaz de speed scaling, asi que el
+    # ScaledJointTrajectoryController del UR no puede activarse. Se carga un
+    # JointTrajectoryController normal con el MISMO nombre para que los nodos
+    # que publican en scaled_joint_trajectory_controller/joint_trajectory
+    # funcionen sin cambios en simulacion.
+    scaled_joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    forward_velocity_controller:
+      type: velocity_controllers/JointGroupVelocityController
+
+    forward_position_controller:
+      type: position_controllers/JointGroupPositionController
+
+/**/force_torque_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: $(var tf_prefix)tcp_fts_sensor
+    state_interface_names:
+      - force.x
+      - force.y
+      - force.z
+      - torque.x
+      - torque.y
+      - torque.z
+    # tool0_controller lo publica el controlador real del UR; en simulacion
+    # no existe. El sensor de Gazebo mide en tool0 (ver ur5e_unit.xacro),
+    # que es tool0_controller con TCP nulo.
+    frame_id: $(var tf_prefix)tool0
+    topic_name: ft_data
+
+/**/joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - $(var tf_prefix)shoulder_pan_joint
+      - $(var tf_prefix)shoulder_lift_joint
+      - $(var tf_prefix)elbow_joint
+      - $(var tf_prefix)wrist_1_joint
+      - $(var tf_prefix)wrist_2_joint
+      - $(var tf_prefix)wrist_3_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.2
+      goal_time: 0.0
+      $(var tf_prefix)shoulder_pan_joint: { trajectory: 0.2, goal: 0.1 }
+      $(var tf_prefix)shoulder_lift_joint: { trajectory: 0.2, goal: 0.1 }
+      $(var tf_prefix)elbow_joint: { trajectory: 0.2, goal: 0.1 }
+      $(var tf_prefix)wrist_1_joint: { trajectory: 0.2, goal: 0.1 }
+      $(var tf_prefix)wrist_2_joint: { trajectory: 0.2, goal: 0.1 }
+      $(var tf_prefix)wrist_3_joint: { trajectory: 0.2, goal: 0.1 }
+
+/**/scaled_joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - $(var tf_prefix)shoulder_pan_joint
+      - $(var tf_prefix)shoulder_lift_joint
+      - $(var tf_prefix)elbow_joint
+      - $(var tf_prefix)wrist_1_joint
+      - $(var tf_prefix)wrist_2_joint
+      - $(var tf_prefix)wrist_3_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.2
+      goal_time: 0.0
+      $(var tf_prefix)shoulder_pan_joint: { trajectory: 0.2, goal: 0.1 }
+      $(var tf_prefix)shoulder_lift_joint: { trajectory: 0.2, goal: 0.1 }
+      $(var tf_prefix)elbow_joint: { trajectory: 0.2, goal: 0.1 }
+      $(var tf_prefix)wrist_1_joint: { trajectory: 0.2, goal: 0.1 }
+      $(var tf_prefix)wrist_2_joint: { trajectory: 0.2, goal: 0.1 }
+      $(var tf_prefix)wrist_3_joint: { trajectory: 0.2, goal: 0.1 }
+
+/**/forward_velocity_controller:
+  ros__parameters:
+    joints:
+      - $(var tf_prefix)shoulder_pan_joint
+      - $(var tf_prefix)shoulder_lift_joint
+      - $(var tf_prefix)elbow_joint
+      - $(var tf_prefix)wrist_1_joint
+      - $(var tf_prefix)wrist_2_joint
+      - $(var tf_prefix)wrist_3_joint
+    interface_name: velocity
+
+/**/forward_position_controller:
+  ros__parameters:
+    joints:
+      - $(var tf_prefix)shoulder_pan_joint
+      - $(var tf_prefix)shoulder_lift_joint
+      - $(var tf_prefix)elbow_joint
+      - $(var tf_prefix)wrist_1_joint
+      - $(var tf_prefix)wrist_2_joint
+      - $(var tf_prefix)wrist_3_joint

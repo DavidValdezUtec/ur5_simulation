@@ -6,7 +6,8 @@ import subprocess
 import signal
 import rclpy
 
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtCore import Qt, QSize, QTimer
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtGui import QPixmap, QTransform
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QPixmap, QIcon, QPainter, QColor
@@ -29,6 +30,8 @@ from ur5_panel.modulos.ui_joint_ik_control import UIJointIkControlMixin
 from ur5_panel.modulos.camera import CameraModule
 from ur5_panel.modulos.haptic import HapticModule
 from ur5_panel.modulos.robots_launch import RobotsLaunchModule
+from ur5_panel.modulos.dock import Dock
+from ur5_panel.modulos.robot_monitor import RobotMonitor
 
 # Import RVizQtWidget from the installed ur5_interfaz_library package
 try:
@@ -148,7 +151,7 @@ class InterfazRviz(
     def setup_ui(self):
         # Widget principal
         self.main_widget = QWidget()
-        self.setCentralWidget(self.main_widget)
+        
         self.main_layout = QGridLayout()
         self.main_widget.setLayout(self.main_layout)
 
@@ -173,8 +176,28 @@ class InterfazRviz(
             raise
 
         self.robots = RobotsLaunchModule(self.rviz_widget)
-        # Configurar menu superior
-        
+
+        # Barra superior (dispositivos, estado de robots, config, STOP).
+        # Va antes del menu: set_devices_menu/set_robot_menu conectan sus
+        # botones. RobotMonitor es el nodo ROS2 del panel para el estado de
+        # los robots y el STOP.
+        self.monitor = RobotMonitor()
+        self.dock = Dock(self)
+        self.addToolBar(Qt.TopToolBarArea, self.dock)
+        self.dock.boton_stop.clicked.connect(self.stop_robots)
+        # Atajo s / S para el STOP en toda la aplicacion (tambien con la
+        # ventana de configuracion al frente). Mientras se escribe en un
+        # campo de texto la tecla es del campo y el atajo no se dispara.
+        self.stop_shortcuts = []
+        for secuencia in ("S", "Shift+S"):
+            shortcut = QShortcut(QKeySequence(secuencia), self)
+            shortcut.setContext(Qt.ApplicationShortcut)
+            shortcut.activated.connect(self.stop_robots)
+            self.stop_shortcuts.append(shortcut)
+        self.estado_timer = QTimer()
+        self.estado_timer.timeout.connect(self.actualizar_estado_robots)
+        self.estado_timer.start(500)
+
         # Configurar menú lateral
         self.cargar_iconos()
         self.setup_menu()
@@ -186,10 +209,14 @@ class InterfazRviz(
         # Configurar widget de cámara
         self.set_camara_widget()
 
+        
+        # Establecer el widget central de la ventana principal
+        self.setCentralWidget(self.main_widget)
         # Añadir dock widget a la ventana principal
         self.addDockWidget(Qt.RightDockWidgetArea, self.video_widget)
         
         # Añadir widgets al layout principal
+        #self.main_layout.addWidget(self.dock_superior, 0, 0, 1, 2)  # Dock superior ocupa toda la fila superior
         self.main_layout.addWidget(self.menu_general, 0, 0)
         self.main_layout.addWidget(self.rviz_widget, 0, 1)
         self.main_layout.addWidget(self.boton_salir, 1, 0)  # Botón Salir fuera del scroll
@@ -333,6 +360,13 @@ ros2 run ur5_controller controller_node --ros-args \
             '-p', f'traj_A:=[0.1,0.1,0.2]',
 
         ]
+        # En Gazebo el joint_trajectory_controller usa el reloj simulado
+        # (/clock, arranca en 0): con reloj real, el header.stamp de la
+        # trayectoria inicial (InitialMotionPublisher, node->now()) caia ~56
+        # años en el futuro y el robot nunca iba a home. Con use_sim_time,
+        # now() y el seguimiento de trayectoria usan el tiempo simulado.
+        if robot_config.get("mode") == "gazebo":
+            command += ['-p', 'use_sim_time:=true']
         if params_file is not None:
             command += ['--params-file', params_file]
 
@@ -429,26 +463,26 @@ ros2 run ur5_controller controller_node --ros-args \
         print(f"[Main] Search result: {resultado}")
         print("Numero de dispositivos hapticos encontrados:", resultado["num_dispositivos"])
 
-        if self.haptic.haptic1_ready and self.haptic.haptic2_ready:
-            self.led_haptic1.setStyleSheet("background-color: green; border-radius: 10px;")
-            self.led_haptic2.setStyleSheet("background-color: green; border-radius: 10px;")
-        elif self.haptic.haptic1_ready:
-            self.led_haptic1.setStyleSheet("background-color: green; border-radius: 10px;")
-            self.led_haptic2.setStyleSheet("background-color: red; border-radius: 10px;")
-        else:
-            self.led_haptic1.setStyleSheet("background-color: red; border-radius: 10px;")
-            self.led_haptic2.setStyleSheet("background-color: red; border-radius: 10px;")
+        self.dock.set_haptic(1, self.haptic.haptic1_ready)
+        self.dock.set_haptic(2, self.haptic.haptic2_ready)
+        if not self.haptic.haptic1_ready:
             self.camera.detener_launch()
 
         self.haptic.lanzar_launch()
-        if resultado_camara["num_dispositivos"] > 1: #>1: no se contará camara de la laptop, >0: si contará cámara de la laptop 
-            self.camera_ready = True
+        # >1: no se cuenta la camara de la laptop, >0: si se contaria
+        self.camera_ready = resultado_camara["num_dispositivos"] > 1
+        self.dock.set_camara(self.camera_ready)
+        if self.camera_ready:
             print("Camara encontrada")
             self.camera.lanzar_launch()
 
     def detener_todos_los_launches(self):
         """Detiene todos los launches activos"""
         print("[Shutdown] Deteniendo todos los procesos launch...")
+        # Primero los controladores: si no, un controller_node huerfano
+        # sigue comandando el robot despues de cerrar/reiniciar el panel.
+        for robot_id in ("r1", "r2"):
+            self.stop_controller(robot_id)
         self.camera.detener_launch()
         self.haptic.detener_launch()
         self.robots.detener()
@@ -458,10 +492,75 @@ ros2 run ur5_controller controller_node --ros-args \
         """Reinicia los robots: detiene si están corriendo y luego lanza"""
         print("[Robots] Reiniciando robots...")
         self.robots.detener()
+        for robot_id in ("r1", "r2"):
+            self.monitor.reset(robot_id)
         self.lanzar_robots()
 
+    def actualizar_estado_robots(self):
+        """LED de estado de cada robot en la barra superior (cada 0.5 s):
+        gris detenido / amarillo lanzado / verde listo / rojo error (ver
+        modulos/robot_monitor.py:RobotMonitor.estado)."""
+        for robot_id in ("r1", "r2"):
+            modo = self.robots.modo(robot_id)
+            estado, detalle = self.monitor.estado(
+                robot_id, self.robots.estado_proceso(robot_id), modo)
+            self.dock.set_robot_state(robot_id, estado, detalle, modo)
+
+    def stop_robots(self):
+        """STOP (boton de la barra superior o tecla S): en ambos robots corta
+        los controller_node y deja el robot quieto en su posicion actual con
+        forward_position_controller activo (RobotMonitor.detener_movimiento).
+        No bloquea la UI. No reemplaza el paro de emergencia fisico."""
+        print("[STOP] Deteniendo ambos robots...")
+        self.dock.set_stop_info("Deteniendo...")
+        resultados = {}
+
+        def terminado(robot_id, ok, mensaje):
+            resultados[robot_id] = "quieto" if ok else mensaje
+            print(f"[STOP] {robot_id}: {'OK' if ok else 'FALLO'} - {mensaje}")
+            if len(resultados) == 2:
+                self.dock.set_stop_info(
+                    " | ".join(f"{r.upper()}: {resultados[r]}" for r in ("r1", "r2")))
+
+        for robot_id in ("r1", "r2"):
+            # Primero cortar la fuente de comandos, luego cambiar de
+            # controlador: si no, controller_node podria volver a mover el
+            # robot o pedir su propio cambio de controlador.
+            if self._detener_controller_async(robot_id):
+                print(f"[STOP] {robot_id}: controller_node detenido")
+            self.monitor.detener_movimiento(
+                robot_id, lambda ok, msg, r=robot_id: terminado(r, ok, msg))
+
+    def _detener_controller_async(self, robot_id):
+        """Version no bloqueante de stop_controller para el STOP: manda
+        SIGINT al grupo del controller_node y, si no termina, escala a
+        SIGTERM y SIGKILL en segundo plano (QTimer). Devuelve True si habia
+        un controller_node corriendo."""
+        process = getattr(self, f'{robot_id}_controller_process', None)
+        setattr(self, f'{robot_id}_controller_process', None)
+        if process is None or process.poll() is not None:
+            return False
+        try:
+            pgid = os.getpgid(process.pid)
+            os.killpg(pgid, signal.SIGINT)
+        except ProcessLookupError:
+            return False
+
+        def escalar(senales):
+            if process.poll() is not None or not senales:
+                return
+            try:
+                os.killpg(pgid, senales[0])
+            except ProcessLookupError:
+                return
+            QTimer.singleShot(3000, lambda: escalar(senales[1:]))
+        QTimer.singleShot(3000, lambda: escalar([signal.SIGTERM, signal.SIGKILL]))
+        return True
+
     def lanzar_robots(self):
-        """Lanza el launch de ambos robots (ur5e_bringup multi_ur5e.launch.py)"""
+        """Lanza ambos robots con ur5e_bringup: multi_ur5e.launch.py para los
+        que estan en Simulation/Real y multi_ur5e_sim.launch.py para los que
+        estan en Gazebo (ver modulos/robots_launch.py)."""
         launch_feedback = "true"
         if hasattr(self, 'feedback_checkbox'):
             launch_feedback = "true" if self.feedback_checkbox.isChecked() else "false"
@@ -497,6 +596,14 @@ ros2 run ur5_controller controller_node --ros-args \
         except Exception as e:
             print(f"[Shutdown] Error cerrando RViz: {e}")
         
+        try:
+            if hasattr(self, 'estado_timer'):
+                self.estado_timer.stop()
+            if hasattr(self, 'monitor'):
+                self.monitor.destroy()
+        except Exception as e:
+            print(f"[Shutdown] Error cerrando el monitor de robots: {e}")
+
         try:
             # Shutdown ROS2
             if rclpy.ok():

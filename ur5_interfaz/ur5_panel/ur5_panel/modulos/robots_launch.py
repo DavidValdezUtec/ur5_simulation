@@ -1,7 +1,15 @@
-"""Lanzamiento de 'ur5e_bringup multi_ur5e.launch.py': traduce la config
-de la UI (dicts r1_config/r2_config del panel) al config.json que lee ese
-launch, lo lanza, y sondea hasta que ambos topicos /r{1,2}/robot_description
-existen para agregar los robots al rviz_widget."""
+"""Lanzamiento de los robots con ur5e_bringup segun el modo de cada uno
+('mode' en r1_config/r2_config, ver config_store.MODE_LABELS):
+
+  - fake / real -> multi_ur5e.launch.py
+  - gazebo      -> multi_ur5e_sim.launch.py
+
+Los robots se reparten entre ambos launch: cada uno recibe con 'config:='
+un JSON (en ~/.ros/ur5_panel/) con SOLO sus robots, y solo se lanza el que
+tenga alguno. Asi se pueden mezclar, p.ej. r1 real y r2 en Gazebo.
+
+Despues sondea hasta que ambos topicos /r{1,2}/robot_description existen
+para agregar los robots al rviz_widget."""
 import json
 import os
 import subprocess
@@ -15,63 +23,121 @@ except Exception:
     PackageNotFoundError = Exception
     get_package_share_directory = None
 
+from ur5_panel.config_store import DEFAULT_MODE, USER_CONFIG_DIR, tf_prefix
+
 from .procesos import terminar_proceso_gracefully
+
+# Launch de ur5e_bringup por grupo de robots: (archivo, args extra).
+LAUNCHES = {
+    "driver": ("multi_ur5e.launch.py", []),
+    "gazebo": ("multi_ur5e_sim.launch.py", []),
+}
+
+
+def _launch_de(mode):
+    """Modo de un robot -> clave de LAUNCHES que lo lanza."""
+    return "gazebo" if mode == "gazebo" else "driver"
 
 
 class RobotsLaunchModule:
     def __init__(self, rviz_widget):
         self.rviz_widget = rviz_widget
-        self.process = None
+        # Un proceso por launch activo: {"driver": Popen, "gazebo": Popen}
+        self.processes = {}
+        # Robots lanzados: {"r1": {"launch": "driver", "mode": "real"}, ...}
+        self.robots = {}
         self.running = False
         self._timer = None
         self._intentos = 0
         self._on_ready = None
 
-    def _escribir_config(self, r1_config, r2_config):
-        def _a_robot_json(cfg, name):
-            return {
+    def _escribir_configs(self, robot_configs):
+        """Escribe un JSON por launch con los robots que le tocan y devuelve
+        {clave de LAUNCHES: ruta}. robot_configs = {"r1": cfg, "r2": cfg}.
+
+        El tf_prefix no se escribe: ur5e_bringup lo deriva de "name"
+        ('<name>_'), igual que config_store.tf_prefix(). Se escriben junto a
+        la config de usuario: NO se toca el config.json de ur5e_bringup (con
+        --symlink-install es un enlace al archivo versionado de src/)."""
+        grupos = {}
+        for name, cfg in robot_configs.items():
+            mode = cfg.get("mode", DEFAULT_MODE)
+            grupos.setdefault(_launch_de(mode), []).append({
                 "name": name,
-                "tf_prefix": cfg["tf_prefix"],
                 "xyz": [cfg["pos_x"], cfg["pos_y"], cfg["pos_z"]],
                 "rpy": [cfg["rot_x"], cfg["rot_y"], cfg["rot_z"]],
                 "ur_type": cfg["ur_type"],
                 "robot_ip": cfg["robot_ip"],
                 "tcp_port": cfg["script_sender_port"],
-                "use_fake_hardware": cfg["use_fake_hardware"],
-            }
+                # Solo lo usa multi_ur5e.launch.py; el de Gazebo lo ignora.
+                "use_fake_hardware": "true" if mode == "fake" else "false",
+            })
 
-        robots = [_a_robot_json(r1_config, "r1"), _a_robot_json(r2_config, "r2")]
-
-        share_dir = get_package_share_directory("ur5e_bringup")
-        config_path = os.path.join(share_dir, "config", "config.json")
-        with open(config_path, "w") as f:
-            json.dump(robots, f, indent=4)
-        return config_path
+        os.makedirs(USER_CONFIG_DIR, exist_ok=True)
+        paths = {}
+        for launch, robots in grupos.items():
+            paths[launch] = os.path.join(USER_CONFIG_DIR, f"robots_{launch}.json")
+            with open(paths[launch], "w") as f:
+                json.dump(robots, f, indent=4)
+        return paths
 
     def lanzar(self, r1_config, r2_config, on_ready=None):
-        """Escribe la config y lanza multi_ur5e.launch.py. 'on_ready', si se
-        pasa, se invoca (sin argumentos) cuando ambos robots aparecen en
-        /ros2 topic list; por defecto los agrega directo al rviz_widget."""
-        config_path = self._escribir_config(r1_config, r2_config)
-        print(f"[Robots] Config de robots escrita en {config_path}")
+        """Escribe las configs y lanza los launch necesarios segun el modo
+        de cada robot. 'on_ready', si se pasa, se invoca (sin argumentos)
+        cuando ambos robots aparecen en /ros2 topic list; por defecto los
+        agrega directo al rviz_widget."""
+        robot_configs = {"r1": r1_config, "r2": r2_config}
+        paths = self._escribir_configs(robot_configs)
 
-        command = ['ros2', 'launch', 'ur5e_bringup', 'multi_ur5e.launch.py']
-        try:
-            print("[Robots] Iniciando launch de robots...")
-            print(f"[Robots] Comando: {' '.join(command)}")
-            self.process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                preexec_fn=os.setsid
-            )
-            self.running = True
-            print(f"[Robots] Proceso lanzado (PID: {self.process.pid})")
+        log_dir = os.path.join(USER_CONFIG_DIR, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        for launch, config_path in paths.items():
+            launch_file, extra_args = LAUNCHES[launch]
+            command = ['ros2', 'launch', 'ur5e_bringup', launch_file,
+                       f'config:={config_path}', *extra_args]
+            # La salida va a un archivo: con stdout=PIPE sin leerlo, el
+            # launch se bloquea al llenarse el buffer del pipe (~64 KB),
+            # y Gazebo lo llena en segundos.
+            log_path = os.path.join(log_dir, f"robots_{launch}.log")
+            try:
+                print(f"[Robots] Iniciando {launch_file} (config: {config_path})")
+                print(f"[Robots] Comando: {' '.join(command)}")
+                print(f"[Robots] Salida en {log_path}")
+                with open(log_path, "w") as log:
+                    self.processes[launch] = subprocess.Popen(
+                        command,
+                        stdout=log,
+                        stderr=subprocess.STDOUT,
+                        preexec_fn=os.setsid
+                    )
+                print(f"[Robots] Proceso lanzado (PID: {self.processes[launch].pid})")
+            except Exception as e:
+                print(f"[Robots] Error al lanzar {launch_file}: {e}")
+                continue
+            for name, cfg in robot_configs.items():
+                mode = cfg.get("mode", DEFAULT_MODE)
+                if _launch_de(mode) == launch:
+                    self.robots[name] = {"launch": launch, "mode": mode}
+
+        self.running = bool(self.processes)
+        if self.running:
             self._armar_verificacion(on_ready)
-        except Exception as e:
-            print(f"[Robots] Error al lanzar robots: {e}")
-            self.process = None
-            self.running = False
+
+    def estado_proceso(self, robot_id):
+        """Estado del launch que lanzo a 'robot_id': 'sin_proceso' (no
+        lanzado o detenido con detener()), 'vivo' o 'terminado' (el proceso
+        murio sin que se pidiera; ver su log en ~/.ros/ur5_panel/logs/)."""
+        robot = self.robots.get(robot_id)
+        process = self.processes.get(robot["launch"]) if robot else None
+        if process is None:
+            return "sin_proceso"
+        return "vivo" if process.poll() is None else "terminado"
+
+    def modo(self, robot_id):
+        """Modo ('fake'/'real'/'gazebo') con el que se lanzo 'robot_id', o
+        None si no esta lanzado."""
+        robot = self.robots.get(robot_id)
+        return robot["mode"] if robot else None
 
     def _armar_verificacion(self, on_ready):
         self._intentos = 0
@@ -124,7 +190,8 @@ class RobotsLaunchModule:
         corriendo (no lee el topico /robot_description).
 
         IMPORTANTE: si se cambian los argumentos que recibe la macro
-        ur5e_unit en multi_ur5e.launch.py, hay que reflejar el mismo cambio
+        ur5e_unit en multi_ur5e.launch.py (o multi_ur5e_sim.launch.py para
+        robots en modo Gazebo), hay que reflejar el mismo cambio
         aca para que el controlador siga viendo el mismo robot que el
         driver/rviz.
         """
@@ -134,6 +201,7 @@ class RobotsLaunchModule:
         # Misma derivacion de puertos que _robot_group() en
         # multi_ur5e.launch.py: el unico puerto base que se persiste es
         # script_sender_port (ahi guardado como "tcp_port" en config.json).
+        mode = robot_config.get("mode", DEFAULT_MODE)
         tcp_port = int(robot_config["script_sender_port"])
         reverse_port = tcp_port - 1
         script_sender_port = tcp_port
@@ -142,7 +210,7 @@ class RobotsLaunchModule:
 
         xacro_args = [
             f"name:={robot_id}",
-            f"tf_prefix:={robot_config['tf_prefix']}",
+            f"tf_prefix:={tf_prefix(robot_id)}",
             f"x:={robot_config['pos_x']}",
             f"y:={robot_config['pos_y']}",
             f"z:={robot_config['pos_z']}",
@@ -151,7 +219,11 @@ class RobotsLaunchModule:
             f"rz:={robot_config['rot_z']}",
             f"ur_type:={robot_config['ur_type']}",
             f"robot_ip:={robot_config['robot_ip']}",
-            f"use_fake_hardware:={robot_config['use_fake_hardware']}",
+            f"use_fake_hardware:={'true' if mode == 'fake' else 'false'}",
+            # Gazebo: mismo hardware que multi_ur5e_sim.launch.py. La unica
+            # diferencia que queda es la ruta del yaml en el plugin de
+            # Gazebo (simulation_controllers), que Pinocchio ignora.
+            f"sim_ignition:={'true' if mode == 'gazebo' else 'false'}",
             "headless_mode:=true",
             f"reverse_port:={reverse_port}",
             f"script_sender_port:={script_sender_port}",
@@ -189,7 +261,11 @@ class RobotsLaunchModule:
     def detener(self):
         if self._timer is not None:
             self._timer.stop()
-        if self.process is not None:
-            terminar_proceso_gracefully(self.process, 'robots')
-            self.process = None
+        # Cada launch corre en su propio grupo de procesos (setsid):
+        # terminar_proceso_gracefully manda la senal al grupo entero, lo que
+        # incluye a Gazebo (sh -> ruby ign gazebo) en el de simulacion.
+        for launch, process in self.processes.items():
+            terminar_proceso_gracefully(process, f'robots ({launch})')
+        self.processes = {}
+        self.robots = {}
         self.running = False

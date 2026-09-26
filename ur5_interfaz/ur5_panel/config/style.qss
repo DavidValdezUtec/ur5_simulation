@@ -104,3 +104,29 @@ QTabWidget#menu_general > QTabBar::tab:hover {
 QTabWidget#menu_general > QTabBar {
 	qproperty-drawBase: 0;
 }
+
+/* Barra superior (modulos/dock.py) */
+QToolBar#dock_superior {
+	background-color: #1c1f25;
+	border: none;
+	border-bottom: 1px solid #444a58;
+	padding: 4px;
+	spacing: 6px;
+}
+QLabel#dock_robot_mode, QLabel#dock_stop_info {
+	color: #9aa3b2;
+	font-size: 13px;
+}
+QPushButton#boton_stop {
+	background-color: #c0392b;
+	color: #ffffff;
+	font-size: 17px;
+	font-weight: bold;
+	padding: 8px 28px;
+}
+QPushButton#boton_stop:hover {
+	background-color: #e74c3c;
+}
+QPushButton#boton_stop:pressed {
+	background-color: #922b21;
+}
