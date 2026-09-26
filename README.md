@@ -1,209 +1,205 @@
-# Simulación y Teleoperación de UR5 con Geomagic Touch
+# UR5e Simulation con Geomagic Touch
 
-Este repositorio contiene el software necesario para teleoperar dos robots UR5/UR5e utilizando los dispositivos hápticos Geomagic Touch en un entorno ROS 2 Humble.
+Software de teleoperación de dos robots **UR5e** mediante dos dispositivos hápticos **Geomagic Touch**, en ROS 2 Humble. Incluye instalador automatizado (host Ubuntu 22.04 o Distrobox), simulación en Gazebo y driver para los robots reales.
 
-## Requisitos Previos
+---
 
-*   **Sistema Operativo:** Ubuntu 22.04
-*   **Plataforma ROS:** ROS 2 Humble
-*   **RAM:** Se recomienda un mínimo de 8 GB de RAM para la compilación.
-*   **Drivers:** Instale losdrivers del dispositivo Haptico Geomagic Touch. Touch Haptic Driver v3.4
+## 📋 Requisitos Previos
 
-## Guía de Instalación
+### Sistema Operativo
+- **Ubuntu 22.04 LTS** (instalación nativa)
+- **Cualquier distro con Distrobox** (el instalador lo detecta y lo configura solo)
 
-Sigue estos pasos en orden para configurar tu entorno de desarrollo.
+### Hardware
+- 2x dispositivo **Geomagic Touch** (opcional para simulación pura; requerido para teleoperación háptica)
+- 2x robot **UR5e** real (opcional; solo para operar hardware físico)
+- Mínimo 8 GB RAM (recomendado para que `colcon build` no falle por falta de memoria)
+- ~10 GB de espacio libre en disco
 
-### Instalación de Drivers de Geomagic Touch
+### Software (se instala automáticamente)
+- ROS 2 Humble Desktop + herramientas de desarrollo
+- OpenHaptics SDK v3.4 + Touch Driver
+- OSQP v0.6.3 + Osqp-Eigen v0.8.1
+- `ros-humble-ur`, `ros-humble-ur-simulation-gz`, `ros-humble-pinocchio`, etc.
 
-Estos comandos instalarán la distribución de escritorio de ROS 2 Humble y las herramientas de desarrollo.
+---
+
+## 🚀 Instalación
+
+### ⚡ Opción 1: Un solo comando (Recomendada)
 
 ```bash
-# Descarga e instala los drivers de Open Haptic
-curl -L -o TouchDriver_2024_09_19.tgz https://s3.us-east-1.amazonaws.com/dl.3dsystems.com/binaries/Sensable/Linux/TouchDriver_2024_09_19.tgz
-tar -xzvf TouchDriver_2024_09_19.tgz
-cd Touch_Driver_2024_09_19
-# Ejecutar el script con bash para evitar errores de compatibilidad
-sudo bash install_haptic_driver
-cd ..
-# Limpiar los archivos descargados
-rm -rf Touch_Driver_2024_09_19 TouchDriver_2024_09_19.tgz
-
-curl -L -o openhaptics_developer.tar.gz "https://s3.amazonaws.com/dl.3dsystems.com/binaries/support/downloads/KB+Files/Open+Haptics/openhaptics_3.4-0-developer-edition-amd64.tar.gz"
-tar -xzvf openhaptics_developer.tar.gz
-cd openhaptics_3.4-0-developer-edition-amd64
-sudo ./install  #EN medio de la instlaacion pedirá continuar, marcar "y" al final pedirá reiniciar (enter) o cancelar el reincio (q), elegir q
-cd ..
-rm -rf openhaptics_developer.tar.gz
-
-#Paquetes para los progrmas graficos del driver
-sudo apt update
-sudo apt install build-essential libncurses5-dev freeglut3-dev zlib1g-dev libncurses5 -y
+curl -fsSL https://raw.githubusercontent.com/DavidValdezUtec/ur5_simulation/main/bootstrap.sh | bash
 ```
 
-### 1. Instalación de ROS 2 Humble
+**Qué hace automáticamente:**
+1. Verifica/instala `git`
+2. Clona este repositorio en `~/tesis_ws/src/ur5_simulation`
+3. Detecta tu sistema: si no es Ubuntu 22.04, ofrece usar **Distrobox** (crea el contenedor `ubuntu22` si hace falta)
+4. Pre-descarga los archivos pesados (Touch Driver, OpenHaptics, OSQP, Osqp-Eigen) **antes** de entrar al contenedor, para no repetir descargas
+5. Instala ROS 2 Humble, drivers de Geomagic Touch y dependencias
+6. Compila el workspace con `colcon build`
+7. Crea accesos directos `.desktop` para Geomagic Touch (menú y escritorio)
+8. Pregunta si deseas reiniciar el equipo (necesario para que el grupo `dialout` tome efecto)
 
-Estos comandos instalarán la distribución de escritorio de ROS 2 Humble y las herramientas de desarrollo.
+> Al ejecutarse por `curl | bash` no hay un archivo local que detectar, así que instala directo en `~/tesis_ws` sin preguntar la ubicación. Durante el proceso puede pedirte la contraseña de `sudo` y confirmar la instalación de los drivers Geomagic.
 
-```bash
+---
 
-# Configurar la codificación de caracteres a UTF-8
-sudo apt update && sudo apt install locales
-sudo locale-gen es_ES es_ES.UTF-8
-sudo update-locale LC_ALL=es_ES.UTF-8 LANG=es_ES.UTF-8
-export LANG=es_ES.UTF-8
+### 📝 Opción 2: Manual (paso a paso)
 
-
-# Habilitar los repositorios 'universe' y 'multiverse'
-sudo apt install software-properties-common
-sudo add-apt-repository universe
-
-# Añadir la clave GPG y el repositorio de ROS 2
-sudo apt update && sudo apt install curl
-sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
-
-# Actualizar e instalar ROS 2 y herramientas de desarrollo
-sudo apt update
-sudo apt upgrade
-sudo apt install ros-humble-desktop ros-dev-tools
-
-# Añadir el script de configuración al .bashrc para cargarlo automáticamente
-echo '
-if [ -f /opt/ros/humble/setup.bash ]; then
-    source /opt/ros/humble/setup.bash
-    # Forzar X11 para evitar errores con Wayland en algunas interfaces gráficas
-    export QT_QPA_PLATFORM=xcb
-fi' >> ~/.bashrc
-```
-**Importante:** Cierra y vuelve a abrir tu terminal para que los cambios surtan efecto.
-
-### 2. Instalación de Dependencias Adicionales
-
-Instala todas las dependencias de paquetes de ROS y del sistema con un solo comando.
+Para tener control total o revisar cada paso antes de ejecutarlo:
 
 ```bash
-sudo apt update
-sudo apt install \
-  ros-humble-v4l2-camera\
-  ros-humble-robot-state-publisher \
-  ros-humble-joint-state-publisher \
-  ros-humble-joint-state-publisher-gui \
-  ros-humble-xacro \
-  ros-humble-teleop-twist-keyboard \
-  ros-humble-ros2-control \
-  ros-humble-controller-manager \
-  ros-humble-ur \
-  ros-humble-ur-simulation-gz\
-  ros-humble-pinocchio \
-  libeigen3-dev \
-  libgoogle-glog-dev \
-  libmodbus-dev -y
-```
-
-### 3. Instalación de Dependencias desde Código Fuente
-
-`OSQP` y `Osqp-Eigen` se compilan desde el código fuente para asegurar la compatibilidad. Usaremos un directorio temporal para no dejar archivos residuales.
-
-```bash
-# Crear un directorio temporal y navegar a él
-mkdir /tmp/source_deps && cd /tmp/source_deps
-
-# --- Instalar OSQP ---
-git clone --recursive https://github.com/osqp/osqp.git
-cd osqp
-git checkout v0.6.3
-git submodule update --init --recursive
-mkdir build && cd build
-cmake .. && make
-sudo make install
-cd .. # Volver a la raíz de osqp
-cd .. # Volver a /tmp/source_deps
-
-# --- Instalar Osqp-Eigen ---
-git clone https://github.com/robotology/osqp-eigen.git
-cd osqp-eigen
-git checkout v0.8.1
-mkdir build && cd build
-cmake .. && make
-sudo make install
-cd .. # Volver a la raíz de osqp-eigen
-cd .. # Volver a /tmp/source_deps
-
-# --- Limpieza ---
-# Regresar al directorio anterior y eliminar la carpeta temporal
-cd "$OLDPWD"
-rm -rf /tmp/source_deps
-
-# Actualizar el caché del enlazador después de instalar librerías manualmente
-sudo ldconfig
-```
-
-### 4. Compilación del Workspace
-
-Una vez instaladas todas las dependencias, clona este repositorio y los paquetes adicionales en tu workspace de ROS 2 y compila.
-
-```bash
-# Crea y navega a tu workspace
+# 1. Crear el workspace y clonar el repositorio en la ruta que espera install.bash
 mkdir -p ~/tesis_ws/src
 cd ~/tesis_ws/src
-
-# Regresa a la raíz del workspace y compila
-cd ~/tesis_ws
-colcon build --packages-select omni_msgs ur5_description omni_description ur5_impedance ur5_kinematics ur5_sliding ur5_scaled_sender ur5_bringup
-
-colcon build --packages-select omni_common griper_control geomagic_interface
-
-colcon build --packages-select ur5_controller
-colcon build --packages-select ur5_interfaz_library ur5_panel
-
+git clone https://github.com/DavidValdezUtec/ur5_simulation.git
+cd ur5_simulation
 ```
-**Nota sobre la compilación:** Si encuentras un error de tipo `killed` o `Terminado`, significa que te has quedado sin memoria RAM. Intenta compilar de nuevo usando un solo núcleo:
-`colcon build --parallel-workers 1`
 
-### 5. Uso
-
-Para ejecutar la simulación, asegúrate de haber "sourceado" tu workspace y luego utiliza el archivo de lanzamiento correspondiente.
+**En Ubuntu 22.04 nativo**, ejecuta el instalador directamente:
 
 ```bash
-# Carga la configuración de tu workspace (haz esto en cada nueva terminal)
+bash install.bash --workspace-path ~/tesis_ws
+```
+
+**En cualquier otra distro**, usa `bootstrap.sh` (te preguntará la ubicación y configurará Distrobox):
+
+```bash
+bash bootstrap.sh
+```
+
+Ambos caminos terminan compilando el workspace y dejándote el mismo resultado que la Opción 1; la diferencia es que aquí ves cada paso y puedes cancelar en cualquier punto (`set -e`: el script se detiene ante el primer error).
+
+---
+
+## 📁 Estructura del Repositorio
+
+```
+~/tesis_ws/
+├── src/
+│   └── ur5_simulation/
+│       ├── bootstrap.sh              ← Instalador (detecta host/Distrobox)
+│       ├── install.bash              ← Instalador principal (llamado por bootstrap.sh)
+│       ├── Geomagic_Touch_ROS2/       ← Driver Geomagic Touch
+│       ├── geomagic_interface/
+│       ├── griper_control/
+│       ├── ur5_bringup/              ← Paquete de bringup (legado, un solo robot)
+│       ├── ur5e_bringup/             ← Bringup actual: 2 robots (r1, r2), Gazebo + driver real
+│       ├── ur5_controller/           ← Nodo de control (controller_backup)
+│       ├── ur5_description/          ← URDF/xacro (soporta ur5 y ur5e vía config)
+│       ├── ur5_impedance/
+│       ├── ur5_interfaz/
+│       ├── ur5_kinematics/
+│       ├── ur5_sliding/
+│       └── ur5_torque/
+├── build/ install/ log/              ← Generados por colcon
+└── .downloads/                       ← Cache de archivos pre-descargados
+```
+
+Los dos robots (`r1`, `r2`) y sus IPs/tipo se configuran en `ur5e_bringup/config/config.json`.
+
+---
+
+## 🎮 Uso
+
+### 1. Cargar el workspace
+
+En cada terminal nueva (o agrégalo a `~/.bashrc`, el instalador ya lo hace por ti):
+
+```bash
 source ~/tesis_ws/install/setup.bash
-
-# Lanza el nodo de simulación (reemplaza con el nombre real de tu launch file)
-ros2 launch ur5_simulation ur5_simulation.launch.py
 ```
 
-Para teleoperar los robots con los Geomagic Touch se debe renombrar los dispositivos como "phantom2" para el brazo izquierdo y "phantom3" para el derecho, luego calibrarlos por separado, desconectarlos y conectarlos de la forma, primero izquierdo y luego derecho. Finalmente, lanzar el nodo de teleoperación:
+### 2. Simulación en Gazebo (los 2 robots UR5e)
 
 ```bash
-ros2 launch omni_common dual_omni_state.launch.py 
+ros2 launch ur5e_bringup multi_ur5e_sim.launch.py
+
+# Con GUI de Gazebo visible y sin sensor de fuerza/torque:
+ros2 launch ur5e_bringup multi_ur5e_sim.launch.py gui:=true ft_sensor:=false
 ```
-Para lanzar el driver de los 2 robots conectar ambos a un mismo router, en ambos configurar la IP de urcaps: 192.168.10.101 y en el equipo mantener IP estatica IPV4 con el mismo valor y la mascara 255.255.255.0, las IPs de cada robot son: 192.168.10.103 y 192.168.10.104 luego lanzar el siguiente archivo de launch: 
+
+> ⚠️ **Nota:** si instalaste con una versión de `install.bash` anterior a este cambio, `ur5e_bringup` puede no haberse compilado (no está en la lista de `--packages-select`). Si el `launch` falla con "package not found", compílalo manualmente:
+> ```bash
+> cd ~/tesis_ws && colcon build --symlink-install --packages-select ur5e_bringup
+> ```
+
+### 3. Teleoperación con Geomagic Touch
+
+Antes de conectar los dispositivos, renómbralos como `phantom2` (brazo izquierdo) y `phantom3` (brazo derecho), calíbralos por separado, y conéctalos en orden: primero izquierdo, luego derecho. Luego:
+
+```bash
+ros2 launch omni_common dual_omni_state.launch.py
+```
+
+### 4. Driver de los robots reales
+
+Conecta ambos UR5e al mismo router (IP de las urcaps: `192.168.10.101`; el equipo con IP estática en la misma red, máscara `255.255.255.0`). Las IPs de los robots son `192.168.10.103` y `192.168.10.104`.
+
 ```bash
 ros2 launch ur_robot_driver dual_control.launch.py r1_type:=ur5e r2_type:=ur5e
 ```
-Una vez los robots esten posicionados correctamente se lanza los controladores de la forma:
+
+Con los robots ya posicionados, lanza los controladores (uno por robot):
+
 ```bash
-ros2 run ur5_controller controller_backup --ros-args -p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory" -p ur:="ur5e" -p nmspace:="r1" -p geomagic_topic:="/phantom3/pose" -p geomagic_button_topic:="/phantom3/button" -p csv_log_enable:="true" -p geomagic:="true"
+ros2 run ur5_controller controller_backup --ros-args \
+  -p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory" \
+  -p ur:="ur5e" -p nmspace:="r1" \
+  -p geomagic_topic:="/phantom3/pose" -p geomagic_button_topic:="/phantom3/button" \
+  -p csv_log_enable:="true" -p geomagic:="true"
 ```
 
 ```bash
-ros2 run ur5_controller controller_backup --ros-args -p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory" -p ur:="ur5e" -p nmspace:="r2" -p geomagic_topic:="/phantom2/pose" -p geomagic_button_topic:="/phantom2/button" -p csv_log_enable:="true" -p geomagic:="true"
+ros2 run ur5_controller controller_backup --ros-args \
+  -p control_topic:="/scaled_joint_trajectory_controller/joint_trajectory" \
+  -p ur:="ur5e" -p nmspace:="r2" \
+  -p geomagic_topic:="/phantom2/pose" -p geomagic_button_topic:="/phantom2/button" \
+  -p csv_log_enable:="true" -p geomagic:="true"
 ```
 
-## Troubleshooting
+---
 
-### Permisos de Geomagic Touch en Linux (Error /dev/ttyACM0)
+## 🔍 Troubleshooting
 
-Si tienes problemas para acceder al dispositivo Geomagic Touch (por ejemplo, un error de "permiso denegado" al acceder a `/dev/ttyACM0`) y necesitas ejecutar `sudo chmod 777 /dev/ttyACM0` cada vez que lo conectas, es un problema de permisos de usuario. Esto puede ocurrir si las reglas `udev` de los drivers no se aplican correctamente.
+### "Permiso denegado" en `/dev/ttyACM0`
 
-En sistemas basados en Debian (como Ubuntu, PikaOS), los dispositivos serie se asignan por defecto al grupo `dialout`. Para dar a tu usuario acceso permanente, debes añadirlo a este grupo.
-
-Ejecuta el siguiente comando en tu **sistema anfitrión** (el host, no dentro de un contenedor como Distrobox):
+Los dispositivos serie se asignan al grupo `dialout`. El instalador ya te agrega a ese grupo, pero si necesitas hacerlo manualmente:
 
 ```bash
 sudo usermod -a -G dialout $USER
 ```
 
-**Importante:** Después de ejecutar el comando, **debes reiniciar tu ordenador** para que los cambios de grupo se apliquen correctamente.
+**Debes reiniciar el equipo** para que el cambio de grupo tome efecto. En Distrobox, este cambio se aplica en el **host**, no dentro del contenedor.
 
+### Geomagic Touch no se detecta
 
+```bash
+lsusb | grep -i sensable
+```
+
+Si aparece pero sigue sin funcionar, revisa que los drivers y las reglas `udev` se hayan instalado (`install.bash` lo verifica automáticamente y falla con un mensaje claro si algo no quedó bien).
+
+### `colcon build` termina con "Killed" o "Terminado"
+
+Te quedaste sin RAM durante la compilación. Compila con un solo núcleo:
+
+```bash
+colcon build --symlink-install --parallel-workers 1
+```
+
+### Distrobox no está instalado
+
+```bash
+curl -s https://raw.githubusercontent.com/89luca89/distrobox/main/install | sudo bash
+```
+
+---
+
+## ⚠️ Notas Importantes
+
+- **Reinicio obligatorio:** tras la instalación, reinicia el equipo para que los permisos de `dialout` y los drivers de Geomagic Touch queden activos.
+- **Pre-descargas:** `bootstrap.sh` descarga todo lo pesado (drivers, OSQP) en el host **antes** de entrar a Distrobox, para no repetir descargas si necesitas reinstalar.
+- **`ur5e_bringup` es el paquete vigente** para simular y lanzar los 2 robots; `ur5_bringup` se mantiene por compatibilidad con lanzadores anteriores de un solo robot.
