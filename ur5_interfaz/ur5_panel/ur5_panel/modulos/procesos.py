@@ -6,6 +6,18 @@ import signal
 import subprocess
 
 
+def _matar_restos(pgid, nombre):
+    """SIGKILL a lo que quede del grupo tras morir el proceso principal: si
+    'ros2 launch' sale por SIGTERM no espera a sus hijos, y los del driver UR
+    que estan reintentando conectar con un robot inalcanzable ignoran las
+    senales hasta ~1 min (seguirian ocupando /rN y los puertos)."""
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+        print(f"[Shutdown] Procesos restantes de {nombre} terminados")
+    except ProcessLookupError:
+        pass
+
+
 def terminar_proceso_gracefully(proceso, nombre):
     """Termina un proceso de forma gradual: SIGINT -> SIGTERM -> SIGKILL."""
     if proceso is None:
@@ -28,6 +40,7 @@ def terminar_proceso_gracefully(proceso, nombre):
         try:
             proceso.wait(timeout=5)
             print(f"[Shutdown] {nombre} cerrado con SIGTERM")
+            _matar_restos(pgid, nombre)
             return
         except subprocess.TimeoutExpired:
             print(f"[Shutdown] {nombre} no respondió a SIGTERM, forzando cierre...")

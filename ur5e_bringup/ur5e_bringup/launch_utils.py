@@ -11,6 +11,8 @@ import json
 import os
 import tempfile
 
+import yaml
+
 from ament_index_python.packages import get_package_share_directory
 from launch import Substitution
 from launch.actions import DeclareLaunchArgument
@@ -28,13 +30,13 @@ DEFAULT_ROBOTS = [
      "xyz": ("0", "0", "0"),
      "ur_type": "ur5e",
      "robot_ip": "192.168.1.102",
-     "tcp_port": "30002",
+     "tcp_port": "50002",
      "use_fake_hardware": "true"},
     {"name": "r2",
      "xyz": ("1.2", "0", "0"),
      "ur_type": "ur5",
      "robot_ip": "192.168.1.103",
-     "tcp_port": "30002",
+     "tcp_port": "50012",
      "use_fake_hardware": "true"},
 ]
 
@@ -101,6 +103,16 @@ def robot_description(xacro_args):
     return {
         "robot_description": ParameterValue(value=Command(command), value_type=str)
     }
+
+
+def ur_update_rate(ur_type):
+    """update_rate (Hz) del controller_manager para el modelo 'ur_type',
+    leido de ur_robot_driver/config/<ur_type>_update_rate.yaml."""
+    path = os.path.join(
+        get_package_share_directory("ur_robot_driver"), "config", f"{ur_type}_update_rate.yaml"
+    )
+    with open(path) as f:
+        return yaml.safe_load(f)["controller_manager"]["ros__parameters"]["update_rate"]
 
 
 def render_controllers_file(template_path, robot_names):

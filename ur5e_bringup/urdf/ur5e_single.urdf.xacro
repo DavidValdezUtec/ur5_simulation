@@ -28,6 +28,10 @@
   <xacro:arg name="script_sender_port" default="50002" />
   <xacro:arg name="trajectory_port" default="50003" />
   <xacro:arg name="script_command_port" default="50004" />
+  <!-- Solo robot real; multi_ur5e.launch.py pasa las rutas reales -->
+  <xacro:arg name="script_filename" default="to_be_filled_by_ur_robot_driver" />
+  <xacro:arg name="output_recipe_filename" default="to_be_filled_by_ur_robot_driver" />
+  <xacro:arg name="input_recipe_filename" default="to_be_filled_by_ur_robot_driver" />
 
   <!-- 'world' local a este robot; el offset xyz posiciona su base dentro de
        la celda. Cada robot publica su propio arbol de TF pero como todos
@@ -51,6 +55,9 @@
     reverse_port="$(arg reverse_port)"
     script_sender_port="$(arg script_sender_port)"
     trajectory_port="$(arg trajectory_port)"
-    script_command_port="$(arg script_command_port)" />
+    script_command_port="$(arg script_command_port)"
+    script_filename="$(arg script_filename)"
+    output_recipe_filename="$(arg output_recipe_filename)"
+    input_recipe_filename="$(arg input_recipe_filename)" />
 
 </robot>

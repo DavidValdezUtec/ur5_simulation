@@ -230,6 +230,19 @@ class RobotsLaunchModule:
             f"trajectory_port:={trajectory_port}",
             f"script_command_port:={script_command_port}",
         ]
+        if mode != "gazebo":
+            # Mismas rutas que pasa multi_ur5e.launch.py (el de Gazebo no
+            # las pasa y quedan con el valor por defecto del xacro)
+            client_share = get_package_share_directory("ur_client_library")
+            driver_share = get_package_share_directory("ur_robot_driver")
+            xacro_args += [
+                "script_filename:="
+                + os.path.join(client_share, "resources", "external_control.urscript"),
+                "input_recipe_filename:="
+                + os.path.join(driver_share, "resources", "rtde_input_recipe.txt"),
+                "output_recipe_filename:="
+                + os.path.join(driver_share, "resources", "rtde_output_recipe.txt"),
+            ]
 
         result = subprocess.run(
             ["xacro", xacro_path, *xacro_args],

@@ -20,6 +20,10 @@
     simulation_controllers : ruta del yaml de controladores que recibe el
                   controller_manager que crea el plugin de Gazebo (solo se
                   usa con sim_ignition=true)
+    script_filename / output_recipe_filename / input_recipe_filename :
+                  rutas del URScript y de las recetas RTDE que usa el driver
+                  real; las pasa multi_ur5e.launch.py (igual que
+                  ur_control.launch.py). Ignoradas con fake hardware o Gazebo
   -->
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro" />
   <xacro:include filename="$(find ur5e_bringup)/urdf/tool.urdf.xacro" />
@@ -46,7 +50,10 @@
       reverse_port:=50001
       script_sender_port:=50002
       trajectory_port:=50003
-      script_command_port:=50004">
+      script_command_port:=50004
+      script_filename:=to_be_filled_by_ur_robot_driver
+      output_recipe_filename:=to_be_filled_by_ur_robot_driver
+      input_recipe_filename:=to_be_filled_by_ur_robot_driver">
 
     <link name="${name}_base_mount" />
     <joint name="${name}_base_mount_joint" type="fixed">
@@ -70,13 +77,14 @@
       sim_ignition="${sim_ignition}"
       headless_mode="${headless_mode}"
       robot_ip="${robot_ip}"
+      ur_type="${ur_type}"
       reverse_port="${reverse_port}"
       script_sender_port="${script_sender_port}"
       trajectory_port="${trajectory_port}"
       script_command_port="${script_command_port}"
-      script_filename="to_be_filled_by_ur_robot_driver"
-      output_recipe_filename="to_be_filled_by_ur_robot_driver"
-      input_recipe_filename="to_be_filled_by_ur_robot_driver"
+      script_filename="${script_filename}"
+      output_recipe_filename="${output_recipe_filename}"
+      input_recipe_filename="${input_recipe_filename}"
       generate_ros2_control_tag="${str(sim_ignition).lower() != 'true'}">
       <origin xyz="0 0 0" rpy="0 0 0" />
     </xacro:ur_robot>

@@ -12,6 +12,8 @@
   <depend>xacro</depend>
   <depend>ur_description</depend>
   <depend>ur_robot_driver</depend>
+  <exec_depend>ur_client_library</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
 
   <!-- Simulacion (multi_ur5e_sim.launch.py) -->
   <exec_depend>ros_gz_sim</exec_depend>

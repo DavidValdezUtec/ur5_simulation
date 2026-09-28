@@ -42,6 +42,7 @@ from ur5e_bringup.launch_utils import (
     load_robots,
     robot_description,
     spawner,
+    ur_update_rate,
 )
 
 def _robot_group(robot, context):
@@ -76,11 +77,25 @@ def _robot_group(robot, context):
         "script_sender_port": script_sender_port,
         "trajectory_port": trajectory_port,
         "script_command_port": script_command_port,
+        # Mismas rutas que ur_control.launch.py; sin ellas el driver real no
+        # encuentra el URScript ni las recetas RTDE (ur_macro trae un
+        # valor de relleno)
+        "script_filename": PathJoinSubstitution(
+            [FindPackageShare("ur_client_library"), "resources", "external_control.urscript"]
+        ),
+        "input_recipe_filename": PathJoinSubstitution(
+            [FindPackageShare("ur_robot_driver"), "resources", "rtde_input_recipe.txt"]
+        ),
+        "output_recipe_filename": PathJoinSubstitution(
+            [FindPackageShare("ur_robot_driver"), "resources", "rtde_output_recipe.txt"]
+        ),
     })
 
-    update_rate_config_file = PathJoinSubstitution(
-        [FindPackageShare("ur_robot_driver"), "config", f"{ur_type}_update_rate.yaml"]
-    )
+    # Frecuencia del controller_manager segun el modelo (500 Hz e-Series,
+    # 125 Hz CB3). El yaml del driver trae la clave 'controller_manager' sin
+    # namespace y no aplica a /<name>/controller_manager, asi que el valor se
+    # pasa como parametro directo del nodo.
+    update_rate = {"update_rate": ur_update_rate(ur_type)}
     controllers_file = PathJoinSubstitution(
         [FindPackageShare("ur5e_bringup"), "config", "ur5e_controllers.yaml"]
     )
@@ -90,7 +105,7 @@ def _robot_group(robot, context):
         executable="ros2_control_node",
         parameters=[
             description,
-            update_rate_config_file,
+            update_rate,
             ParameterFile(controllers_file, allow_substs=True),
             {"verify_payload_on_set": not is_fake},
         ],
@@ -102,7 +117,7 @@ def _robot_group(robot, context):
         executable="ur_ros2_control_node",
         parameters=[
             description,
-            update_rate_config_file,
+            update_rate,
             ParameterFile(controllers_file, allow_substs=True),
             {"verify_payload_on_set": not is_fake},
         ],
