@@ -254,21 +254,21 @@ class RobotsLaunchModule:
             raise RuntimeError(f"xacro fallo para '{robot_id}': {result.stderr.strip()}")
         return result.stdout
 
-    def escribir_params_robot_description(self, robot_id, robot_description_xml):
-        """Vuelca 'robot_description_xml' a un YAML de parametros en
-        ~/.ros/ur5_panel/, para pasarselo a controller_node via
-        '--params-file' en vez de '-p robot_description:=...': el XML trae
-        ':' y '\"' (ej. xmlns:xacro=\"...\") que el parser YAML de '-p k:=v'
-        de la CLI de ROS 2 puede interpretar mal. Un archivo YAML, volcado
-        con PyYAML, escapa el string correctamente sin ese riesgo.
+    def escribir_params_controller(self, robot_id, params):
+        """Vuelca 'params' (dict nombre -> valor) a un YAML de parametros en
+        ~/.ros/ur5_panel/, para pasarselo a controller.launch.py via
+        'params_file' (un launch no acepta '-p'). Ademas el robot_description
+        trae ':' y '\"' (ej. xmlns:xacro=\"...\") que el parser YAML de
+        '-p k:=v' de la CLI de ROS 2 puede interpretar mal; volcado con
+        PyYAML se escapa correctamente. La clave '/**' aplica al nodo sin
+        importar su namespace (/rN/ur5_ik_node).
         """
         params_dir = os.path.join(os.path.expanduser('~'), '.ros', 'ur5_panel')
         os.makedirs(params_dir, exist_ok=True)
         params_path = os.path.join(params_dir, f'{robot_id}_controller_params.yaml')
 
-        params = {'/**': {'ros__parameters': {'robot_description': robot_description_xml}}}
         with open(params_path, 'w') as f:
-            yaml.safe_dump(params, f, default_flow_style=False)
+            yaml.safe_dump({'/**': {'ros__parameters': params}}, f, default_flow_style=False)
         return params_path
 
     def detener(self):

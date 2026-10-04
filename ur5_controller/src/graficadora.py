@@ -41,6 +41,15 @@ def cargar_csv(path: pathlib.Path) -> pd.DataFrame:
 		return pd.DataFrame()
 
 
+def extraer_controlador(path: pathlib.Path | str) -> str:
+	"""Extrae el tipo de controlador del nombre del archivo, si existe."""
+	nombre = str(path).upper()
+	match = re.search(r"(?:^|_)(QP|IMP|SLD)(?=_|\.|$)", nombre)
+	if match:
+		return match.group(1)
+	return "QP"
+
+
 def graficar_trayectoria_3d(df: pd.DataFrame, guardar: bool = False, salida: pathlib.Path | None = None):
 	columnas_requeridas = ["x_des_x","x_des_y","x_des_z","x_meas_x","x_meas_y","x_meas_z"]
 	for c in columnas_requeridas:
@@ -71,12 +80,15 @@ def graficar_trayectoria_3d(df: pd.DataFrame, guardar: bool = False, salida: pat
 	else:
 		plt.show()
 
-def graficar_esfuerzos(df: pd.DataFrame, guardar: bool = False, salida: pathlib.Path | None = None):
+def graficar_esfuerzos(df: pd.DataFrame, guardar: bool = False, salida: pathlib.Path | None = None, controlador: str = "QP"):
 	columnas_requeridas = [f"u_control_{i}" for i in range(6)]
 	for c in columnas_requeridas:
 		if c not in df.columns:
 			print(f"Columna faltante en CSV: {c}")
 			return
+
+	controlador = controlador.upper()
+	unidad = "rad" if controlador == "QP" else "N·m"
 
 	t = df["t"].values
 	u_control = df[[f"u_control_{i}" for i in range(6)]].values
@@ -85,7 +97,8 @@ def graficar_esfuerzos(df: pd.DataFrame, guardar: bool = False, salida: pathlib.
 	for i in range(6):
 		ax = axes[i//2, i%2]
 		ax.plot(t, u_control[:, i], label=f"{sp.Symbol(f'u_control_{i+1}')}", linewidth=1.0)
-		ax.set_ylabel(r"$\mu_{%d}$ (N·m)" % (i+1), fontsize=12)
+		ax.set_ylabel(r"$\mu_{%d}$ (%s)" % (i+1, unidad), fontsize=12)
+
 		ax.grid(True, linestyle='--', alpha=0.4)
 		ax.set_title(f"Esfuerzo de Control de la Articulación {i+1}", fontsize=12)
 	for ax in axes[-1, :]:
@@ -171,9 +184,10 @@ def main():
 		sys.exit(1)
 
 	salida = pathlib.Path(args.salida) if args.salida else None
+	controlador = extraer_controlador(csv_path)
 	graficar_trayectoria_3d(df, guardar=args.guardar, salida=salida)
 	graficar_posiciones(df, guardar=args.guardar, salida=salida)
-	graficar_esfuerzos(df, guardar=args.guardar, salida=salida)
+	graficar_esfuerzos(df, guardar=args.guardar, salida=salida, controlador=controlador)
 if __name__ == "__main__":
 	main()
 

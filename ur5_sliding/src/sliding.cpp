@@ -113,6 +113,12 @@ ControlOutput UR5Sliding::calculateControlCommand(
     // tau = M * q_ddot_desired + C*dq + G
     Eigen::VectorXd tau = M * q_ddot_desired + Cq + G;
 
+    // Saturación de toques maximos por parte de fabricante
+
+    Eigen::VectorXd tau_max(6);  //en Nm
+    tau_max << 150, 150, 150, 28, 28, 28; // Valores máximos de torque (en Nm)
+    tau = tau.cwiseMax(-tau_max).cwiseMin(tau_max);
+
     //calculo de q_desired
     Eigen::VectorXd q_desired = q + dt * dq + 0.5 * dt * dt * q_ddot_desired;
     

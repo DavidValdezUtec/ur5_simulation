@@ -757,7 +757,7 @@ private:
                     600,
                     config_.ctrl_hz_
                 );
-                robot_state_.u_control = Eigen::VectorXd::Zero(6); // QP no calcula tau
+                robot_state_.u_control = robot_state_.q_solution;//Eigen::VectorXd::Zero(6); // QP no calcula tau
             }
             else if (config_.controller == "IMP") {
                 auto output = impedance_controller_->calculateControlCommand(

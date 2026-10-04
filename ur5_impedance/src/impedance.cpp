@@ -222,6 +222,12 @@ ControlOutput UR5Impedance::calculateControlCommand(
     // u = J^T * (F_x + nle_x)
     Eigen::VectorXd tau = J.transpose() * (F_x + nle_x);
 
+    //Saturacion de Torques maximos segun fabricante
+
+    Eigen::VectorXd tau_max(6);  //en Nm
+    tau_max << 150, 150, 150, 28, 28, 28; // Valores máximos de torque (en Nm)
+    tau = tau.cwiseMax(-tau_max).cwiseMin(tau_max);
+
     // --- FIN DE LA LEY DE CONTROL ---
 
     // 5. Cálculo de aceleración articular para integración (opcional)

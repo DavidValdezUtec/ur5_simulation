@@ -5,6 +5,7 @@ import atexit
 import subprocess
 import signal
 import rclpy
+import yaml
 
 from PyQt5.QtCore import Qt, QSize, QTimer
 from PyQt5.QtGui import QKeySequence
@@ -32,6 +33,7 @@ from ur5_panel.modulos.haptic import HapticModule
 from ur5_panel.modulos.robots_launch import RobotsLaunchModule
 from ur5_panel.modulos.dock import Dock
 from ur5_panel.modulos.robot_monitor import RobotMonitor
+#from ur5_panel.modulos.estado import Estado
 
 # Import RVizQtWidget from the installed ur5_interfaz_library package
 try:
@@ -182,8 +184,10 @@ class InterfazRviz(
         # botones. RobotMonitor es el nodo ROS2 del panel para el estado de
         # los robots y el STOP.
         self.monitor = RobotMonitor()
+        
         self.dock = Dock(self)
         self.addToolBar(Qt.TopToolBarArea, self.dock)
+        
         self.dock.boton_stop.clicked.connect(self.stop_robots)
         # Atajo s / S para el STOP en toda la aplicacion (tambien con la
         # ventana de configuracion al frente). Mientras se escribe en un
@@ -205,6 +209,7 @@ class InterfazRviz(
         self.set_robot_menu()
         self.set_controller_menu()
         self.set_joint_control()
+
         
         # Configurar widget de cámara
         self.set_camara_widget()
@@ -318,57 +323,61 @@ ros2 run ur5_controller controller_node --ros-args \
         # Se re-genera localmente con xacro (mismos argumentos que usa
         # multi_ur5e.launch.py) en vez de leerlo del tópico /robot_description,
         # para no depender de que el robot ya esté lanzado.
-        params_file = None
-        try:
-            robot_description_xml = self.robots.generar_robot_description(robot_id, robot_config)
-            params_file = self.robots.escribir_params_robot_description(robot_id, robot_description_xml)
-        except Exception as e:
-            print(f"[{robot_id} Controller] Error generando robot_description: {e}")
-            print(f"[{robot_id} Controller] El controlador arrancará con el URDF genérico "
-                  f"de respaldo (sin herramienta) en vez del real del robot.")
-
-        # Construir comando con parámetros desde la interfaz
-        # IMPORTANTE: -p y el parámetro deben ser argumentos separados
-        command = [
-            'ros2', 'run', 'ur5_controller', 'controller_node',
-            '--ros-args',
-            '-p', 'control_topic:=/forward_position_controller/commands',
-            '-p', f'ur:={robot_config["ur_type"]}',
-            '-p', f'nmspace:={robot_id}',
-            '-p', f'geomagic:={control_config["geomagic"]}',
-            '-p', f'geomagic_topic:={"phantom1" if robot_id == "r1" else "phantom2"}/state',
-            '-p', f'geomagic_button_topic:={"/phantom1/button" if robot_id == "r1" else "/phantom2/button"}',
-            '-p', 'csv_log_enable:=true',
-            '-p', f'traj_mode:={int(control_config["traj_mode"])}',
-            '-p', f'q_target:=[{getattr(self, f"{robot_id}_q_target").text()}]',
-            '-p', f'map_x:={float(control_config["map_x"])}',
-            '-p', f'map_y:={float(control_config["map_y"])}',
-            '-p', f'map_z:={float(control_config["map_z"])}',
-            '-p', f'sign_x:={float(control_config["sign_x"])}',
-            '-p', f'sign_y:={float(control_config["sign_y"])}',
-            '-p', f'sign_z:={float(control_config["sign_z"])}',
-            '-p', f'map_roll:={float(control_config["map_roll"])}',
-            '-p', f'map_pitch:={float(control_config["map_pitch"])}',
-            '-p', f'map_yaw:={float(control_config["map_yaw"])}',
-            '-p', f'sign_roll:={float(control_config["sign_roll"])}',
-            '-p', f'sign_pitch:={float(control_config["sign_pitch"])}',
-            '-p', f'sign_yaw:={float(control_config["sign_yaw"])}',
-            '-p', f'controller_type:={control_config["controller_type"]}',
-            '-p', f'lambda:={control_config["lambda"]}',
-            '-p', f'k:={control_config["k"]}', 
-            '-p', f'alpha:={control_config["alpha"]}',
-            '-p', f'traj_A:=[0.1,0.1,0.2]',
-
-        ]
+        # Parametros desde la interfaz, con los mismos tipos que antes daba
+        # el parser YAML de '-p k:=v' (yaml.safe_load sobre el mismo texto).
+        # 'nmspace' lo fija controller.launch.py a partir de robot_id.
+        phantom = "phantom1" if robot_id == "r1" else "phantom2"
+        params = {
+            'control_topic': '/forward_position_controller/commands',
+            'ur': robot_config["ur_type"],
+            'geomagic': yaml.safe_load(str(control_config["geomagic"])),
+            # Absolutos: con el nodo en /rN, un topico relativo quedaria
+            # como /rN/phantomX/state
+            'geomagic_topic': f'/{phantom}/state',
+            'geomagic_button_topic': f'/{phantom}/button',
+            'csv_log_enable': True,
+            'csv_log_prefix': f'ur5_log_{control_config["controller_type"]}',
+            'traj_mode': int(control_config["traj_mode"]),
+            'q_target': yaml.safe_load(f'[{getattr(self, f"{robot_id}_q_target").text()}]'),
+            'controller_type': control_config["controller_type"],
+            'lambda': yaml.safe_load(str(control_config["lambda"])),
+            'k': yaml.safe_load(str(control_config["k"])),
+            'alpha': float(control_config["alpha"]),
+            'traj_A': [0.1, 0.1, 0.2],
+        }
+        for eje in ('x', 'y', 'z', 'roll', 'pitch', 'yaw'):
+            params[f'map_{eje}'] = float(control_config[f"map_{eje}"])
+            params[f'sign_{eje}'] = float(control_config[f"sign_{eje}"])
         # En Gazebo el joint_trajectory_controller usa el reloj simulado
         # (/clock, arranca en 0): con reloj real, el header.stamp de la
         # trayectoria inicial (InitialMotionPublisher, node->now()) caia ~56
         # años en el futuro y el robot nunca iba a home. Con use_sim_time,
         # now() y el seguimiento de trayectoria usan el tiempo simulado.
         if robot_config.get("mode") == "gazebo":
-            command += ['-p', 'use_sim_time:=true']
-        if params_file is not None:
-            command += ['--params-file', params_file]
+            params['use_sim_time'] = True
+
+        # El controlador necesita el URDF real del robot (con su herramienta,
+        # definida en ur5e_single.urdf.xacro) para que la cinemática/dinámica
+        # de Pinocchio coincida con lo que ya está corriendo en ur5e_bringup.
+        # Se re-genera localmente con xacro (mismos argumentos que usa
+        # multi_ur5e.launch.py) en vez de leerlo del tópico /robot_description,
+        # para no depender de que el robot ya esté lanzado.
+        try:
+            params['robot_description'] = self.robots.generar_robot_description(robot_id, robot_config)
+        except Exception as e:
+            print(f"[{robot_id} Controller] Error generando robot_description: {e}")
+            print(f"[{robot_id} Controller] El controlador arrancará con el URDF genérico "
+                  f"de respaldo (sin herramienta) en vez del real del robot.")
+
+        # controller.launch.py pone el nodo en el namespace del robot
+        # (/rN/ur5_ik_node): sin eso los dos controladores se llamaban
+        # /ur5_ik_node y rqt_graph / ros2 param los veian como uno solo.
+        params_file = self.robots.escribir_params_controller(robot_id, params)
+        command = [
+            'ros2', 'launch', 'ur5e_bringup', 'controller.launch.py',
+            f'robot_id:={robot_id}',
+            f'params_file:={params_file}',
+        ]
 
         try:
             print(f"[{robot_id} Controller] Comando: {' '.join(command)}")
@@ -603,6 +612,12 @@ ros2 run ur5_controller controller_node --ros-args \
                 self.monitor.destroy()
         except Exception as e:
             print(f"[Shutdown] Error cerrando el monitor de robots: {e}")
+
+        try:
+            if hasattr(self, 'estado'):
+                self.estado.cerrar()
+        except Exception as e:
+            print(f"[Shutdown] Error cerrando el panel de estado: {e}")
 
         try:
             # Shutdown ROS2

@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import *
 from PyQt5 import QtCore
 
 from ur5_panel import config_store
-
+from ur5_panel.modulos.estado import Estado
 
 class UIMenuMixin:
     """
@@ -248,7 +248,7 @@ class UIMenuMixin:
         set_r{1,2}_controller, y los QTabWidget que agrupan "basico" vs
         "avanzado" de cada robot y su controlador."""
         # Widgets principales
-        self.label_menu = QLabel("Menu")
+        self.label_menu = QLabel("Estados actuales")
         self.boton_salir = QPushButton("Salir")
         self.boton_salir.clicked.connect(self.close)
 
@@ -287,8 +287,10 @@ class UIMenuMixin:
         dispositivos (device_widget, la llena set_devices_menu) y sección de
         robots (robots_widget, la llena set_robot_menu)."""
         self.menu1_layout.addWidget(self.label_menu)
-        self.menu1_layout.addWidget(self.device_widget)
-        self.menu1_layout.addWidget(self.robots_widget)
+        # self.menu1_layout.addWidget(self.device_widget)
+        # self.menu1_layout.addWidget(self.robots_widget)
+        self.estado = Estado()
+        self.menu1_layout.addWidget(self.estado)
         self.menu1_layout.addStretch()
 
     def build_menu2_layout(self):
