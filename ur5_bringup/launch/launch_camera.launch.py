@@ -13,14 +13,21 @@ from launch.substitutions import (
     PathJoinSubstitution,
 )
 
+import glob
+import os
+import cv2
+
 def generate_launch_description():
+    
+    laptop_video_device = LaunchConfiguration('video_device', default='/dev/video0')
+    
     laptop_camera_node = Node(
             package='v4l2_camera',
             executable='v4l2_camera_node',
             name='laptop_camera',
             namespace='camera/laptop',  # Usando el argumento 'namespace'
             parameters=[{
-                'video_device': '/dev/video0',
+                'video_device': laptop_video_device,
                 'image_size': [1280, 720],
             }]
         )
@@ -41,3 +48,15 @@ def generate_launch_description():
         laptop_camera_node,
         usb_camera_node
     ])
+
+def buscar_camaras():
+    """Indices de /dev/videoN que realmente entregan imagen (cada camara UVC
+    suele crear dos nodos, uno de ellos solo de metadatos)."""
+    indices = []
+    for dev in sorted(glob.glob('/dev/video*')):
+        i = int(dev.replace('/dev/video', ''))
+        cap = cv2.VideoCapture(i, cv2.CAP_V4L2)
+        if cap.isOpened() and cap.read()[0]:
+            indices.append(i)
+        cap.release()
+    return indices

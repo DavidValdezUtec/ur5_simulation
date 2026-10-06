@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QToolBar,
     QWidget,
 )
+from ur5_panel.modulos.qtogglebutton import QToggleButton
 
 LED_SIZE = 16
 
@@ -63,14 +64,15 @@ class Dock(QToolBar):
         self.addSeparator()
         self._set_robots()
         self.addSeparator()
+        self.set_panel_mode()
         self._set_stop()
 
     # ------------------------------------------------------------ secciones
     def _grupo(self):
         widget = QWidget()
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(6, 0, 6, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(8, 0, 8, 0)
+        layout.setSpacing(8)
         self.addWidget(widget)
         return layout
 
@@ -117,9 +119,7 @@ class Dock(QToolBar):
 
     def _set_stop(self):
         """STOP a la derecha, separado del resto por un espacio flexible."""
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.addWidget(spacer)
+        
 
         layout = self._grupo()
         self.stop_info = QLabel("")
@@ -152,6 +152,27 @@ class Dock(QToolBar):
                  f"{robot_id.upper()}: {detalle}")
         self.robot_modes[robot_id].setText(f"({MODE_SHORT[modo]})" if modo in MODE_SHORT else "")
 
+    def set_panel_mode(self):
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.addWidget(spacer)
+        """Slider de modo de panel: 'Teleoperacion' o 'Configuracion'"""
+        layout = self._grupo()
+        self.slider = QToggleButton(
+            width=60, 
+            height=30, 
+            bg_color="#bdc3c7", 
+            circle_color="#ecf0f1", 
+            active_color="#3498db",
+            )
+        self.slider.setChecked(True)
+        layout.addWidget(QLabel("Desarrollo"))
+        layout.addWidget(self.slider)
+        layout.addWidget(QLabel("Teleoperación"))
+        
+        
+        
+        
     def set_stop_info(self, texto):
         """Resultado del ultimo STOP, junto al boton."""
         self.stop_info.setText(texto)

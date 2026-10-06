@@ -217,15 +217,20 @@ class InterfazRviz(
         
         # Establecer el widget central de la ventana principal
         self.setCentralWidget(self.main_widget)
-        # Añadir dock widget a la ventana principal
+        # Mostrar la cámara como una ventana flotante sobre el área de RViz.
         self.addDockWidget(Qt.RightDockWidgetArea, self.video_widget)
+        self.video_widget.setFloating(True)
+        self.video_widget.setWindowFlag(Qt.Tool, True)
+        self.video_widget.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        self.video_widget.show()
+        QTimer.singleShot(0, self._position_video_widget)
         
         # Añadir widgets al layout principal
         #self.main_layout.addWidget(self.dock_superior, 0, 0, 1, 2)  # Dock superior ocupa toda la fila superior
         self.main_layout.addWidget(self.menu_general, 0, 0)
         self.main_layout.addWidget(self.rviz_widget, 0, 1)
         self.main_layout.addWidget(self.boton_salir, 1, 0)  # Botón Salir fuera del scroll
-
+        self.dock.slider.debug = True
         '''# Configurar stretch1.8
         # Columna 0 (menú): tamaño mínimo
         # Columna 1 (RViz): se expande
@@ -265,6 +270,19 @@ class InterfazRviz(
         # suscripcion ROS2 + el timer que la bombea.
         self.camera.video_label = self.video_label
         self.camera.iniciar_suscripcion()
+
+    def _position_video_widget(self):
+        """Coloca la ventana de cámara sobre la esquina superior derecha de RViz."""
+        if not self.video_widget.isVisible():
+            return
+
+        rviz_top_right = self.rviz_widget.mapToGlobal(
+            QtCore.QPoint(self.rviz_widget.width(), 0)
+        )
+        margin = 16
+        x = rviz_top_right.x() - self.video_widget.width() - margin
+        y = rviz_top_right.y() + margin
+        self.video_widget.move(max(0, x), max(0, y))
     
     
     
