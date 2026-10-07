@@ -6,9 +6,11 @@ from ur5_panel import config_store
 
 class UIRobotConfigMixin:
     """
-    Config de robots (pose/tipo/modo/IP/puerto) por r1 y r2, en la ventana
-    flotante 'Configuración de robots' (boton de la barra superior), mas la
-    conexion de la busqueda de dispositivos. Estos paneles leen/escriben
+    Config de robots (pose/tipo/modo/IP/puerto) por r1 y r2 + checkbox de
+    feedback haptico, en robots_config_widget: en modo Teleoperacion vive
+    en la ventana 'Configuración de robots' (boton de la barra superior) y
+    en Desarrollo en el tab 1 del menu lateral (lo mueve modulos/modos.py).
+    Tambien la conexion de la busqueda de dispositivos. Estos paneles leen/escriben
     r{id}_config (persistido en ~/.ros/ur5_panel/config.json via
     config_store), que modulos/robots_launch.py traduce a config.json de
     ur5e_bringup al lanzar. set_r1_menu/set_r2_menu son practicamente
@@ -17,12 +19,10 @@ class UIRobotConfigMixin:
     """
 
     def set_devices_menu(self):
-        """Dispositivos: sus LEDs, el boton de busqueda y el checkbox de
-        feedback viven en la barra superior (modulos/dock.py). Aqui solo se
-        conecta el boton y se dispara una busqueda inicial al arrancar."""
+        """Dispositivos: sus LEDs y el boton de busqueda viven en la barra
+        superior (modulos/dock.py). Aqui solo se conecta el boton y se
+        dispara una busqueda inicial al arrancar."""
         self.dock.boton_buscar.clicked.connect(self.buscar_dispositivos)
-        # lanzar_robots() lee el checkbox con este nombre
-        self.feedback_checkbox = self.dock.feedback_checkbox
         self.buscar_dispositivos()
 
     def set_r1_menu(self):
@@ -206,18 +206,30 @@ class UIRobotConfigMixin:
             print(f"Warning: La clave '{key}' no existe en {robot_id}_config.")
 
     def set_robot_menu(self):
-        """Configuracion de r1+r2 (tabs basico/avanzado de cada uno) en una
-        ventana flotante no modal que abre el boton 'Configurar robots' de
-        la barra superior; 'Iniciar robots' tambien esta en la barra y
+        """Arma robots_config_widget (tabs basico/avanzado de r1 y r2 +
+        checkbox de feedback) y la ventana no modal que lo muestra en modo
+        Teleoperacion (boton 'Configurar robots' de la barra superior). El
+        widget se coloca en slot_config_dialog o en el tab 1 segun el modo
+        (modulos/modos.py). 'Iniciar robots' tambien esta en la barra y
         dispara panel.py:iniciar_robots() -> modulos/robots_launch.py."""
         self.set_r1_menu()
         self.set_r2_menu()
 
+        self.robots_config_widget = QWidget()
+        config_layout = QVBoxLayout(self.robots_config_widget)
+        config_layout.setContentsMargins(0, 0, 0, 0)
+        config_layout.addWidget(self.r1_layout)
+        config_layout.addWidget(self.r2_layout)
+        # lanzar_robots() lee el checkbox con este nombre
+        self.feedback_checkbox = QCheckBox("Feedback háptico")
+        self.feedback_checkbox.setChecked(True)
+        config_layout.addWidget(self.feedback_checkbox)
+
         self.robots_config_dialog = QDialog(self)
         self.robots_config_dialog.setWindowTitle("Configuración de robots")
         dialog_layout = QVBoxLayout(self.robots_config_dialog)
-        dialog_layout.addWidget(self.r1_layout)
-        dialog_layout.addWidget(self.r2_layout)
+        self.slot_config_dialog = QVBoxLayout()
+        dialog_layout.addLayout(self.slot_config_dialog)
         boton_cerrar = QPushButton("Cerrar")
         boton_cerrar.clicked.connect(self.robots_config_dialog.close)
         dialog_layout.addWidget(boton_cerrar)

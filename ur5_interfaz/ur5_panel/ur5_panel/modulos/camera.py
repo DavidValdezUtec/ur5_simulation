@@ -1,7 +1,8 @@
-"""Todo lo relacionado a la camara: el nodo ROS2 suscriptor, su volcado al
-video_label de la UI, y el proceso 'ros2 launch ur5_bringup
+"""Todo lo relacionado a la camara: el nodo ROS2 suscriptor, su volcado a
+los QLabel de la UI, y el proceso 'ros2 launch ur5_bringup
 launch_camera.launch.py'. CameraModule es un objeto de composicion: no
-hereda de InterfazRviz, solo recibe el widget que debe actualizar."""
+hereda de InterfazRviz, solo recibe los widgets que debe actualizar (los
+widgets de la camara estan en camera_view.py)."""
 import os
 import subprocess
 
@@ -42,15 +43,24 @@ class CameraSubscriber(Node):
 class CameraModule:
     """Encapsula el nodo suscriptor de camara y el proceso de su launch.
 
-    video_label: el QLabel donde se pinta cada frame (creado por la UI,
-    inyectado aqui en vez de que este modulo construya su propio widget).
+    Cada frame se pinta en todos los QLabel registrados con agregar_label
+    (la vista de la ventana principal y, si esta abierta, la ventana
+    flotante). Los labels los crea la UI, no este modulo.
     """
 
-    def __init__(self, video_label):
-        self.video_label = video_label
+    def __init__(self):
+        self.labels = []
         self.node = None
         self.ros_timer = None
         self.process = None
+
+    def agregar_label(self, label):
+        if label not in self.labels:
+            self.labels.append(label)
+
+    def quitar_label(self, label):
+        if label in self.labels:
+            self.labels.remove(label)
 
     def iniciar_suscripcion(self):
         """Crea el nodo suscriptor y el timer que bombea rclpy.spin_once."""
@@ -60,19 +70,24 @@ class CameraModule:
         self.ros_timer.start(30)  # 30ms (~33 fps)
 
     def update_video(self, cv_image):
-        """Actualiza el widget de video con una nueva imagen de OpenCV."""
+        """Pinta una nueva imagen de OpenCV en los labels visibles: se
+        convierte una sola vez y se escala al tamaño de cada label."""
+        visibles = [label for label in self.labels if label.isVisible()]
+        if not visibles:
+            return
         try:
             rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb_image.shape
             bytes_per_line = ch * w
             qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
-            scaled_pixmap = QPixmap.fromImage(qt_image).scaled(
-                self.video_label.width(),
-                self.video_label.height(),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
-            self.video_label.setPixmap(scaled_pixmap)
+            pixmap = QPixmap.fromImage(qt_image)
+            for label in visibles:
+                label.setPixmap(pixmap.scaled(
+                    label.width(),
+                    label.height(),
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                ))
         except Exception as e:
             print(f"Error updating video: {e}")
 

@@ -3,13 +3,13 @@ from PyQt5.QtWidgets import *
 from PyQt5 import QtCore
 
 from ur5_panel import config_store
-from ur5_panel.modulos.estado import Estado
 
 class UIMenuMixin:
     """
     Punto de entrada del menu lateral (llamado 1 vez desde InterfazRviz.setup_ui)
     y la estructura de las 4 pestañas (tabs) del QTabWidget lateral:
-    dispositivos+robots, controlador, joints, IK.
+    config de robots, controlador, joints, IK. El menu lateral solo se ve en
+    modo Desarrollo (modulos/modos.py).
 
     Mixin: InterfazRviz hereda de esta clase junto con las otras 4 mixins de
     ui_*.py/mapping_matrix.py. Se mantiene el patron mixin (no composicion)
@@ -182,12 +182,11 @@ class UIMenuMixin:
 
     def create_menu1_structure(self):
 
-        """Pestaña 1: la única con scroll. Su contenido anterior (LEDs de
-        dispositivos, config de r1/r2, botón Iniciar Robots) pasó a la barra
-        superior (modulos/dock.py) y a la ventana 'Configuración de robots';
-        se mantiene por ahora para los futuros modos teleoperación/desarrollo.
-        Deja listo robots_controller_layout, que llena set_controller_menu()
-        (ui_controller_config.py)."""
+        """Pestaña 1: la única con scroll. En modo Desarrollo recibe la
+        config de r1/r2 (slot_config_menu, ver modulos/modos.py); en
+        Teleoperación esa config vive en la ventana 'Configuración de
+        robots'. Deja listo robots_controller_layout, que llena
+        set_controller_menu() (ui_controller_config.py)."""
         # Widget interno del menú con scroll
         self.menu1_widget = QWidget()
         self.menu1_layout = QVBoxLayout()
@@ -248,7 +247,10 @@ class UIMenuMixin:
         set_r{1,2}_controller, y los QTabWidget que agrupan "basico" vs
         "avanzado" de cada robot y su controlador."""
         # Widgets principales
-        self.label_menu = QLabel("Estados actuales")
+        self.label_menu = QLabel("<b>Configuración de robots</b>")
+        # Boton Salir: creado y conectado pero sin ubicar en la ventana por
+        # ahora (cerrar la ventana hace la misma limpieza). Para mostrarlo,
+        # agregarlo a algun layout, p. ej. al final de menu1_layout o al Dock.
         self.boton_salir = QPushButton("Salir")
         self.boton_salir.clicked.connect(self.close)
 
@@ -283,14 +285,11 @@ class UIMenuMixin:
         self.r2_controller_layout = QTabWidget()
 
     def build_menu1_layout(self):
-        """Apila en la pestaña 1 (de arriba a abajo): título, sección de
-        dispositivos (device_widget, la llena set_devices_menu) y sección de
-        robots (robots_widget, la llena set_robot_menu)."""
+        """Apila en la pestaña 1: título y slot_config_menu, donde
+        modulos/modos.py pone la config de robots en modo Desarrollo."""
         self.menu1_layout.addWidget(self.label_menu)
-        # self.menu1_layout.addWidget(self.device_widget)
-        # self.menu1_layout.addWidget(self.robots_widget)
-        self.estado = Estado()
-        self.menu1_layout.addWidget(self.estado)
+        self.slot_config_menu = QVBoxLayout()
+        self.menu1_layout.addLayout(self.slot_config_menu)
         self.menu1_layout.addStretch()
 
     def build_menu2_layout(self):

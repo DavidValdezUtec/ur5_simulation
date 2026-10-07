@@ -2,12 +2,12 @@
 dispositivos, estado de los robots, configuracion/lanzamiento y STOP.
 
 Dock solo dibuja: no conoce procesos ni ROS. panel.py le dice que mostrar
-(set_haptic/set_camara/set_robot_state/set_stop_info) y conecta sus
-botones (boton_buscar, boton_config, boton_iniciar, boton_stop)."""
-from PyQt5.QtCore import Qt
+(set_haptic/set_camara/set_robot_state/set_stop_info/set_modo), conecta
+sus botones (boton_buscar, boton_config, boton_iniciar, boton_stop) y
+escucha modo_cambiado (toggle Desarrollo/Teleoperacion, ver modos.py)."""
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
-    QCheckBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from ur5_panel.modulos.qtogglebutton import QToggleButton
+from ur5_panel.modulos.modos import MODO_DESARROLLO, MODO_TELEOP
 
 LED_SIZE = 16
 
@@ -50,6 +51,9 @@ def _set_led(led, color, tooltip=""):
 
 
 class Dock(QToolBar):
+    # Modo elegido con el toggle: MODO_TELEOP o MODO_DESARROLLO.
+    modo_cambiado = pyqtSignal(str)
+
     def __init__(self, parent=None):
         super().__init__("Barra superior", parent)
         self.setObjectName("dock_superior")
@@ -77,7 +81,8 @@ class Dock(QToolBar):
         return layout
 
     def _set_devices(self):
-        """LEDs de hapticos/camara + boton de busqueda + checkbox de feedback."""
+        """LEDs de hapticos/camara + boton de busqueda. (El checkbox de
+        feedback haptico esta en la configuracion de robots.)"""
         layout = self._grupo()
         self.led_haptic1 = _led()
         self.led_haptic2 = _led()
@@ -93,10 +98,6 @@ class Dock(QToolBar):
 
         self.boton_buscar = QPushButton("Buscar dispositivos")
         layout.addWidget(self.boton_buscar)
-
-        self.feedback_checkbox = QCheckBox("Feedback háptico")
-        self.feedback_checkbox.setChecked(True)
-        layout.addWidget(self.feedback_checkbox)
 
     def _set_robots(self):
         """LED de estado + modo de cada robot, y botones de config/lanzamiento."""
@@ -153,26 +154,38 @@ class Dock(QToolBar):
         self.robot_modes[robot_id].setText(f"({MODE_SHORT[modo]})" if modo in MODE_SHORT else "")
 
     def set_panel_mode(self):
+        """Toggle de modo del panel (checked = Teleoperacion), empujado a la
+        derecha por un espacio flexible. Emite modo_cambiado."""
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.addWidget(spacer)
-        """Slider de modo de panel: 'Teleoperacion' o 'Configuracion'"""
+
         layout = self._grupo()
         self.slider = QToggleButton(
-            width=60, 
-            height=30, 
-            bg_color="#bdc3c7", 
-            circle_color="#ecf0f1", 
+            width=60,
+            height=30,
+            bg_color="#bdc3c7",
+            circle_color="#ecf0f1",
             active_color="#3498db",
             )
         self.slider.setChecked(True)
+        self._modo_silencioso = False
+        self.slider.toggled.connect(self._on_slider)
         layout.addWidget(QLabel("Desarrollo"))
         layout.addWidget(self.slider)
         layout.addWidget(QLabel("Teleoperación"))
-        
-        
-        
-        
+
+    def _on_slider(self, checked):
+        if not self._modo_silencioso:
+            self.modo_cambiado.emit(MODO_TELEOP if checked else MODO_DESARROLLO)
+
+    def set_modo(self, modo):
+        """Pone el toggle en modo sin emitir modo_cambiado (p. ej. para
+        volverlo atras si se cancela el cambio)."""
+        self._modo_silencioso = True
+        self.slider.setChecked(modo == MODO_TELEOP)
+        self._modo_silencioso = False
+
     def set_stop_info(self, texto):
         """Resultado del ultimo STOP, junto al boton."""
         self.stop_info.setText(texto)

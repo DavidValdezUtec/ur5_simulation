@@ -29,11 +29,13 @@ from ur5_panel.modulos.mapping_matrix import MappingMatrixMixin
 from ur5_panel.modulos.ui_controller_config import UIControllerConfigMixin
 from ur5_panel.modulos.ui_joint_ik_control import UIJointIkControlMixin
 from ur5_panel.modulos.camera import CameraModule
+from ur5_panel.modulos.camera_view import CamaraPanel, VentanaCamara
 from ur5_panel.modulos.haptic import HapticModule
 from ur5_panel.modulos.robots_launch import RobotsLaunchModule
 from ur5_panel.modulos.dock import Dock
 from ur5_panel.modulos.robot_monitor import RobotMonitor
-#from ur5_panel.modulos.estado import Estado
+from ur5_panel.modulos.estado import Estado
+from ur5_panel.modulos.modos import MODO_DESARROLLO, MODO_TELEOP, ModosPanel
 
 # Import RVizQtWidget from the installed ur5_interfaz_library package
 try:
@@ -60,12 +62,13 @@ class InterfazRviz(
         #self.resize(1600, 800)
         
         # Modulos de composicion: cada uno maneja su propio proceso externo.
-        # self.camera se crea sin video_label todavia (set_devices_menu, mas
+        # self.camera se crea sin labels todavia (set_devices_menu, mas
         # adelante en setup_ui, ya llama a buscar_dispositivos() y necesita
         # poder detener/lanzar el launch de camara); set_camara_widget le
-        # asigna el label real y arranca la suscripcion ROS2 cuando existe.
+        # registra el label real y arranca la suscripcion ROS2.
         # self.robots se crea en setup_ui, una vez existe el rviz_widget.
-        self.camera = CameraModule(video_label=None)
+        self.camera = CameraModule()
+        self.ventana_camara = None
         self.haptic = HapticModule()
         self.robots_running = False
         
@@ -151,12 +154,6 @@ class InterfazRviz(
         pass
 
     def setup_ui(self):
-        # Widget principal
-        self.main_widget = QWidget()
-        
-        self.main_layout = QGridLayout()
-        self.main_widget.setLayout(self.main_layout)
-
         # 2. Initialize RViz in Passive Mode (empty, without robots)
         print("Launching RViz in Passive Mode (empty - robots will be added on demand)...")
         # urdf_path="" tells the wrapper NOT to start its own state publishers
@@ -210,83 +207,82 @@ class InterfazRviz(
         self.set_controller_menu()
         self.set_joint_control()
 
-        
-        # Configurar widget de cámara
+        # Configurar widget de cámara y estado de los robots
         self.set_camara_widget()
+        self.estado = Estado()
 
-        
-        # Establecer el widget central de la ventana principal
-        self.setCentralWidget(self.main_widget)
-        # Mostrar la cámara como una ventana flotante sobre el área de RViz.
-        self.addDockWidget(Qt.RightDockWidgetArea, self.video_widget)
-        self.video_widget.setFloating(True)
-        self.video_widget.setWindowFlag(Qt.Tool, True)
-        self.video_widget.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-        self.video_widget.show()
-        QTimer.singleShot(0, self._position_video_widget)
-        
-        # Añadir widgets al layout principal
-        #self.main_layout.addWidget(self.dock_superior, 0, 0, 1, 2)  # Dock superior ocupa toda la fila superior
-        self.main_layout.addWidget(self.menu_general, 0, 0)
-        self.main_layout.addWidget(self.rviz_widget, 0, 1)
-        self.main_layout.addWidget(self.boton_salir, 1, 0)  # Botón Salir fuera del scroll
-        self.dock.slider.debug = True
-        '''# Configurar stretch1.8
-        # Columna 0 (menú): tamaño mínimo
-        # Columna 1 (RViz): se expande
-        # Video: dock widget flotante/acoplable
-        '''
-        self.main_layout.setColumnStretch(0, 0)
-        self.main_layout.setColumnStretch(1, 1)
-        self.main_layout.setRowStretch(0, 1)
+        # Ventana central y modos Teleoperacion/Desarrollo (modulos/modos.py).
+        # Siempre arranca en Teleoperacion.
+        self.modos = ModosPanel(
+            menu=self.menu_general,
+            rviz=self.rviz_widget,
+            camara=self.camara_panel,
+            estado=self.estado,
+            config_robots=self.robots_config_widget,
+            config_dialogo=self.robots_config_dialog,
+            slot_config_dialogo=self.slot_config_dialog,
+            slot_config_menu=self.slot_config_menu,
+            dock=self.dock,
+        )
+        self.setCentralWidget(self.modos.central)
+        self.modos.aplicar(MODO_TELEOP)
+        self.dock.set_modo(MODO_TELEOP)
+        self.dock.modo_cambiado.connect(self.cambiar_modo)
 
-    
     def set_camara_widget(self):
-        """Configura el widget de cámara como QDockWidget"""
-        # Crear widget interno para el contenido
-        video_content_widget = QWidget()
-        self.video_layout = QVBoxLayout()
-        video_content_widget.setLayout(self.video_layout)
-        
-        # Label para mostrar el video
-        self.video_label = QLabel("Esperando video de cámara...")
-        self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setStyleSheet("background-color: black; color: white; font-size: 14px;")
-        self.video_label.setMinimumSize(480, 480)
-        self.video_layout.addWidget(self.video_label)
-        
-        # Crear QDockWidget y asignarle el widget interno
-        self.video_widget = QDockWidget("Cámara", self)
-        self.video_widget.setWidget(video_content_widget)
-        #self.video_widget.setWindowFlags(self.video_widget.windowFlags() | Qt.Tool)
-        self.video_widget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.TopDockWidgetArea | Qt.BottomDockWidgetArea)
-        self.video_widget.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
-        
-        # Configurar tamaño del dock widget (cuando está flotando)
-        #self.video_widget.resize(800, 600)  # Ancho x Alto cuando está flotante
-        
-        # self.camera ya existe (creado en __init__ sin video_label); ahora
-        # que el label real existe, se lo asignamos y arrancamos la
+        """Vista de la camara en la ventana principal (modos.py la ubica
+        segun el modo) + boton para abrir un duplicado flotante."""
+        self.camara_panel = CamaraPanel()
+        self.camara_panel.boton_ventana.clicked.connect(self.abrir_ventana_camara)
+        self.video_label = self.camara_panel.video_label
+
+        # self.camera ya existe (creado en __init__ sin labels); ahora que
+        # el label real existe, se lo registramos y arrancamos la
         # suscripcion ROS2 + el timer que la bombea.
-        self.camera.video_label = self.video_label
+        self.camera.agregar_label(self.video_label)
         self.camera.iniciar_suscripcion()
 
-    def _position_video_widget(self):
-        """Coloca la ventana de cámara sobre la esquina superior derecha de RViz."""
-        if not self.video_widget.isVisible():
-            return
+    def abrir_ventana_camara(self):
+        """Abre (o trae al frente) el duplicado flotante de la camara."""
+        if self.ventana_camara is None:
+            self.ventana_camara = VentanaCamara()
+            self.camera.agregar_label(self.ventana_camara.video_label)
+            self.ventana_camara.cerrada.connect(self._ventana_camara_cerrada)
+        self.ventana_camara.show()
+        self.ventana_camara.raise_()
+        self.ventana_camara.activateWindow()
 
-        rviz_top_right = self.rviz_widget.mapToGlobal(
-            QtCore.QPoint(self.rviz_widget.width(), 0)
-        )
-        margin = 16
-        x = rviz_top_right.x() - self.video_widget.width() - margin
-        y = rviz_top_right.y() + margin
-        self.video_widget.move(max(0, x), max(0, y))
-    
-    
-    
-    
+    def _ventana_camara_cerrada(self):
+        if self.ventana_camara is not None:
+            self.camera.quitar_label(self.ventana_camara.video_label)
+            self.ventana_camara.deleteLater()
+            self.ventana_camara = None
+
+    def cambiar_modo(self, modo):
+        """Toggle del Dock. Si hay controller_node corriendo pide
+        confirmacion; al pasar a Teleoperacion ademas ejecuta el STOP
+        (no queda una prueba de Desarrollo moviendo el robot). Si se
+        cancela, el toggle vuelve a su posicion."""
+        corriendo = []
+        for robot_id in ("r1", "r2"):
+            process = getattr(self, f'{robot_id}_controller_process', None)
+            if process is not None and process.poll() is None:
+                corriendo.append(robot_id.upper())
+        if corriendo:
+            nombre = "Teleoperación" if modo == MODO_TELEOP else "Desarrollo"
+            texto = f"Hay controladores corriendo ({', '.join(corriendo)})."
+            if modo == MODO_TELEOP:
+                texto += ("\n\nAl pasar a Teleoperación se ejecuta el STOP: se "
+                          "detienen los controladores y los robots quedan quietos.")
+            respuesta = QMessageBox.question(
+                self, "Cambiar de modo", f"{texto}\n\n¿Cambiar a {nombre}?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if respuesta != QMessageBox.Yes:
+                self.dock.set_modo(self.modos.modo)
+                return
+            if modo == MODO_TELEOP:
+                self.stop_robots()
+        self.modos.aplicar(modo)
 
     '''
 ros2 run ur5_controller controller_node --ros-args \
@@ -362,6 +358,7 @@ ros2 run ur5_controller controller_node --ros-args \
             'k': yaml.safe_load(str(control_config["k"])),
             'alpha': float(control_config["alpha"]),
             'traj_A': [0.1, 0.1, 0.2],
+            'ctrl_hz': float(250),
         }
         for eje in ('x', 'y', 'z', 'roll', 'pitch', 'yaw'):
             params[f'map_{eje}'] = float(control_config[f"map_{eje}"])
@@ -607,6 +604,8 @@ ros2 run ur5_controller controller_node --ros-args \
         
         try:
             # Detener timer de ROS y destruir nodo de cámara
+            if getattr(self, 'ventana_camara', None) is not None:
+                self.ventana_camara.close()
             if hasattr(self, 'camera'):
                 self.camera.detener_todo()
         except Exception as e:

@@ -27,7 +27,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QApplication, QGridLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QBoxLayout, QGridLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 ROBOT_IDS = ("r1", "r2")
 # Orden de los joints de un UR (sin el prefijo 'rN_').
@@ -196,15 +196,20 @@ class Estado(QWidget):
         self.setWindowTitle("Estado del Robot")
         self.ros = EstadoNode(robot_ids)
 
-        layout = QVBoxLayout(self)
+        self._layout = QVBoxLayout(self)
         self.boxes = {}
         for robot_id in robot_ids:
             self.boxes[robot_id] = RobotEstadoBox(robot_id)
-            layout.addWidget(self.boxes[robot_id])
+            self._layout.addWidget(self.boxes[robot_id])
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.actualizar)
         self._timer.start(REFRESCO_MS)
+
+    def set_orientacion(self, orientacion):
+        """Qt.Vertical: un robot debajo del otro; Qt.Horizontal: lado a lado."""
+        self._layout.setDirection(
+            QBoxLayout.LeftToRight if orientacion == Qt.Horizontal else QBoxLayout.TopToBottom)
 
     def actualizar(self):
         """Refresca los valores en pantalla (QTimer, cada REFRESCO_MS)."""
