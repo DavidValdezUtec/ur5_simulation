@@ -36,6 +36,7 @@ from ur5_panel.modulos.dock import Dock
 from ur5_panel.modulos.robot_monitor import RobotMonitor
 from ur5_panel.modulos.estado import Estado
 from ur5_panel.modulos.modos import MODO_DESARROLLO, MODO_TELEOP, ModosPanel
+from ur5_panel.modulos.asistente_teleop import AsistenteTeleop
 
 # Import RVizQtWidget from the installed ur5_interfaz_library package
 try:
@@ -69,6 +70,7 @@ class InterfazRviz(
         # self.robots se crea en setup_ui, una vez existe el rviz_widget.
         self.camera = CameraModule()
         self.ventana_camara = None
+        self.asistente = None
         self.haptic = HapticModule()
         self.robots_running = False
         
@@ -228,6 +230,10 @@ class InterfazRviz(
         self.modos.aplicar(MODO_TELEOP)
         self.dock.set_modo(MODO_TELEOP)
         self.dock.modo_cambiado.connect(self.cambiar_modo)
+        # lambda: clicked(bool) pasaria False como 'confirmar'
+        self.dock.boton_teleop.clicked.connect(lambda: self.abrir_asistente_teleop())
+        # Asistente de teleoperacion al arrancar, ya con la ventana visible
+        QTimer.singleShot(0, lambda: self.abrir_asistente_teleop(confirmar=False))
 
     def set_camara_widget(self):
         """Vista de la camara en la ventana principal (modos.py la ubica
@@ -263,11 +269,7 @@ class InterfazRviz(
         confirmacion; al pasar a Teleoperacion ademas ejecuta el STOP
         (no queda una prueba de Desarrollo moviendo el robot). Si se
         cancela, el toggle vuelve a su posicion."""
-        corriendo = []
-        for robot_id in ("r1", "r2"):
-            process = getattr(self, f'{robot_id}_controller_process', None)
-            if process is not None and process.poll() is None:
-                corriendo.append(robot_id.upper())
+        corriendo = self._controladores_corriendo()
         if corriendo:
             nombre = "Teleoperación" if modo == MODO_TELEOP else "Desarrollo"
             texto = f"Hay controladores corriendo ({', '.join(corriendo)})."
@@ -283,6 +285,46 @@ class InterfazRviz(
             if modo == MODO_TELEOP:
                 self.stop_robots()
         self.modos.aplicar(modo)
+        if modo == MODO_TELEOP:
+            self.abrir_asistente_teleop(confirmar=False)
+        elif self.asistente is not None:
+            self.asistente.close()
+
+    def _controladores_corriendo(self):
+        """Robots ('R1', 'R2') con un controller_node vivo."""
+        corriendo = []
+        for robot_id in ("r1", "r2"):
+            process = getattr(self, f'{robot_id}_controller_process', None)
+            if process is not None and process.poll() is None:
+                corriendo.append(robot_id.upper())
+        return corriendo
+
+    def abrir_asistente_teleop(self, confirmar=True):
+        """Abre (o trae al frente) el asistente de teleoperacion
+        (modulos/asistente_teleop.py). La pagina de configuracion solo
+        aparece si algun robot no esta lanzado. confirmar: si hay
+        controller_node corriendo, pide confirmar y hace STOP antes (al
+        llegar desde cambiar_modo eso ya se hizo)."""
+        if self.asistente is not None:
+            self.asistente.show()
+            self.asistente.raise_()
+            self.asistente.activateWindow()
+            return
+        if confirmar:
+            corriendo = self._controladores_corriendo()
+            if corriendo:
+                respuesta = QMessageBox.question(
+                    self, "Iniciar teleoperación",
+                    f"Hay controladores corriendo ({', '.join(corriendo)}).\n\n"
+                    "Para iniciar la teleoperación se ejecuta el STOP: se detienen "
+                    "los controladores y los robots quedan quietos. ¿Continuar?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if respuesta != QMessageBox.Yes:
+                    return
+                self.stop_robots()
+        mostrar_config = any(self.robots.estado_proceso(r) != "vivo" for r in ("r1", "r2"))
+        self.asistente = AsistenteTeleop(self, mostrar_config)
+        self.asistente.show()
 
     '''
 ros2 run ur5_controller controller_node --ros-args \
@@ -324,8 +366,11 @@ ros2 run ur5_controller controller_node --ros-args \
 
 
     '''    
-    def start_controller(self, robot_id):
-        """Inicia el nodo controlador con los parámetros de la interfaz"""
+    def start_controller(self, robot_id, forzar_geomagic=False):
+        """Inicia el nodo controlador con los parámetros de la interfaz.
+        forzar_geomagic: arranca en teleoperacion (geomagic=true) sin
+        importar el modo guardado en el config, y sin modificarlo (lo usa
+        el asistente de teleoperacion)."""
         print(f"[R{robot_id} Controller] Iniciando nodo controlador para Robot {robot_id}...")
 
         control_config = getattr(self, f"{robot_id}_control_config")
@@ -344,7 +389,7 @@ ros2 run ur5_controller controller_node --ros-args \
         params = {
             'control_topic': '/forward_position_controller/commands',
             'ur': robot_config["ur_type"],
-            'geomagic': yaml.safe_load(str(control_config["geomagic"])),
+            'geomagic': True if forzar_geomagic else yaml.safe_load(str(control_config["geomagic"])),
             # Absolutos: con el nodo en /rN, un topico relativo quedaria
             # como /rN/phantomX/state
             'geomagic_topic': f'/{phantom}/state',
@@ -536,6 +581,9 @@ ros2 run ur5_controller controller_node --ros-args \
         forward_position_controller activo (RobotMonitor.detener_movimiento).
         No bloquea la UI. No reemplaza el paro de emergencia fisico."""
         print("[STOP] Deteniendo ambos robots...")
+        # El STOP corta tambien el asistente de teleoperacion a medio camino
+        if self.asistente is not None:
+            self.asistente.close()
         self.dock.set_stop_info("Deteniendo...")
         resultados = {}
 

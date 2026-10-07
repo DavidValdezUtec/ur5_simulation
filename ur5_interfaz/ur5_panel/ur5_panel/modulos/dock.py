@@ -3,7 +3,8 @@ dispositivos, estado de los robots, configuracion/lanzamiento y STOP.
 
 Dock solo dibuja: no conoce procesos ni ROS. panel.py le dice que mostrar
 (set_haptic/set_camara/set_robot_state/set_stop_info/set_modo), conecta
-sus botones (boton_buscar, boton_config, boton_iniciar, boton_stop) y
+sus botones (boton_buscar, boton_config, boton_iniciar, boton_teleop,
+boton_stop) y
 escucha modo_cambiado (toggle Desarrollo/Teleoperacion, ver modos.py)."""
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -115,8 +116,11 @@ class Dock(QToolBar):
 
         self.boton_config = QPushButton("Configurar robots")
         self.boton_iniciar = QPushButton("Iniciar robots")
+        # Abre el asistente de teleoperacion (solo en modo Teleoperacion)
+        self.boton_teleop = QPushButton("Iniciar teleoperación")
         layout.addWidget(self.boton_config)
         layout.addWidget(self.boton_iniciar)
+        layout.addWidget(self.boton_teleop)
 
     def _set_stop(self):
         """STOP a la derecha, separado del resto por un espacio flexible."""

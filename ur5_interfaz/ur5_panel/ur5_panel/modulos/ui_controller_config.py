@@ -1,3 +1,4 @@
+import yaml
 from PyQt5.QtWidgets import *
 
 from ur5_panel import config_store
@@ -361,90 +362,23 @@ class UIControllerConfigMixin:
         self.set_r1_controller()
         self.set_r2_controller()
 
-    def home_controller(self, robot_id):
-        """Activa scaled_joint_trajectory_controller (desactivando el
-        controlador de articulaciones activo) y publica q_target como
-        trayectoria de home. Corre en un hilo para no congelar la GUI."""
-        import threading
-        threading.Thread(target=self._home_controller_worker, args=(robot_id,), daemon=True).start()
-
-    def _home_controller_worker(self, robot_id):
-        import subprocess
-        home_controller = "scaled_joint_trajectory_controller"
-        previos = self.controller_changer(robot_id, home_controller)
-        if previos is None:
+    def home_controller(self, robot_id, on_done=None):
+        """Lleva el robot a q_target (campo junto al boton Home) y al
+        terminar deja forward_position_controller activo
+        (RobotMonitor.ir_a_home, no bloquea). on_done(ok, mensaje) es
+        opcional; siempre se imprime el resultado."""
+        texto = getattr(self, f"{robot_id}_control_config")["q_target"]
+        try:
+            q_target = [float(q) for q in yaml.safe_load(texto)]
+        except Exception as e:
+            print(f"[{robot_id}] q_target inválido '{texto}': {e}")
+            if on_done is not None:
+                on_done(False, f"q_target inválido: {texto}")
             return
 
-        try:
-            print(f"[{robot_id}] Enviando trayectoria de home...")
-            q_target = getattr(self, f"{robot_id}_control_config")["q_target"]
-            # Los joints del controlador llevan el tf_prefix del robot (p.ej. r1_shoulder_pan_joint)
-            prefix = config_store.tf_prefix(robot_id)
-            joints = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
-                      "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
-            joint_names = ", ".join(f'"{prefix}{j}"' for j in joints)
-            goal = (f'{{trajectory: {{joint_names: [{joint_names}], '
-                    f'points: [{{positions: {q_target}, time_from_start: {{sec: 3, nanosec: 0}}}}]}}}}')
-            # Se usa la accion (no el topico) porque send_goal bloquea hasta que la
-            # trayectoria termina: asi sabemos cuando es seguro volver al controlador inicial
-            result = subprocess.run(['ros2', 'action', 'send_goal',
-                                     f'/{robot_id}/{home_controller}/follow_joint_trajectory',
-                                     'control_msgs/action/FollowJointTrajectory', goal],
-                                    capture_output=True, text=True, timeout=60)
-            if "SUCCEEDED" in result.stdout:
-                print(f"[{robot_id}] Home alcanzado: {q_target}")
-            else:
-                print(f"[{robot_id}] Error en trayectoria de home: {result.stdout.strip()} {result.stderr.strip()}")
-        except subprocess.TimeoutExpired:
-            print(f"[{robot_id}] Timeout esperando la trayectoria de home")
-        finally:
-            # Regresar al controlador que estaba activo antes del home
-            if previos and previos != [home_controller]:
-                self.controller_changer(robot_id, previos[0])
-
-    def controller_changer(self, robot_id, new_controller_type):
-        """Activa new_controller_type en /{robot_id}/controller_manager,
-        desactivando los controladores de articulaciones que esten activos.
-        Devuelve la lista de controladores de articulaciones que estaban
-        activos antes del cambio (para poder regresar a ellos), o None si
-        el cambio fallo. Bloquea: llamarla desde un hilo, no desde la GUI."""
-        import subprocess, re
-        cm = f'/{robot_id}/controller_manager'
-        joint_controllers = ["scaled_joint_trajectory_controller", "joint_trajectory_controller",
-                             "forward_position_controller", "forward_velocity_controller",
-                             "passthrough_trajectory_controller"]
-
-        # Identificar controlador activo (la salida trae codigos de color ANSI)
-        result = subprocess.run(['ros2', 'control', 'list_controllers', '-c', cm],
-                                capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"[{robot_id}] Error al listar controladores: {result.stderr.strip()}")
-            return None
-        estados = {}
-        for linea in re.sub(r'\x1b\[[0-9;]*m', '', result.stdout).splitlines():
-            campos = linea.split()
-            if len(campos) >= 3:
-                estados[campos[0]] = campos[-1]
-        activos = [c for c in joint_controllers if estados.get(c) == "active"]
-        print(f"[{robot_id}] Controladores de articulaciones activos: {activos}")
-
-        if new_controller_type not in estados:
-            print(f"[{robot_id}] {new_controller_type} no esta cargado en {cm}")
-            return None
-
-        if activos == [new_controller_type]:
-            return activos
-
-        print(f"[{robot_id}] Cambiando a {new_controller_type}...")
-        # Los nombres van SIN namespace: el controller_manager ya es /{robot_id}/...
-        cmd = ['ros2', 'control', 'switch_controllers', '-c', cm, '--strict',
-               '--activate', new_controller_type]
-        desactivar = [c for c in activos if c != new_controller_type]
-        if desactivar:
-            cmd += ['--deactivate'] + desactivar
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        print(f"[{robot_id}] Salida del cambio de controlador: {result.stdout.strip()}")
-        if result.returncode != 0:
-            print(f"[{robot_id}] Error al cambiar de controlador: {result.stderr.strip()}")
-            return None
-        return activos
+        def terminado(ok, mensaje):
+            print(f"[{robot_id}] Home: {'OK' if ok else 'FALLO'} - {mensaje}")
+            if on_done is not None:
+                on_done(ok, mensaje)
+        print(f"[{robot_id}] Enviando a home...")
+        self.monitor.ir_a_home(robot_id, q_target, terminado)
