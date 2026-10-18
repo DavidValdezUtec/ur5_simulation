@@ -37,6 +37,7 @@ from ur5_panel.modulos.robot_monitor import RobotMonitor
 from ur5_panel.modulos.estado import Estado
 from ur5_panel.modulos.modos import MODO_DESARROLLO, MODO_TELEOP, ModosPanel
 from ur5_panel.modulos.asistente_teleop import AsistenteTeleop
+from ur5_panel.modulos.graficas import Graficas
 
 # Import RVizQtWidget from the installed ur5_interfaz_library package
 try:
@@ -213,10 +214,12 @@ class InterfazRviz(
         self.set_camara_widget()
         self.estado = Estado()
 
+        # Graficas de Desarrollo: se suscriben en el nodo de RobotMonitor
+        self.graficas = Graficas(self.monitor.node)
         # Ventana central y modos Teleoperacion/Desarrollo (modulos/modos.py).
         # Siempre arranca en Teleoperacion.
         self.modos = ModosPanel(
-            menu=self.menu_general,
+            menu=self.menu_general, 
             rviz=self.rviz_widget,
             camara=self.camara_panel,
             estado=self.estado,
@@ -225,6 +228,7 @@ class InterfazRviz(
             slot_config_dialogo=self.slot_config_dialog,
             slot_config_menu=self.slot_config_menu,
             dock=self.dock,
+            graficas=self.graficas
         )
         self.setCentralWidget(self.modos.central)
         self.modos.aplicar(MODO_TELEOP)
@@ -371,6 +375,17 @@ ros2 run ur5_controller controller_node --ros-args \
         forzar_geomagic: arranca en teleoperacion (geomagic=true) sin
         importar el modo guardado en el config, y sin modificarlo (lo usa
         el asistente de teleoperacion)."""
+        # Evita lanzar un segundo controlador encima de uno vivo (quedaria
+        # un proceso huerfano que stop_controller ya no referencia).
+        
+        botones = [getattr(self, f"{robot_id}_boton_start_controller"), getattr(self, f"{robot_id}_boton_detener_controller")]
+        botones[0].setEnabled(False); botones[1].setEnabled(True)
+                    
+        if robot_id.upper() in self._controladores_corriendo():
+            print(f"[{robot_id} Controller] Ya hay un controlador corriendo; se ignora el inicio.")
+            
+            return
+
         print(f"[R{robot_id} Controller] Iniciando nodo controlador para Robot {robot_id}...")
 
         control_config = getattr(self, f"{robot_id}_control_config")
@@ -403,7 +418,7 @@ ros2 run ur5_controller controller_node --ros-args \
             'k': yaml.safe_load(str(control_config["k"])),
             'alpha': float(control_config["alpha"]),
             'traj_A': [0.1, 0.1, 0.2],
-            'ctrl_hz': float(250),
+            'ctrl_hz': yaml.safe_load(str(control_config["ctrl_hz"])),
         }
         for eje in ('x', 'y', 'z', 'roll', 'pitch', 'yaw'):
             params[f'map_{eje}'] = float(control_config[f"map_{eje}"])
@@ -454,6 +469,8 @@ ros2 run ur5_controller controller_node --ros-args \
     def stop_controller(self, robot_id):
         """Detiene el nodo controlador del robot especificado"""
         controller_process = getattr(self, f'{robot_id}_controller_process', None)
+        botones = [getattr(self, f"{robot_id}_boton_start_controller"), getattr(self, f"{robot_id}_boton_detener_controller")]
+        botones[0].setEnabled(True); botones[1].setEnabled(False)
         if controller_process is None:
             print(f"[{robot_id} Controller] No hay proceso de controlador activo para detener.")
             return

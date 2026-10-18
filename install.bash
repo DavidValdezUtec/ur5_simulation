@@ -283,7 +283,8 @@ sudo apt install -y \
   ros-humble-pinocchio \
   libeigen3-dev \
   libgoogle-glog-dev \
-  libmodbus-dev
+  libmodbus-dev \
+  python3-pyqtgraph
 
 info "Dependencias de ROS 2 instaladas"
 

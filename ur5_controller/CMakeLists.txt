@@ -27,6 +27,7 @@ find_package(ur5_kinematics REQUIRED)
 find_package(ur5_impedance REQUIRED)
 find_package(ur5_sliding REQUIRED)
 find_package(geomagic_interface REQUIRED)
+find_package(ur5_controller_msgs REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -158,6 +159,7 @@ ament_target_dependencies(controller_node
   geometry_msgs
   omni_msgs
   std_msgs
+  ur5_controller_msgs
   pinocchio
   Eigen3
   ament_index_cpp

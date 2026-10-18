@@ -14,6 +14,7 @@
 #include <omni_msgs/msg/omni_feedback.hpp>
 #include <trajectory_msgs/msg/joint_trajectory.hpp>
 #include <controller_manager_msgs/srv/switch_controller.hpp>
+#include <ur5_controller_msgs/msg/controller_state.hpp>
 
 // Eigen para matemáticas
 #include <Eigen/Dense>
@@ -162,6 +163,8 @@ public:
     config_.damping_factor = this->declare_parameter<double>("damping_factor", 0.01);
     config_.dt = this->declare_parameter<double>("dt", 0.01);
     config_.ctrl_hz_ = this->declare_parameter<double>("ctrl_hz", 500.0); // 125Hz para estabilidad
+    // Frecuencia de /<nmspace>/controller_state (graficas del panel); 0 = no publicar
+    state_pub_hz_ = this->declare_parameter<double>("state_pub_hz", 100.0);
     max_joint_step_rad_ = this->declare_parameter<double>("max_joint_step_rad", 0.05); // Paso máximo por ciclo
     large_error_threshold_rad_ = this->declare_parameter<double>("large_error_threshold_rad", 0.15); // Umbral error grande
     map_pos_ = {static_cast<int>(this->declare_parameter<double>("map_x", 2.0)),
@@ -280,6 +283,8 @@ public:
     RCLCPP_INFO(this->get_logger(), "Usando URDF en: '%s'", config_.urdf_path.c_str());
     joint_position_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(forward_command_topic, 10);
     initial_trajectory_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>(initial_trajectory_topic, 10);
+    controller_state_pub_ = this->create_publisher<ur5_controller_msgs::msg::ControllerState>(
+        make_namespaced_path(config_.nmspace, "/controller_state"), 10);
     auto switch_controller_client = this->create_client<controller_manager_msgs::srv::SwitchController>(controller_manager_service);
     controller_switch_coordinator_ = std::make_unique<ControllerSwitchCoordinator>(
         this->get_logger(), this->get_clock(), switch_controller_client);
@@ -343,6 +348,9 @@ private:
     // Suscriptores y publicadores
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr joint_position_pub_;
     rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr initial_trajectory_pub_;
+    rclcpp::Publisher<ur5_controller_msgs::msg::ControllerState>::SharedPtr controller_state_pub_;
+    double state_pub_hz_ = 100.0;
+    std::chrono::steady_clock::time_point last_state_pub_{};
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_states_sub_global_;
     rclcpp::Subscription<omni_msgs::msg::OmniState>::SharedPtr geomagic_state_sub_;
@@ -478,6 +486,38 @@ private:
     }
     
     // Callback del Geomagic Touch (recibe OmniState con posición en mm, velocidad en mm/s)
+    void publicar_controller_state(const CsvRow& row, const rclcpp::Time& stamp) {
+        ur5_controller_msgs::msg::ControllerState msg;
+        msg.header.stamp = stamp;
+        msg.controller_type = config_.controller;
+        for (int i = 0; i < 6; ++i) {
+            msg.q_meas[i] = row.q_meas_joints[i];
+            msg.q_cmd[i] = row.q_cmd[i];
+            msg.u_control[i] = row.u_control[i];
+        }
+        auto punto = [](const Eigen::Vector3d& v, geometry_msgs::msg::Point& p) {
+            p.x = v.x(); p.y = v.y(); p.z = v.z();
+        };
+        auto vector3 = [](const Eigen::Vector3d& v, geometry_msgs::msg::Vector3& p) {
+            p.x = v.x(); p.y = v.y(); p.z = v.z();
+        };
+        auto quat = [](const Eigen::Quaterniond& q, geometry_msgs::msg::Quaternion& p) {
+            p.w = q.w(); p.x = q.x(); p.y = q.y(); p.z = q.z();
+        };
+        punto(row.x_des, msg.x_des);
+        punto(row.x_meas, msg.x_meas);
+        quat(row.q_des, msg.quat_des);
+        quat(row.q_meas_pose, msg.quat_meas);
+        vector3(row.euler_des, msg.euler_des);
+        vector3(row.euler_meas, msg.euler_meas);
+        vector3(row.pos_err, msg.pos_err);
+        msg.e_r_angle = row.e_R_angle;
+        msg.ori_err_angle = row.ori_err_angle;
+        msg.ik_ms = row.ik_ms;
+        msg.loop_ms = row.loop_ms;
+        controller_state_pub_->publish(msg);
+    }
+
     void pose_callback(const omni_msgs::msg::OmniState::SharedPtr msg) {
         if (!msg) {
             RCLCPP_ERROR(this->get_logger(), "Mensaje nulo recibido en /phantom/state.");
@@ -936,8 +976,19 @@ private:
                 "[Control Loop] ik: %.3f ms | loop: %.3f ms | publish: OK",
                 last_ik_ms_, last_loop_ms_);
 
+            // Estado para las graficas del panel: misma fila que el CSV, a
+            // state_pub_hz_ y solo si alguien esta suscrito.
+            bool publicar_estado = false;
+            if (state_pub_hz_ > 0.0 && controller_state_pub_->get_subscription_count() > 0) {
+                const auto ahora = std::chrono::steady_clock::now();
+                if (std::chrono::duration<double>(ahora - last_state_pub_).count() >= 1.0 / state_pub_hz_) {
+                    last_state_pub_ = ahora;
+                    publicar_estado = true;
+                }
+            }
+
             // Logging CSV (sin bloqueo, en thread de fondo ideal)
-            if (csv_logger_.isEnabled()) {
+            if (csv_logger_.isEnabled() || publicar_estado) {
                 try {
                     rclcpp::Time now_ros = this->now();
                     if (start_time_.nanoseconds() == 0) {
@@ -970,10 +1021,15 @@ private:
                     row.loop_ms = last_loop_ms_;
 
                     RCLCPP_DEBUG(this->get_logger(), "pos_err: [%.3f, %.3f, %.3f]", row.pos_err.x(), row.pos_err.y(), row.pos_err.z());
-                    csv_logger_.writeRow(row);
+                    if (csv_logger_.isEnabled()) {
+                        csv_logger_.writeRow(row);
+                    }
+                    if (publicar_estado) {
+                        publicar_controller_state(row, now_ros);
+                    }
                 } catch (const std::exception& e) {
                     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                        "Error escribiendo CSV: %s", e.what());
+                        "Error escribiendo CSV / controller_state: %s", e.what());
                 }
             }
         } catch (const std::exception& e) {

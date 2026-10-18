@@ -28,7 +28,7 @@ controladores corriendo): eso lo hace panel.py:cambiar_modo antes de
 llamar a aplicar().
 """
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QLabel, QSplitter, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
 MODO_TELEOP = "teleop"
 MODO_DESARROLLO = "desarrollo"
@@ -44,7 +44,7 @@ TAMANOS_INICIALES = {
     },
     MODO_DESARROLLO: {
         "splitter": [350, 0, 900, 350],
-        "centro": [700, 0, 300],
+        "centro": [500, 0, 500],
         "derecha": [250, 550],
     },
 }
@@ -66,10 +66,11 @@ class ModosPanel:
     de r1/r2; vive en slot_config_dialogo (layout dentro de config_dialogo)
     en Teleop y en slot_config_menu (layout del tab 1) en Desarrollo.
     dock: barra superior (boton_config y boton_teleop solo en Teleop).
+    graficas: Graficas (graficas.py), solo en Desarrollo.
     """
 
     def __init__(self, menu, rviz, camara, estado, config_robots,
-                 config_dialogo, slot_config_dialogo, slot_config_menu, dock):
+                 config_dialogo, slot_config_dialogo, slot_config_menu, dock, graficas):
         self.menu = menu
         self.rviz = rviz
         self.camara = camara
@@ -80,6 +81,7 @@ class ModosPanel:
         self.slot_config_menu = slot_config_menu
         self.dock = dock
         self.modo = None
+        self.graficas = graficas
         self._tamanos = {modo: dict(t) for modo, t in TAMANOS_INICIALES.items()}
 
         self.caja_camara_grande = _caja()
@@ -87,12 +89,9 @@ class ModosPanel:
         self.caja_camara_chica = _caja()
         self.caja_estado_dev = _caja()
 
-        # Lugar para las graficas de Desarrollo (por definir): agregar los
-        # widgets a area_graficas.layout().
+        # Graficas de Desarrollo (graficas.py), debajo de RViz
         self.area_graficas = _caja()
-        placeholder = QLabel("Gráficas (por definir)")
-        placeholder.setAlignment(Qt.AlignCenter)
-        self.area_graficas.layout().addWidget(placeholder)
+        self.area_graficas.layout().addWidget(self.graficas)
 
         self.centro = QSplitter(Qt.Vertical)
         self.centro.addWidget(self.rviz)

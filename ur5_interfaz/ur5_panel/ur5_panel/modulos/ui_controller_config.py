@@ -39,6 +39,7 @@ class UIControllerConfigMixin:
         self.r1_controles.setCurrentText("Optimizador" if self.r1_control_config["controller_type"] == "QP" else ("Sliding" if self.r1_control_config["controller_type"] == "SLD" else "Impedancia"))
         self.r1_q_target = QLineEdit(); self.r1_q_target.setText(self.r1_control_config["q_target"][1:-1])
         #self.r1_A_input = QLineEdit(); self.r1_A_input.setText("1.0")
+        self.r1_frequency = QLineEdit(); self.r1_frequency.setText(str(self.r1_control_config.get("ctrl_hz", 100.0)))
         
 
 
@@ -51,22 +52,21 @@ class UIControllerConfigMixin:
 
         botones_layout = QHBoxLayout()
         botones_widget = QWidget(); botones_widget.setLayout(botones_layout)
-        boton_start_controller = QPushButton("Start Controller")
-        boton_detener_controller = QPushButton("Stop Controller")
+        self.r1_boton_start_controller = QPushButton("Start Controller")
+        self.r1_boton_detener_controller = QPushButton("Stop Controller"); self.r1_boton_detener_controller.setEnabled(False)
         boton_home = QPushButton("Home")
         
-        boton_start_controller.clicked.connect(lambda: self.start_controller("r1"))
-        boton_detener_controller.clicked.connect(lambda: self.stop_controller("r1"))
+        self.r1_boton_start_controller.clicked.connect(lambda: self.start_controller("r1"))
+        self.r1_boton_detener_controller.clicked.connect(lambda: self.stop_controller("r1"))
         boton_home.clicked.connect(lambda: self.home_controller("r1"))
 
-        botones_layout.addWidget(boton_start_controller)
-        botones_layout.addWidget(boton_detener_controller)
+        botones_layout.addWidget(self.r1_boton_start_controller)
+        botones_layout.addWidget(self.r1_boton_detener_controller)
 
 
         r1_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
         r1_mode_layout.addWidget(self.r1_control_mode_input, 0, 1)
-        r1_mode_layout.addWidget(boton_home, 3, 0)
-        r1_mode_layout.addWidget(self.r1_q_target, 3, 1)
+        r1_mode_layout.addWidget(boton_home, 3, 0);   r1_mode_layout.addWidget(self.r1_q_target, 3, 1)
 
         if self.r1_control_mode_input.currentText() == "Trayectoria":
             r1_mode_layout.addWidget(self.r1_trayectories, 2, 1)
@@ -75,7 +75,7 @@ class UIControllerConfigMixin:
             r1_mode_layout.addWidget(QLabel(""), 2, 0); r1_mode_layout.addWidget(QLabel(""), 2, 1) # Espaciadores para mantener el diseño
             #r1_mode_layout.addWidget(QLabel(""), 3, 0); r1_mode_layout.addWidget(QLabel(""), 3, 1) # Espaciadores para mantener el diseño
 
-
+        r1_mode_layout.addWidget(QLabel("Frecuencia:"), 4, 0); r1_mode_layout.addWidget(self.r1_frequency, 4, 1)
         r1_mode_layout.addWidget(self.r1_checkbox_safe_trayectory, 1, 0)
         r1_mode_layout.addWidget(self.r1_controles, 1, 1)
         r1_mode_layout.addWidget(botones_widget, 5, 0, 1, 2)
@@ -135,7 +135,7 @@ class UIControllerConfigMixin:
         self.r2_controles = QComboBox(); self.r2_controles.addItems(["Optimizador", "Sliding", "Impedancia"])
         self.r2_controles.setCurrentText("Optimizador" if self.r2_control_config["controller_type"] == "QP" else ("Sliding" if self.r2_control_config["controller_type"] == "SLD" else "Impedancia"))
         self.r2_q_target = QLineEdit(); self.r2_q_target.setText(self.r2_control_config["q_target"][1:-1])
-
+        self.r2_frequency = QLineEdit(); self.r2_frequency.setText(str(self.r2_control_config.get("ctrl_hz", 100.0)))
 
 
         r2_mode_layout = QGridLayout()
@@ -146,18 +146,21 @@ class UIControllerConfigMixin:
 
         botones_layout = QHBoxLayout()
         botones_widget = QWidget(); botones_widget.setLayout(botones_layout)
-        boton_start_controller = QPushButton("Start Controller")
-        boton_start_controller.clicked.connect(lambda: self.start_controller("r2"))
-        boton_stop_controller = QPushButton("Stop Controller")
-        boton_stop_controller.clicked.connect(lambda: self.stop_controller("r2"))
+        self.r2_boton_start_controller = QPushButton("Start Controller")
+        self.r2_boton_start_controller.clicked.connect(lambda: self.start_controller("r2"))
+        
+        self.r2_boton_detener_controller = QPushButton("Stop Controller"); self.r2_boton_detener_controller.setEnabled(False)
+        self.r2_boton_detener_controller.clicked.connect(lambda: self.stop_controller("r2"))
         boton_home = QPushButton("Home")
         boton_home.clicked.connect(lambda: self.home_controller("r2"))
 
-        botones_layout.addWidget(boton_start_controller)
-        botones_layout.addWidget(boton_stop_controller)
+        botones_layout.addWidget(self.r2_boton_start_controller)
+        botones_layout.addWidget(self.r2_boton_detener_controller)
 
         r2_mode_layout.addWidget(QLabel("Control Mode:"), 0, 0)
         r2_mode_layout.addWidget(self.r2_control_mode_input, 0, 1)
+        r2_mode_layout.addWidget(QLabel("Frecuencia:"), 4, 0)
+        r2_mode_layout.addWidget(self.r2_frequency, 4, 1)
         r2_mode_layout.addWidget(boton_home, 3, 0)
         r2_mode_layout.addWidget(self.r2_q_target, 3, 1)
 
@@ -227,6 +230,9 @@ class UIControllerConfigMixin:
         )
         getattr(self,f"{robot_id}_q_target").textChanged.connect(
             lambda text, r_id=robot_id: self.update_control_config(r_id,'q_target', f"[{text}]")
+        )
+        getattr(self,f"{robot_id}_frequency").textChanged.connect(
+            lambda text, r_id=robot_id: self.update_control_config(r_id,'ctrl_hz', float(text) if text else 100.0)
         )
 
         linear_data = self._mapping_matrices.get(f"{robot_id}_linear")

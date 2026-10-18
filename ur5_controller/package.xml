@@ -15,6 +15,7 @@
   <depend>controller_manager_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>omni_msgs</depend>
+  <depend>ur5_controller_msgs</depend>
   <depend>std_msgs</depend>
   <depend>pinocchio</depend>
   <depend>ament_index_cpp</depend>

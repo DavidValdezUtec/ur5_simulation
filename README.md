@@ -24,6 +24,7 @@ Capturas de pantalla:
 - OpenHaptics SDK v3.4 + Touch Driver
 - OSQP v0.6.3 + Osqp-Eigen v0.8.1
 - `ros-humble-ur`, `ros-humble-ur-simulation-gz`, `ros-humble-pinocchio`, etc.
+- `python3-pyqtgraph` (gráficas en tiempo real del panel `ur5_panel`, modo Desarrollo)
 
 ---
 
@@ -91,6 +92,7 @@ Ambos caminos terminan compilando el workspace y dejándote el mismo resultado q
 │       ├── ur5_bringup/              ← Paquete de bringup (legado, un solo robot)
 │       ├── ur5e_bringup/             ← Bringup actual: 2 robots (r1, r2), Gazebo + driver real
 │       ├── ur5_controller/           ← Nodo de control (controller_backup)
+│       ├── ur5_controller_msgs/      ← Mensajes del controlador (ControllerState, para graficar)
 │       ├── ur5_description/          ← URDF/xacro (soporta ur5 y ur5e vía config)
 │       ├── ur5_impedance/
 │       ├── ur5_interfaz/
